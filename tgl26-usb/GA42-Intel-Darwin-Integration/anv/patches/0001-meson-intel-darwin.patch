@@ -1,0 +1,70 @@
+--- a/meson.options
++++ b/meson.options
+@@ -724,0 +725,21 @@
++  'intel-darwin',
++  type : 'boolean',
++  value : false,
++  description : 'Build Intel ANV with the explicit Darwin transport boundary.'
++)
++
++option(
++  'intel-darwin-libdrm-prefix',
++  type : 'string',
++  value : '',
++  description : 'Prefix containing the Darwin libdrm-compatible public API.'
++)
++
++option(
++  'intel-darwin-libdrm-library',
++  type : 'string',
++  value : 'drm',
++  description : 'Library name exported by the Darwin libdrm-compatible API.'
++)
++
++option(
+--- a/meson.build
++++ b/meson.build
+@@ -55,0 +56,5 @@
++with_intel_darwin = get_option('intel-darwin')
++if with_intel_darwin and host_machine.system() != 'darwin'
++  error('`-D intel-darwin=true` requires a Darwin host machine')
++endif
++
+@@ -95,0 +101,3 @@
++if with_intel_darwin
++  pre_args += '-DMESA_INTEL_DARWIN'
++endif
+@@ -303,0 +312,3 @@
++if with_intel_darwin and not with_intel_vk
++  error('`-D intel-darwin=true` requires `-D vulkan-drivers=intel`')
++endif
+@@ -390,0 +402 @@
++  with_intel_darwin,
+@@ -962,0 +975 @@
++  with_intel_darwin,
+@@ -1930,0 +1944,20 @@
++elif with_intel_darwin
++  _darwin_libdrm_prefix = get_option('intel-darwin-libdrm-prefix')
++  if _darwin_libdrm_prefix == ''
++    dep_libdrm = dependency(
++      'libdrm', version : '>=' + _drm_ver, required : true,
++    )
++  else
++    _darwin_libdrm = cc.find_library(
++      get_option('intel-darwin-libdrm-library'),
++      dirs : join_paths(_darwin_libdrm_prefix, 'lib'),
++      required : true,
++    )
++    dep_libdrm = declare_dependency(
++      dependencies : [_darwin_libdrm],
++      include_directories : include_directories(
++        join_paths(_darwin_libdrm_prefix, 'include'),
++        join_paths(_darwin_libdrm_prefix, 'include/libdrm'),
++      ),
++    )
++  endif
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -101 +101 @@
+-if with_any_intel
++if with_any_intel or with_intel_darwin

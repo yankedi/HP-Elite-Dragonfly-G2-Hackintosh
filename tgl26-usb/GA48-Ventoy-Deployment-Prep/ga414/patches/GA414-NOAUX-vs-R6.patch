@@ -1,0 +1,117 @@
+--- a/src/NootedGreen/kern_gen11.cpp
++++ b/src/NootedGreen/kern_gen11.cpp
+@@ -19,6 +19,23 @@
+ static volatile uint32_t gXeResFreeFix = 0;  // XE-RESFREE: entradas inválidas neutralizadas
+ extern volatile uint32_t gXeOrphanMiss;  // XE-NOORPHAN (kern_green.cpp)
+ extern bool gXeLockRouted;
++
++// GA414: exact-match guard only; the NOAUX byte patch remains upstream's.
++static size_t hpGa414PatternCount(const uint8_t *data, size_t length,
++	const uint8_t *pattern, size_t patternSize) {
++	if (!data || !pattern || !patternSize || length < patternSize) return 0;
++	size_t count = 0;
++	for (size_t offset = 0; offset <= length - patternSize; offset++)
++		if (memcmp(data + offset, pattern, patternSize) == 0) count++;
++	return count;
++}
++
++static bool hpGa414NoAuxIdentity(bool realTgl, uint32_t cpuModel, uint32_t vendor,
++	uint32_t device, uint32_t subVendor, uint32_t subDevice, bool tahoe, const char *build) {
++	return realTgl && cpuModel == 0x8c && vendor == 0x8086 && device == 0x9a49 &&
++		subVendor == 0x103c && subDevice == 0x8716 && tahoe && build &&
++		strncmp(build, "25G83", sizeof("25G83")) == 0;
++}
+ 
+ // ==== 6 kextInfos: ICL fallback + dual TGL identities (com.xxxxx and com.apple) from /Library/Extensions ====
+ //trivial
+@@ -2263,6 +2280,62 @@
+ 					   LookupPatchPlus::applyAll(patcher, patchNoCCS3, address, size) ? "aplicado" : "NAO encontrado");
+ 			}
+ 
++			// GA414: pair the existing NOAUX with NOCCS3 on this exact HP/25G83.
++			// Other native TGL builds stay unchanged; the RPL-only block below stays closed.
++			// Keep const arrays: writable arrays select a different LookupPatchPlus overload.
++			static const uint8_t f_noaux[] = {0xf6, 0x86, 0x91, 0x00, 0x00, 0x00, 0x02, 0x8b, 0x42, 0x18, 0x75, 0x0b,
++			                                  0x83, 0xe0, 0xf8, 0x89, 0x42, 0x18};
++			static const uint8_t r_noaux[] = {0xf6, 0x86, 0x91, 0x00, 0x00, 0x00, 0x02, 0x8b, 0x42, 0x18, 0x90, 0x90,
++			                                  0x83, 0xe0, 0xf8, 0x89, 0x42, 0x18};
++			bool hpNoAux = false;
++			if (NGreen::callback->isRealTGL && NGreen::callback->iGPU &&
++				getKernelVersion() == KernelVersion::Tahoe) {
++				auto *gpu = NGreen::callback->iGPU;
++				const uint32_t vendor = WIOKit::readPCIConfigValue(gpu, WIOKit::kIOPCIConfigVendorID, 0, 16);
++				const uint32_t device = WIOKit::readPCIConfigValue(gpu, WIOKit::kIOPCIConfigDeviceID, 0, 16);
++				const uint32_t subVendor = WIOKit::readPCIConfigValue(gpu, WIOKit::kIOPCIConfigSubSystemVendorID, 0, 16);
++				const uint32_t subDevice = WIOKit::readPCIConfigValue(gpu, WIOKit::kIOPCIConfigSubSystemID, 0, 16);
++				const auto buildAddress = patcher.solveSymbol(KernelPatcher::KernelID, "_osversion");
++				if (!buildAddress) patcher.clearError();
++				const char *build = reinterpret_cast<const char *>(buildAddress);
++				hpNoAux = hpGa414NoAuxIdentity(true, NGreen::callback->cpuModel, vendor, device,
++					subVendor, subDevice, true, build);
++				IOLog("GA414 NOAUX: gate=%d cpu=0x%x pci=%04x:%04x subsystem=%04x:%04x build=%.5s\n",
++					hpNoAux, NGreen::callback->cpuModel, vendor, device, subVendor, subDevice, build ? build : "ERROR");
++				if (!hpNoAux) IOLog("GA414 NOAUX: ERROR exact HP/25G83 identity unavailable or mismatch; not applied\n");
++			}
++			if (!NGreen::callback->isRealTGL || hpNoAux) {
++				if (!checkKernelArgument("-ngreenccs")) {
++					bool mayApply = true;
++					const auto *bytes = reinterpret_cast<const uint8_t *>(address);
++					if (hpNoAux) {
++						static volatile uint32_t attempted = 0;
++						const bool firstAttempt = __sync_bool_compare_and_swap(&attempted, 0, 1);
++						const size_t originalCount = hpGa414PatternCount(bytes, size, f_noaux, sizeof(f_noaux));
++						const size_t patchedCount = hpGa414PatternCount(bytes, size, r_noaux, sizeof(r_noaux));
++						mayApply = firstAttempt && originalCount == 1 && patchedCount == 0;
++						IOLog("GA414 NOAUX: preflight first=%d original=%zu patched=%zu expected=1/0\n",
++							firstAttempt, originalCount, patchedCount);
++						if (!mayApply) IOLog("GA414 NOAUX: ERROR duplicate attempt or non-unique/missing pattern; not applied\n");
++					}
++					if (mayApply) {
++						LookupPatchPlus const patchNoAux[] = {{activeKext, f_noaux, r_noaux, arrsize(f_noaux), 1}};
++						bool oka = LookupPatchPlus::applyAll(patcher, patchNoAux, address, size);
++						if (hpNoAux) {
++							const size_t originalCount = hpGa414PatternCount(bytes, size, f_noaux, sizeof(f_noaux));
++							const size_t patchedCount = hpGa414PatternCount(bytes, size, r_noaux, sizeof(r_noaux));
++							oka = oka && originalCount == 0 && patchedCount == 1;
++							IOLog("GA414 NOAUX: postflight original=%zu patched=%zu verified=%d expected=0/1\n",
++								originalCount, patchedCount, oka);
++							if (!oka) IOLog("GA414 NOAUX: ERROR apply/verification failed; experiment INVALID\n");
++						}
++						IOLog("XeNG NOAUX: fillSurfaceStateAuxInfo sempre AUX_NONE: %s\n", oka ? "aplicado" : "NAO encontrado");
++					}
++				} else if (hpNoAux) {
++					IOLog("GA414 NOAUX: DISABLED by -ngreenccs; experiment INVALID\n");
++				}
++			}
++
+ 			if (!NGreen::callback->isRealTGL) {
+ 				// RPL-only: hardcode topology and bypass BCS readiness check
+ 				LookupPatchPlus const patchesRPL[] = {
+@@ -2303,14 +2376,7 @@
+ 					SYSLOG("ngreen", "XE-NODEPTH: IntelAccelerator::submitDepthResolve -> retorno imediato: %s",
+ 						   LookupPatchPlus::applyAll(patcher, patchNoDepth, address, size) ? "aplicado" : "NAO encontrado");
+ 				}
+-				// xe/noaux (19/10): o RCS trava (sem fault) no PIPE_CONTROL depois de desenhar em RTs pequenos com
+-				// RENDER_SURFACE_STATE AuxiliarySurfaceMode=5 (CCS_E): a AUX-TT não cobre essas superfícies no RPL.
+-				// IGAccelResource::fillSurfaceStateAuxInfo põe aux=4/5 quando ResourceInfoEntry+0x91 bit 0x02; senão
+-				// zera os 3 bits. "jne" (75 0b) -> NOPs em 0x73fd0 do 16.0.32: sempre aux=NONE. -ngreenccs desliga.
+-				static const uint8_t f_noaux[] = {0xf6, 0x86, 0x91, 0x00, 0x00, 0x00, 0x02, 0x8b, 0x42, 0x18, 0x75, 0x0b,
+-				                                  0x83, 0xe0, 0xf8, 0x89, 0x42, 0x18};
+-				static const uint8_t r_noaux[] = {0xf6, 0x86, 0x91, 0x00, 0x00, 0x00, 0x02, 0x8b, 0x42, 0x18, 0x90, 0x90,
+-				                                  0x83, 0xe0, 0xf8, 0x89, 0x42, 0x18};
++				// XE-NOAUX definitions/application moved above; other RPL-only patches stay here.
+ 				// xe/notcf (19/10): o 1º restart de cada boot é o contexto do pipe de display parado no PIPE_CONTROL do flip
+ 				// (IGAccelDisplayPipe::generateFlip, dw1 0x50105021 = DC/RT/depth flush + CS stall + post-sync + TILE CACHE
+ 				// FLUSH), logo depois do desenho 3D do flip, com o 3D ocioso. O resto do driver usa 0x40105021 (sem o bit 28)
+@@ -2390,11 +2456,6 @@
+ 					};
+ 					bool okb = LookupPatchPlus::applyAll(patcher, patchB16, address, size);
+ 					IOLog("XeNG BLIT16: blit3d PS só SIMD16: %s\n", okb ? "aplicado" : "NAO encontrado");
+-				}
+-				if (!checkKernelArgument("-ngreenccs")) {
+-					LookupPatchPlus const patchNoAux[] = {{activeKext, f_noaux, r_noaux, arrsize(f_noaux), 1}};
+-					bool oka = LookupPatchPlus::applyAll(patcher, patchNoAux, address, size);
+-					IOLog("XeNG NOAUX: fillSurfaceStateAuxInfo sempre AUX_NONE: %s\n", oka ? "aplicado" : "NAO encontrado");
+ 				}
+ 				// xe/rcpolicy (21/10, from WhateverXe jkbuha 1a9b960/76a9459): IntelAccelerator+0x1474 is the display/IOSurface
+ 				// "renderCompression" policy. start() leaves it 0 on real hardware (it is 1 only in the simulator), but the TGL

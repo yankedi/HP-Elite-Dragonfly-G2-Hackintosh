@@ -1,0 +1,79 @@
+panic(cpu 6 caller 0xffffff800046709b): pmap_recycle_page: page 0x10130e000 is referenced @pmap.c:1511
+Panicked task 0xffffffaab36169a0: 3 threads: pid 203: tccd
+Backtrace (CPU 6), panicked thread: 0xffffff97827d5a68, Frame : Return Address
+0xffffffde69ea8300 : 0xffffff8000358d31 mach_kernel : _handle_debugger_trap + 0x421
+0xffffffde69ea8350 : 0xffffff80004e57d2 mach_kernel : _kdp_i386_trap + 0x122
+0xffffffde69ea8390 : 0xffffff80004d4a88 mach_kernel : _kernel_trap + 0x778
+0xffffffde69ea8450 : 0xffffff80002eb971 mach_kernel : _return_from_trap + 0xc1
+0xffffffde69ea8470 : 0xffffff8000359107 mach_kernel : _DebuggerTrapWithState + 0x67
+0xffffffde69ea8570 : 0xffffff8000358799 mach_kernel : _panic_trap_to_debugger + 0x269
+0xffffffde69ea86e0 : 0xffffff8000ba0b5d mach_kernel : _panic + 0x81
+0xffffffde69ea87d0 : 0xffffff800046709b mach_kernel : _vm_page_free_list + 0x2cb
+0xffffffde69ea8820 : 0xffffff8000440f6d mach_kernel : _vm_object_sleep + 0x1d0d
+0xffffffde69ea8890 : 0xffffff800043f4c6 mach_kernel : _vm_object_sleep + 0x266
+0xffffffde69ea88d0 : 0xffffff80004408bf mach_kernel : _vm_object_sleep + 0x165f
+0xffffffde69ea8900 : 0xffffff800043faa0 mach_kernel : _vm_object_sleep + 0x840
+0xffffffde69ea8940 : 0xffffff800041cbb3 mach_kernel : _vm_map_set_lock_contention_debug + 0x563
+0xffffffde69ea8980 : 0xffffff800042a0bc mach_kernel : _vm_map_synthesize_guard_exception + 0xec
+0xffffffde69ea89b0 : 0xffffff800041be8a mach_kernel : _kmem_alloc_pageable + 0x137a
+0xffffffde69ea89f0 : 0xffffff8000369aa9 mach_kernel : _kfree_ext + 0xd9
+0xffffffde69ea8a10 : 0xffffff8000a856b0 mach_kernel : _IOFreeData + 0x20
+0xffffffde69ea8a30 : 0xffffff800199f63a com.apple.AppleFSCompression.AppleFSCompressionTypeZlib : _compression_decode_buffer + 0xe6e
+0xffffffde69ea8b00 : 0xffffff80005b571e mach_kernel : _decmpfs_pagein_compressed + 0xd6e
+0xffffffde69ea8b50 : 0xffffff80005b5d33 mach_kernel : _decmpfs_read_compressed + 0x463
+0xffffffde69ea8cb0 : 0xffffff800317b774 com.apple.filesystems.apfs : _apfs_vnop_read + 0x259
+0xffffffde69ea8d90 : 0xffffff8000590410 mach_kernel : _vn_close + 0x390
+0xffffffde69ea8e00 : 0xffffff800058f011 mach_kernel : _u32CharToUTF8Bytes + 0x271
+0xffffffde69ea8e50 : 0xffffff80008eaee3 mach_kernel : _read_nocancel + 0x233
+0xffffffde69ea8ec0 : 0xffffff80008eb1b7 mach_kernel : _pread_nocancel + 0x107
+0xffffffde69ea8f40 : 0xffffff8000a0e549 mach_kernel : _unix_syscall64 + 0x1d9
+0xffffffde69ea8fa0 : 0xffffff80002ebdb6 mach_kernel : _hndl_unix_scall64 + 0x16
+      Kernel Extensions in backtrace:
+         com.apple.AppleFSCompression.AppleFSCompressionTypeZlib(1.0)[5CB334F0-A713-37C0-A5B0-71AA5C62D99D]@0xffffff8001997000->0xffffff80019a3fff
+         com.apple.filesystems.apfs(2811.160.7)[EA890BA6-4F30-3401-93EA-FE8125E9A7B2]@0xffffff8003115000->0xffffff80032cffff
+            dependency: com.apple.driver.AppleEFINVRAM(2.1)[7E2D300F-3D59-35BF-879C-EA5F7C54D47B]@0xffffff800195d000->0xffffff8001967fff
+            dependency: com.apple.driver.AppleEffaceableStorage(1.0)[B0373F96-094C-3E28-A0B5-76374DED146A]@0xffffff8001974000->0xffffff8001979fff
+            dependency: com.apple.iokit.CoreAnalyticsFamily(1)[C2AB7174-29B1-3101-8E7A-5F5FB4E9E0BD]@0xffffff8001f74000->0xffffff8001f7efff
+            dependency: com.apple.iokit.IOStorageFamily(2.1)[42A6D7C8-EAF6-3F8F-88EE-31C0AE9F16C2]@0xffffff8002b52000->0xffffff8002b68fff
+            dependency: com.apple.kec.corecrypto(26.0)[054C32E8-7085-33FB-A9B8-1FD60CBF50C5]@0xffffff8003316000->0xffffff80033a8fff
+            dependency: com.apple.security.AppleImage4(7.0.0)[EB240802-3A75-3739-95A4-FAAB08A8501B]@0xffffff80019e6000->0xffffff8001a0dfff
+
+Process name corresponding to current thread (0xffffff97827d5a68): tccd
+Boot args: -v keepsyms=1 debug=0x100 -ngreentglwithgfx ngreenSched=3 ngreen-dmc=tgl -ngreentgltahoe -ngreenfixbootmode IGLogLevel=3 amfi_get_out_of_my_way=1 -allow3d -disablegfxfirmware
+
+Mac OS version:
+25G83
+
+Kernel version:
+Darwin Kernel Version 25.6.0: Fri Jul 31 19:11:49 PDT 2026; root:xnu-12377.161.14~5/RELEASE_X86_64
+Kernel UUID: 39CC2C26-3F72-3565-89C4-94DFE36DFDF2
+roots installed: 0
+KernelCache slide: 0x0000000000000000
+KernelCache base:  0xffffff8000200000
+Kernel slide:      0x00000000000e8000
+Kernel text base:  0xffffff80002e8000
+__HIB  text base: 0xffffff8000100000
+System model name: MacBookPro16,2 (Mac-5F9802EFE386AA28)
+System shutdown begun: NO
+Panic diags file available: YES (0x0)
+Hibernation exit count: 0
+
+System uptime in nanoseconds: 252559853611
+Last Sleep:           absolute           base_tsc          base_nano
+  Uptime  : 0x0000003acdbd8c3d
+  Sleep   : 0x0000000000000000 0x0000000000000000 0x0000000000000000
+  Wake    : 0x0000000000000000 0x0000000adcd46dc2 0x0000000000000000
+Compressor Info: 0% of compressed pages limit (OK) and 0% of segments limit (OK) with 0 swapfiles and OK swap space
+Zone info:
+  Zone map: 0xffffff911a615000 - 0xffffffb11a615000
+  . VM    : 0xffffff911a615000 - 0xffffff95e72e1000
+  . RO    : 0xffffff95e72e1000 - 0xffffff9780c85000
+  . GEN0  : 0xffffff9780c85000 - 0xffffff9c4d951000
+  . GEN1  : 0xffffff9c4d951000 - 0xffffffa11a61d000
+  . GEN2  : 0xffffffa11a61d000 - 0xffffffa5e72e9000
+  . GEN3  : 0xffffffa5e72e9000 - 0xffffffaab3fb5000
+  . DATA  : 0xffffffaab3fb5000 - 0xffffffb11a615000
+  Metadata: 0xffffffd313c08000 - 0xffffffd333c08000
+  Bitmaps : 0xffffffd333c08000 - 0xffffffd336c08000
+  Extra   : 0 - 0
+

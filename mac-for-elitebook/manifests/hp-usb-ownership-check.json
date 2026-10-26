@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "scope": "Single-change ReleaseUsbOwnership trial delivered; physical USB behavior and Ventoy causation untested",
+  "runner": "scripts/prepare_hp_usb_ownership_retry.py",
+  "runner_sha256": "585056a44c329b3197f1ee2e57b7156781190da4480e12cd86e081527da8abcc",
+  "private_report": ".local/install-prep/hp-usb-ownership-q5mk863d/report.json",
+  "private_report_sha256": "d6adbe2b6ed575f2c928ab45e4c3b6fe38cdb20c12c6a1d5c19d15aa77b9d659",
+  "source_capture": {
+    "private_report": ".local/install-prep/hp-usb-input-capture-g_ezwmbb/report.json",
+    "private_report_sha256": "6b6cbeb59d5346e8580f3871bab0ade774de677fe4a2ac6c522a74eb9885aeb1",
+    "image_sha256": "0c6ed48345eb34e29914e49bfb6c8af3cfda97a2842af7b7747578177bcd604e",
+    "config_matches_last_delivered_input_candidate": true,
+    "latest_boot_log": "opencore-2026-10-16-130433.txt",
+    "latest_boot_log_sha256": "e832185dd8d227e89cb69175a001781d250d310d159bfa72d45b030aefde832a",
+    "latest_log_reaches_exitbs": true,
+    "latest_log_has_usb_runtime_observation": false,
+    "all_fat_files_saved": 43
+  },
+  "evidence_basis": {
+    "physical_observation": "User screenshots show two generic AppleUSBXHCIPCI nodes without downstream port services, CurrentPowerState/DriverPowerState 0 and kUSBInterruptCount 0; physical Lexar not in diskutil list",
+    "touchpad": "Moves but stutters; interrupt mode not collected",
+    "dmesg_xhci_filter": "User reports no output; not proof that no USB errors occurred",
+    "opencore_commit": "6fe4d15cb66596d99d8cfedce69d8fc6dad71886",
+    "configuration_reference": "https://github.com/acidanthera/OpenCorePkg/blob/6fe4d15cb66596d99d8cfedce69d8fc6dad71886/Docs/Configuration.tex",
+    "upstream_description": "ReleaseUsbOwnership attempts to detach USB controller ownership from the firmware driver; normally unnecessary, tested here as a controlled hypothesis",
+    "ventoy_causation_proven": false
+  },
+  "candidate": {
+    "sha256": "0610299a23fff511149ddb84f1d8da15d63f25b66aeb00e3bceb55118010f490",
+    "only_change": "UEFI.Quirks.ReleaseUsbOwnership: false -> true",
+    "all_other_config_fields_preserved": true,
+    "all_other_image_files_identical": 42,
+    "other_efi_files_identical": 34,
+    "private_identity_preserved": true,
+    "opencore_version": "1.0.8",
+    "ocvalidate_exit": 0,
+    "hp_tested": false
+  },
+  "usb_delivery": {
+    "private_report": ".local/install-prep/hp-usb-ownership-q5mk863d/usb-delivery.json",
+    "private_report_sha256": "e56c1c102a493ad738b25620608168c778705c39677c53390acb3c9c8150e554",
+    "candidate": "/ISO/linux/HP-Tahoe-VESA-Recovery.img",
+    "input_baseline_backup": "/ISO/linux/HP-Tahoe-VESA-I2C-Baseline.img",
+    "input_baseline_backup_sha256": "0c6ed48345eb34e29914e49bfb6c8af3cfda97a2842af7b7747578177bcd604e",
+    "mmio_baseline_and_offline_data_hashes_preserved": true,
+    "ventoy_configuration_and_partition_layout_preserved": true,
+    "unrelated_file_metadata_preserved": 214,
+    "full_readback_verified": true,
+    "safely_unmounted": true
+  },
+  "vm_executed": false,
+  "hp_firmware_or_nvram_written_by_agent": false
+}

@@ -1,0 +1,22 @@
+--- ga32/kern_igfx.hpp	2026-10-18 02:20:15.525166630 +0800
++++ ga33/kern_igfx.hpp	2026-10-18 04:30:17.513347778 +0800
+@@ -2819,6 +2819,7 @@
+ 			uint32_t resolveDiag {0};      // GA3.2: classifier resolution outcome, TglHang::packResolveDiag
+ 			uint64_t maxMem {0};           // kernel _max_mem at the attempt (upper bound only)
+ 			TglHang::CaptureOutput out {};
++			TglHang::Diag diag {}; // GA3.3: capture-chain diagnostics
+ 		};
+ 		HangRecord *hangRec {nullptr};
+ 		uint8_t *hangWriteBuf {nullptr}; // snapshot handed to the filesystem; hangRec is never passed to it
+@@ -2847,6 +2848,11 @@
+ 		void (*uioFree)(void *) {nullptr}; // kernel uio_free, resolved like pmap_valid_page
+ 		uint32_t resolveDiag {0};  // GA3.2: resolution outcome copied into every record
+ 		uint32_t resolveError {0}; // GA3.2: last KernelPatcher error seen while resolving
++		// GA3.3 capture counters (single-threaded: only the wake hook writes them)
++		uint32_t pmapChecked {0};   // pmap_valid_page calls
++		uint32_t pmapAccepted {0};
++		uint32_t pmapRejected {0};
++		uint32_t fenceRejected {0}; // ranges refused by the fences
+ 		mach_vm_address_t orgDoHangAnalysis {};
+ 		mach_vm_address_t orgSafeForceWake {};
+ 		void (*accelSafeForceWake)(void *, bool, uint32_t) {nullptr};

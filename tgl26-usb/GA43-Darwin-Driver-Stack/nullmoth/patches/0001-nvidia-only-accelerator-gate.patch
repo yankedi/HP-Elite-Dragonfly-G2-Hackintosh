@@ -1,0 +1,85 @@
+From ga42-nullmoth-integration Mon Sep 17 00:00:00 2001
+Subject: [PATCH] plugin: gate NVIDIA-private paths without disabling Intel ANV
+
+The GA40 plugin intentionally reuses NMXAccel for AMD/RADV and Intel/ANV.
+Keep that standard path and only gate NVIDIA-private ICD overrides, NVVM,
+SASS, and video/NVRM consumers on vendor 0x10de. Explicit accelerator binding
+wins over system-wide discovery; unknown bindings fail closed.
+
+Base: NullMoth 47f818b11cef59acb480210afdf9065fdd44e356
+
+--- a/plugin/nvmtl_vk.c
++++ b/plugin/nvmtl_vk.c
+@@ -67,0 +68,2 @@
++/* An explicit Metal accelerator binding wins over any system-wide discovery. */
++static int g_accelerator_bound;
+@@ -84,3 +86,11 @@
+-    if (accel && IOObjectConformsTo(accel, "NMXAccel")) { v = nvmtl_pci_vendor_of(accel); if (v != 0x1002 && v != 0x8086) v = 0; }
+-    else if (accel && IOObjectConformsTo(accel, "NVAccel")) v = 0x10de;
+-    if (v && !g_vendor) g_vendor = v;
++    if (accel) {
++        g_accelerator_bound = 1;
++        if (IOObjectConformsTo(accel, "NMXAccel")) {
++            v = nvmtl_pci_vendor_of(accel);
++            if (v != 0x1002 && v != 0x8086) v = 0;
++        } else if (IOObjectConformsTo(accel, "NVAccel")) {
++            v = 0x10de;
++        }
++        /* An explicit unknown binding must clear a previously discovered GPU. */
++        g_vendor = v;
++    }
+@@ -89 +99,2 @@
+-/* a process that starts Vulkan before Metal makes a device: NVIDIA when its accelerator runs, else the AMD/Intel one */
++/* A process that starts Vulkan before Metal may discover any supported
++ * accelerator. An explicit binding always wins and never falls back. */
+@@ -91,0 +103 @@
++    if (g_accelerator_bound) return g_vendor;
+@@ -98 +110 @@
+-    g_vendor = (v == 0x1002 || v == 0x8086) ? v : 0x10de;
++    g_vendor = (v == 0x1002 || v == 0x8086) ? v : 0;
+@@ -102,0 +115 @@
++    case 0x10de: return "/Library/GPUBundles/nvmtl/nvk_icd.json";
+@@ -105 +118 @@
+-    default:     return "/Library/GPUBundles/nvmtl/nvk_icd.json";
++    default:     return NULL;
+@@ -110,2 +123,6 @@
+-    const char *e = getenv("NVMTL_ICD_LIB"); if (e && access(e, R_OK) == 0) return e;
+-    switch (nvmtl_vk_vendor()) {
++    uint16_t vendor = nvmtl_vk_vendor();
++    if (!vendor) return NULL;
++    /* Only NVIDIA may override this path: Intel/AMD retain their standard ICD. */
++    const char *e = getenv("NVMTL_ICD_LIB");
++    if (vendor == 0x10de && e && access(e, R_OK) == 0) return e;
++    switch (vendor) {
+@@ -114 +131,2 @@
+-    default:     return "/Library/GPUBundles/nvmtl/libvulkan_nouveau.dylib";
++    case 0x10de: return "/Library/GPUBundles/nvmtl/libvulkan_nouveau.dylib";
++    default:     return NULL;
+--- a/plugin/NVMTLDevice.m
++++ b/plugin/NVMTLDevice.m
+@@ -564 +564,4 @@
+-        if (mine && mine != live) { nvlog("  accelerator vendor %04x, but this process runs Metal on %04x: no second device", mine, live); return nil; }
++        if (!mine || !live || mine != live) {
++            nvlog("  accelerator vendor %04x, backend %04x: no supported Vulkan device for this binding", mine, live);
++            return nil;
++        }
+@@ -573 +576 @@
+-        nvlog("  NVK did not come up in this process - refusing to be the Metal device for %s", getprogname());
++        nvlog("  Vulkan backend did not come up in this process - refusing to be the Metal device for %s", getprogname());
+@@ -619 +622,2 @@
+-    NSString *v = nvmtl_vk_vendor() == 0x1002 ? @"AMD" : nvmtl_vk_vendor() == 0x8086 ? @"Intel" : @"NVIDIA";
++    uint16_t vendor = nvmtl_vk_vendor();
++    NSString *v = vendor == 0x1002 ? @"AMD" : vendor == 0x8086 ? @"Intel" : vendor == 0x10de ? @"NVIDIA" : @"Unknown";
+--- a/plugin/NVMTLVendorCompiler.m
++++ b/plugin/NVMTLVendorCompiler.m
+@@ -14,0 +15 @@
++uint16_t nvmtl_vk_vendor(void);
+@@ -30 +31 @@
+-    return on == 1 && nvmtl_vendor_chip_supported();
++    return on == 1 && nvmtl_vk_vendor() == 0x10de && nvmtl_vendor_chip_supported();
+--- a/plugin/NVMTLSass.m
++++ b/plugin/NVMTLSass.m
+@@ -38,0 +39 @@
++uint16_t nvmtl_vk_vendor(void);
+@@ -111,0 +113 @@
++        else if (nvmtl_vk_vendor() != 0x10de) why = "this is not an NVIDIA backend";

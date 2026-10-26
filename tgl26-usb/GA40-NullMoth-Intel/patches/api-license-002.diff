@@ -1,0 +1,56 @@
+--- before/reports/REUSE-MATRIX.md
++++ after/reports/REUSE-MATRIX.md
+@@ -71,7 +71,7 @@
+ | `plugin/nvmtl_sampler_desc.h` | 16 | `4cac887dab4f5e1bbf1b8792ed4a3a26a7042f13fb509f82150308a5a249f00c` | stable descriptor struct |
+ | `plugin/nvmtl_sampler_state.h` | 66 | `223f23b62c4549529acb6a1f76ea6f878a33886f8f05d6f0581c2495a038f8a9` | descriptor → `VkSamplerCreateInfo`, with LOD/border/anisotropy rules |
+ | `plugin/nvmtl_sample_positions.h` | 70 | `ac3d8d6d7e0de5c569b2561fc63244f325df8f12ceb437f14e47cb4b5939c4e1` | deterministic sample patterns and quantization |
+-| `plugin/nvmtl_physical_bounds.h` | 38 | `bf3afe460229160d82b6948531d65c6f0f8f53662969f7414646f3c4ab552b5a` | SPIR-V pointer-decoration rewrite helper |
++| `plugin/nvmtl_physical_bounds.h` | 38 | `bf3afe460229160d82b6948531d65c6f0f8f53662969f7414646f3c4ab552b5a` | physical-pointer in-bounds access-chain opcode rewrite, not decoration rewriting |
+ | `plugin/nvmtl_tex_upload.h` | 61 | `3c46589d1578c9782ccd720bdbae50e16de580a404aa8116c40ae6ab0b4f9c11` | async upload lifetime invariants |
+ 
+ Optional sixth: `plugin/nvmtl_sample_depth_contract.h` (14 L,
+@@ -202,8 +202,10 @@
+    no device, no loader, no GPU.
+ 3. **Unit checks** — sampler fields, sample patterns (valid/invalid/quantize),
+    upload state transitions, physical-bounds rewrite on a hand-built module.
+-4. **Licence check** — copied files retain SPDX; licence + Required Notice are
+-   present; no MIT/Apache relicensing.
++4. **Licence check** — preserve existing SPDX/copyright where present; the
++   original tex-upload header has no SPDX. New extraction must identify the
++   governing PolyForm licence and Required Notice, without changing the
++   pinned origin; no MIT/Apache relicensing.
+ 5. **Translator (optional, separate)** — `cargo build --release` on Linux, then
+    translate a checked-in `.ll` fixture with `spirv-val`; do not run GPU code.
+ 6. **No hardware** — do not enumerate `/dev/dri`, load a driver, install, or
+--- before/reference/nullmoth-api-inventory/README.md
++++ after/reference/nullmoth-api-inventory/README.md
+@@ -62,15 +62,21 @@
+   639 files, full SHA and tag agree.
+ - SHA-256 of the 32 in-scope files and of all 639 tracked files.
+ - JSON parse check for every inventory record.
+-- `clang -std=c11 -Wall -Wextra -Werror -fsyntax-only` over
+-  `nvmtl_sampler_desc.h`, `nvmtl_sample_positions.h`,
+-  `nvmtl_physical_bounds.h`, `nvmtl_tex_upload.h`: passed. This proves the
+-  four headers have no Darwin dependency; it is not a runtime test.
+-- `nvmtl_sampler_state.h` was **not** compiled: Vulkan headers are not
+-  installed on this host. It requires `vulkan/vulkan.h` (or equivalent type
+-  declarations) before inclusion.
++- Original exact-flag/include-only claims were corrected after G1: the
++  physical-bounds non-inline static function must be called to avoid
++  `-Wunused-function`, and sampler initialization needs the explicit
++  `-Wno-missing-field-initializers` override under `-Wextra -Werror`.
++- Vulkan headers **are present** at
++  `/nix/store/70gg5639vl0vrh52jc4ivb18rab3z5hq-vulkan-headers-1.4.357.0/include`.
++  The corrected include-and-call probe compiled `nvmtl_sampler_state.h`
++  together with all Bundle A helpers and passed 106 CPU checks. Exact commands
++  and results: `logs/reuse-helper-recipe-build-025/` and
++  `logs/reuse-helper-recipe-run-026/`; original negative controls remain in
++  `audit/api-license/negative/`. This is not plugin or GPU qualification.
+ 
+-No build of the plugin, translator, kext, or any GPU code was run.
++This inventory task did not build the plugin, translator or kext. A separate
++later task built the real translator subset; its exact limits and nonpasses
++are recorded in `metal/translator-prototype/REPORT.md`, not inferred here.
+ 
+ ## Method / limits
+ 

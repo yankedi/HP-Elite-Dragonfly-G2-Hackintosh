@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-15T17:44:10.798646+00:00",
+  "device_at_capture": "/dev/sda",
+  "usb": {
+    "ID_USB_VENDOR": "Lexar",
+    "ID_USB_VENDOR_ID": "21c4",
+    "ID_USB_MODEL": "USB_Flash_Drive",
+    "ID_USB_MODEL_ID": "0809",
+    "ID_USB_DRIVER": "uas"
+  },
+  "layout": {
+    "name": "sda",
+    "size": 124623257600,
+    "tran": "usb",
+    "type": "disk",
+    "pttype": "dos",
+    "parttype": null,
+    "label": null,
+    "fstype": null,
+    "mountpoints": [],
+    "children": [
+      {
+        "name": "sda1",
+        "size": 124588654592,
+        "tran": null,
+        "type": "part",
+        "pttype": "dos",
+        "parttype": "0x7",
+        "label": null,
+        "label_redacted_in_public_copy": true,
+        "fstype": "exfat",
+        "mountpoints": []
+      },
+      {
+        "name": "sda2",
+        "size": 33554432,
+        "tran": null,
+        "type": "part",
+        "pttype": "dos",
+        "parttype": "0xef",
+        "label": "VTOYEFI",
+        "fstype": "vfat",
+        "mountpoints": []
+      }
+    ]
+  },
+  "policy": "Preserve existing data and Ventoy partitions; follow-up UDisks mount was explicitly read-only and has been unmounted.",
+  "free_space_bytes": 99215736832,
+  "free_space_note": "92.40 GiB available in the exFAT data partition at follow-up time; not the total disk capacity.",
+  "readonly_inspection": {
+    "captured_at": "2026-10-15T18:08:50.834297+00:00",
+    "filesystem_size_bytes": 124584722432,
+    "used_bytes": 25368985600,
+    "available_bytes": 99215736832,
+    "vfs_options": "ro,nosuid,nodev,relatime",
+    "filesystem_options": "ro,uid=1000,gid=100,fmask=0022,dmask=0022,iocharset=utf8,errors=remount-ro",
+    "mount_method": "udisksctl mount --block-device /dev/sda1 --options ro --no-user-interaction",
+    "unmount_completed": true,
+    "files_or_partitions_changed": false,
+    "private_evidence": ".local/usb-inspection/readonly-inspection.json",
+    "sha256": "5588d641e242145fac357c797e622d8e69d8bf2fb8d0403c1f6cc04e90816e80"
+  },
+  "installation_target": "Not selected. This USB is currently only an existing Ventoy data/boot device."
+}

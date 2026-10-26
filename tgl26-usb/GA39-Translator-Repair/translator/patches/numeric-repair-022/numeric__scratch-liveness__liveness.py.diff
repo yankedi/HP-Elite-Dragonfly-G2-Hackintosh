@@ -1,0 +1,61 @@
+--- before/numeric/scratch-liveness/liveness.py
++++ after/numeric/scratch-liveness/liveness.py
+@@ -50,10 +50,12 @@
+         raise ValueError('Invalid live-out byte')
+     records = []
+     symbolic = []
++    ignored = []
+     for node in reversed(nodes):
+         reads, kills, writes = set(), set(), set()
+         for access in accesses(node):
+             if access['file'] not in {'GRF', 'ANY'}:
++                ignored.append({'offset': node['byte_range'][0], 'access': access})
+                 continue
+             bits = footprint(access)
+             if access['file'] == 'ANY' or bits is None:
+@@ -64,7 +66,13 @@
+             elif access['mode'] == 'WRITE':
+                 writes |= bits
+                 # Only truly unconditional exact writes kill a may-live value.
+-                if access['state'] == 'KNOWN' and access['condition'] == 'all instruction channels execute':
++                fields = node.get('iga_fields', {})
++                # A display string alone never establishes must-execute. The
++                # caller must supply structured execution evidence as in GA38
++                # raw-anchored IR; absent/masked/predicated evidence cannot kill.
++                if (access['state'] == 'KNOWN' and fields.get('wren') is True
++                        and fields.get('pred') is None
++                        and type(fields.get('es')) is int and 1 <= fields['es'] <= 32):
+                     kills |= bits
+             else:
+                 raise ValueError('Unknown access mode')
+@@ -83,6 +91,8 @@
+             'program_sha256': program['program_sha256'], 'records': records,
+             'live_in_known_projection': intervals(live), 'per_byte_live_ranges': ranges,
+             'symbolic_grf_accesses': list(reversed(symbolic)),
++            'out_of_projection_accesses': list(reversed(ignored)),
++            'kill_evidence': 'Structured iga_fields wren=true and pred=null; caller must authenticate derived IR to bytes',
+             'external_thread_payload_abi': 'UNKNOWN', 'external_live_out_abi': 'UNKNOWN',
+             'lane_policy': 'Physical byte union; conditional writes never kill',
+             'scope': 'Known explicit/message GRF may-liveness projection; not full ABI proof'}
+@@ -132,16 +142,17 @@
+         if scratch & live:
+             edges.append({'scratch_register': register, 'source_offset': spc, 'target_offset': pc,
+                           'kind': 'MAY_LIVE_INTERFERENCE', 'bytes': intervals(scratch & live)})
++        # EU operands are read before this instruction's destination definition.
+         for item in relevant:
+-            if item['mode'] == 'WRITE':
+-                definitions.append(pc)
+-            else:
++            if item['mode'] == 'READ':
+                 for producer in definitions:
+                     edges.append({'producer': producer, 'consumer': pc,
+                                   'kind': 'SCRATCH_MAY_REACHING_DEFINITION', 'bytes': item['bytes']})
++        if any(item['mode'] == 'WRITE' for item in relevant):
++            definitions.append(pc)
+     unresolved = ['THREAD_PAYLOAD_EXTERNAL_LIVE_IN', 'TARGET_RESOURCE_GRF_LIMIT',
+                   'SOURCE_TO_SCRATCH_NUMERIC_EQUIVALENCE', 'MASKED_TEMPORARY_VALUE_PRESERVATION']
+-    if source_result['symbolic_grf_accesses']:
++    if source_result['symbolic_grf_accesses'] or target_result['symbolic_grf_accesses']:
+         unresolved.append('SYMBOLIC_OR_INDIRECT_GRF_ACCESS')
+     if edges:
+         unresolved.append('CONSERVATIVE_REACHING_DEFINITION_AND_INTERFERENCE')

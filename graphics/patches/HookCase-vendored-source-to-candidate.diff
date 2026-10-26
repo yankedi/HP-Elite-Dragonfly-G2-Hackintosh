@@ -1,0 +1,60 @@
+diff --git a/HookCase/HookCase.cpp b/HookCase/HookCase.cpp
+--- a/HookCase/HookCase.cpp
++++ b/HookCase/HookCase.cpp
+@@ -16896,6 +16896,17 @@
+       return kIOReturnSuccess;
+ };
+ 
++
++// xe/nooted fix: the published code reads through the static `callback`, which is never assigned
++// (its setter in HookCase::start is commented out), so probePortMode dereferenced NULL. Read the
++// register through the framebuffer controller's own MMIO mapping instead, like WriteRegister32 does.
++static uint32_t hcControllerRead32(void *bc, uint32_t reg) {
++    if (bc == nullptr) return 0xffffffff;
++    uint64_t mmio = *reinterpret_cast<uint64_t *>(static_cast<uint8_t *>(bc) + 0x9B0);
++    uint32_t len = *reinterpret_cast<uint32_t *>(static_cast<uint8_t *>(bc) + 0xC78);
++    if (mmio == 0 || (uint64_t)reg + 4 > len) return 0xffffffff;
++    return *reinterpret_cast<volatile uint32_t *>(mmio + reg);
++}
+ uint32_t AppleInteeDisplayPath::DSBEngineBusyStatus[DSB_MAX]={0};
+ 
+ 
+@@ -16914,7 +16925,7 @@
+     //   ICL  (AppleIntelFramebufferController path): 0xC4030 (ICL_SHOTPLUG_CTL_DDI)
+     //   TGL:                                         0x44470
+     //   ADL-P / RPL-P:                               0x1638a0
+-    uint32_t registerValue = callback->readReg32(0x1638a0); // ADL-P/RPL-P
++    uint32_t registerValue = hcControllerRead32(bc, 0x1638a0); // ADL-P/RPL-P (xe/nooted fix)
+         
+         PortMode mode = kPortModeInvalid;
+         uint32_t portType = *getMember<uint32_t*>(this, 0x548);
+@@ -17106,7 +17117,7 @@
+     //   ICL  (AppleIntelFramebufferController path): 0xC4030 (ICL_SHOTPLUG_CTL_DDI)
+     //   TGL:                                         0x44470
+     //   ADL-P / RPL-P:                               0x1638a0
+-    uint32_t registerValue = callback->readReg32(0x1638a0); // ADL-P/RPL-P
++    uint32_t registerValue = hcControllerRead32(bc, 0x1638a0); // ADL-P/RPL-P (xe/nooted fix)
+         
+         PortMode mode = kPortModeInvalid;
+         uint32_t portType = *getMember<uint32_t*>(this, 0x548);
+@@ -17181,7 +17192,7 @@
+     
+ };
+ 
+-char *__null_terminated strnstr(const char *__null_terminated s, const char *__null_terminated find, size_t slen)
++char *strnstr(char *s, const char *find, size_t slen)  // xe/nooted: SDK signature
+ {
+  // if (strnstr_ptr)  return strnstr_ptr((char*)s, find, slen);
+   //  return (char*)s;
+diff --git a/HookCase/HookCase.h b/HookCase/HookCase.h
+--- a/HookCase/HookCase.h
++++ b/HookCase/HookCase.h
+@@ -838,7 +838,7 @@
+ //EXPORT void *OSData::operator new(unsigned long size){return (OSData*) OSObject::operator new(size);};
+ 
+ 
+-extern "C" char *__null_terminated strnstr(const char *__null_terminated s, const char *__null_terminated find, size_t slen) __stateful_pure;
++extern "C" char *strnstr(char *s, const char *find, size_t slen);  // xe/nooted: SDK signature
+ 
+ 
+ 

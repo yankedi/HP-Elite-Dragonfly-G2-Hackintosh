@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "status": "built_and_used_for_real_kext_link_on_linux",
+  "source": {
+    "url": "https://github.com/tpoechtrager/cctools-port",
+    "commit": "904de2a71d4da6a9b30d2efaf912a10ddc7d9ddb",
+    "tree_archive_method": "git archive --format=tar HEAD",
+    "tree_archive_sha256": "45052ee01579bf514c5c4aab4acec642cb98dfd3a3603da14575510df3c2cfe6",
+    "cctools_version": "1030.6.3",
+    "ld64_version": "956.6",
+    "license": "APSL-2.0",
+    "license_path": "cctools/ld64/APPLE_LICENSE"
+  },
+  "build": {
+    "host": "x86_64-unknown-linux-gnu",
+    "target": "x86_64-apple-darwin",
+    "compiler": "clang 21.1.8",
+    "make": "4.4.1",
+    "configure_options": ["--disable-lto-support", "--disable-tapi-support", "--disable-xar-support", "--with-libdispatch=<pinned runtime prefix>"],
+    "make_targets": ["ld64/src/3rd", "ld64/src/mach_o", "ld64/src/ld"],
+    "configure_exit_code": 0,
+    "make_exit_code": 0,
+    "system_install_performed": false,
+    "apple_sdk_used": false,
+    "private_report": ".local/macho-linker/report.json"
+  },
+  "dependencies": [
+    {"name": "swift-corelibs-libdispatch", "version": "6.2.4", "runtime_library_sha256": "daf3f93a9cabd57599acd05629e5aa2abf360a8611b36c94ec9dfbd4f2140a00", "license": "Apache-2.0"},
+    {"name": "libblocksruntime", "version": "0-unstable-2017-10-28", "header_sha256": "3d8e3c301293888b0be22c4582fb832423d0af5c855a1080f7217b5677c1d90e", "license": "MIT"}
+  ],
+  "executable": {
+    "private_path": ".local/macho-linker/build/cctools/ld64/src/ld/ld",
+    "format": "Linux x86_64 ELF",
+    "sha256": "61dd272a95b54bace182f414510818463435d834b2044ec4889e65c99ab768ee",
+    "smoke_exit_code": 0,
+    "smoke_macho_filetype": 11
+  },
+  "llvm_inspection_tools_version": "21.1.8",
+  "llvm21_lld_kext_support": "-kext ignored; not used for final link"
+}

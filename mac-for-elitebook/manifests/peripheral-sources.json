@@ -1,0 +1,516 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-10-16",
+  "scope": "只读外围设备证据索引；本次仅更新 docs/peripherals.md 与 manifests/peripheral-sources.json。未关机/重启、未修改远端目标、未改动本地 USB。",
+  "evidence_policy": {
+    "live_observations": "下列设备与固件细节来自主代理已完成的只读 SSH 采集与本地 AML 分析；本页作者没有重新连接远端或复采。",
+    "upstream_fact": "仅指固定 40 位 commit 的源文件直接内容；不自动证明 macOS 兼容。",
+    "project_claim": "项目 README、release 或指南陈述；须与同机实测分开。",
+    "unverified": "证据不足、源不可锁定、许可无法确认或硬件功能没有验证时显式标记。",
+    "non_git_sources": "厂商网页/PDF 不适用 Git commit；其许可未在来源页明确列示时记为未核实。",
+    "driver_boundary": "HP/Windows/Linux 驱动可作为设备或协议参考，不是可直接安装的 macOS kext。"
+  },
+  "hardware_snapshot": {
+    "captured_at": "2026-10-15T17:40:49.365004+00:00",
+    "provenance": "main-agent read-only SSH capture, sanitized into hardware/elite-dragonfly-g2.json; this page author did not independently recollect",
+    "sanitized_inventory": "../hardware/elite-dragonfly-g2.json",
+    "verification_record": "../docs/verification.md",
+    "capture_validation": {
+      "captured_files": 62,
+      "sha256_and_length_validation": "passed per docs/verification.md",
+      "aml_dsl_outputs": 32,
+      "aml_decompile_exit_codes": "all 0 using independent per-table iasl -dl",
+      "namespace_validation": "not complete; DSDT and SSDT6 diagnostics remain"
+    },
+    "evidence_hashes": [
+      {
+        "id": "capture-audio-text",
+        "path": "text/audio.txt",
+        "sha256": "5d31efa8b6da8ab2caf542cf9334adb0c66b752da3020535f20f88e56f7dc048",
+        "relevance": "ALC285 codec and Linux audio stack"
+      },
+      {
+        "id": "capture-nhlt-aml",
+        "path": "raw/sys/firmware/acpi/tables/NHLT",
+        "sha256": "a5778dc31aa1a8788ce91f0dd78dc112cb0135a1251fc818db3f77d11b76c096",
+        "relevance": "Intel audio DSP/NHLT table capture; does not alone prove a working DMIC route"
+      },
+      {
+        "id": "capture-pci-text",
+        "path": "text/pci.txt",
+        "sha256": "bc73d7f1deeebb0689deca97f3e46b18053a8f0bb0ded0534a9459c27834a2be",
+        "relevance": "PCI IDs, I2C controllers, GPU, NVMe route"
+      },
+      {
+        "id": "capture-input-text",
+        "path": "text/inputs.txt",
+        "sha256": "a97b501384dafc390feb3175c6b38784d5aaaf443bece2a31d16981bc6a18ba1",
+        "relevance": "PS/2 keyboard, HID device IDs and Linux driver bindings"
+      },
+      {
+        "id": "capture-acpi-devices-text",
+        "path": "text/acpi-devices.txt",
+        "sha256": "bf2381e36b88c9d8177ac8905a9f5340748e3ee131b1d475fab73e73767bb790",
+        "relevance": "ACPI device paths and status"
+      },
+      {
+        "id": "capture-i2c-text",
+        "path": "text/i2c.txt",
+        "sha256": "30f38f24cf24d5a5ab55e9af4a6a0ad260a48c5ef136b50136a053eeb5aa29f1",
+        "relevance": "Linux I2C device enumeration"
+      },
+      {
+        "id": "capture-dsdt-aml",
+        "path": "raw/sys/firmware/acpi/tables/DSDT",
+        "sha256": "7afb4e662e79265a1a7c42c1af7ad448c003e8dbfa735b354e77dbb82f1ab343",
+        "relevance": "TPD0 _INI and ACPI namespace source table"
+      },
+      {
+        "id": "capture-ssdt17-aml",
+        "path": "raw/sys/firmware/acpi/tables/SSDT17",
+        "sha256": "5d0760079a8d6b5c175884332d20b5b3dea49fdc732fa5c9972f678099255072",
+        "relevance": "TPL0 resource-method source table"
+      },
+      {
+        "id": "capture-touchpad-hid-descriptor",
+        "path": "raw/sys/bus/hid/devices/0018:06CB:CD74.0001/report_descriptor",
+        "sha256": "0ee8e6bddf6ee6adf071cdb72983bb0970e2b20e5363ee64bcccc208762cec86",
+        "relevance": "SYNA touchpad HID report descriptor"
+      },
+      {
+        "id": "capture-wacom-hid-descriptor",
+        "path": "raw/sys/bus/hid/devices/0018:056A:4924.0002/report_descriptor",
+        "sha256": "5ad4378537251bc2c6bdf43cec57b542aba7b709028ab02906a80afeb6bcc217",
+        "relevance": "Wacom HID report descriptor"
+      },
+      {
+        "id": "capture-usb-text",
+        "path": "text/usb.txt",
+        "sha256": "39857b234db948e22e94b904110d1596d5a3f742c077c7b63b84e2e399d633b0",
+        "relevance": "Bluetooth, camera/IR and fingerprint USB topology"
+      },
+      {
+        "id": "capture-sensors-text",
+        "path": "text/sensors.txt",
+        "sha256": "510125293e7c9694cf8b7d223c48c8c915d07c81b460f229b453ab16dae978ba",
+        "relevance": "Linux IIO device names"
+      },
+      {
+        "id": "capture-storage-json",
+        "path": "text/storage.json",
+        "sha256": "94e20fbfbbe347112e72d05aea840a5fdc99e29918fc67cbd4747ea671a6788e",
+        "relevance": "NVMe model and partition inventory"
+      },
+      {
+        "id": "capture-firmware-text",
+        "path": "text/firmware.txt",
+        "sha256": "5152508f6636e840be064abc73860933b3d4538e00aa2702662ee2f64d9f1a99",
+        "relevance": "Read-only BIOS attribute values"
+      }
+    ],
+    "platform": {
+      "model": "HP Elite Dragonfly G2",
+      "cpu": "Intel Core i5-1135G7",
+      "dmi_board": "8716",
+      "bios": "HP T90 01.25.00",
+      "secure_boot": "enabled",
+      "vmd": "disabled",
+      "dvmt_video_preallocation": "512 MB"
+    },
+    "devices": [
+      {
+        "id": "audio-codec",
+        "device": "Realtek ALC285",
+        "vendor_device_id": "10ec:0285",
+        "subsystem_id": "103c:8716",
+        "controller_id": "8086:a0c8",
+        "active_linux_driver": "sof-audio-pci-intel-tgl",
+        "evidence_refs": ["capture-audio-text", "capture-pci-text", "capture-nhlt-aml"],
+        "status": "main-agent read-only SSH inventory",
+        "macos_support": "unverified"
+      },
+      {
+        "id": "touchpad",
+        "device": "SYNA30B6:00",
+        "vendor_device_id": "06cb:cd74",
+        "linux_driver": "hid-multitouch",
+        "acpi_path": "_SB.PC00.I2C0.TPD0",
+        "i2c_controller_id": "8086:a0e8",
+        "i2c_address_set_by_ini": "0x2c",
+        "hid_descriptor_address_set_by_ini": "0x20",
+        "gpio_irq_resource_behavior": "GNUM(GPDI)/INUM(GPDI) dynamic evaluation; 0x0000 resource-template values are placeholders and must not be copied as GPIO pins",
+        "evidence_refs": ["capture-input-text", "capture-acpi-devices-text", "capture-i2c-text", "capture-dsdt-aml", "capture-touchpad-hid-descriptor"],
+        "macos_support": "unverified"
+      },
+      {
+        "id": "touchscreen-pen",
+        "device": "WACF4233:00",
+        "vendor_device_id": "056a:4924",
+        "linux_driver": "wacom",
+        "acpi_path": "_SB.PC00.I2C1.TPL0",
+        "i2c_controller_id": "8086:a0e9",
+        "resource_methods_from": "SSDT17 (INTTPL); touch panel base object is in DSDT",
+        "evidence_refs": ["capture-input-text", "capture-acpi-devices-text", "capture-pci-text", "capture-ssdt17-aml", "capture-wacom-hid-descriptor"],
+        "macos_touch_pen_pressure_support": "unverified"
+      },
+      {
+        "id": "wifi",
+        "device": "Intel AX201",
+        "pci_id": "8086:a0f0",
+        "evidence_refs": ["capture-pci-text"],
+        "macos_support_on_this_machine": "unverified"
+      },
+      {
+        "id": "bluetooth",
+        "device_id": "8087:0026",
+        "usb_path": "HS10",
+        "evidence_refs": ["capture-usb-text"],
+        "macos_support_on_this_machine": "unverified; assess separately from Wi-Fi"
+      },
+      {
+        "id": "camera-ir",
+        "device": "Quanta",
+        "usb_id": "0408:5349",
+        "usb_path": "HS02",
+        "interfaces": 4,
+        "evidence_refs": ["capture-usb-text"],
+        "macos_camera_ir_support": "unverified"
+      },
+      {
+        "id": "fingerprint",
+        "device_id": "06cb:00f0",
+        "usb_path": "HS07",
+        "evidence_refs": ["capture-usb-text"],
+        "macos_support": "unverified"
+      },
+      {
+        "id": "keyboard",
+        "bus": "PS/2",
+        "reported_layout": "JIS (user-provided; key-by-key verification pending)",
+        "evidence_refs": ["capture-input-text"],
+        "macos_layout": "unverified"
+      },
+      {
+        "id": "sensors",
+        "transport": "Intel ISH / Linux IIO",
+        "visible_iio_devices": 10,
+        "iio_device_names": ["incli_3d", "dev_rotation", "magn_3d", "als", "accel_3d", "gyro_3d", "geomagnetic_orientation", "gravity", "relative_orientation", "hinge"],
+        "evidence_refs": ["capture-sensors-text"],
+        "exact_sensor_chips": "unconfirmed",
+        "macos_support": "unverified"
+      },
+      {
+        "id": "nvme",
+        "device": "Micron MTFDHBA512QFD-1AX1AABHA",
+        "pci_id": "1344:5404",
+        "firmware": "HPS1022",
+        "mapping": "direct PCIe/NVMe; not VMD-mapped",
+        "evidence_refs": ["capture-storage-json", "capture-pci-text"],
+        "macos_compatibility": "unverified; no reliable model-specific incompatibility evidence found"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "linux-alc285-quirk",
+      "kind": "upstream-source",
+      "repository": "torvalds/linux",
+      "path": "sound/hda/codecs/realtek/alc269.c",
+      "commit": "fcf57d066444dfa5cb46080b1b61cde517249530",
+      "blob_sha": "3abee617e86e11423a33c984cde15f37a2716986",
+      "license": "GPL-2.0-or-later",
+      "license_evidence": "SPDX-License-Identifier in source file",
+      "url": "https://github.com/torvalds/linux/blob/fcf57d066444dfa5cb46080b1b61cde517249530/sound/hda/codecs/realtek/alc269.c",
+      "verified_content": "At this exact source revision, subsystem 103c:8716 is named HP Elite Dragonfly G2 Notebook PC and maps to ALC285_FIXUP_HP_GPIO_AMP_INIT. The file also contains the shared fixup implementation.",
+      "limits": "Linux quirk evidence only; does not establish AppleALC or AppleHDA support."
+    },
+    {
+      "id": "linux-alc285-commit",
+      "kind": "upstream-commit",
+      "repository": "torvalds/linux",
+      "commit": "fcf57d066444dfa5cb46080b1b61cde517249530",
+      "license": "GPL-2.0-or-later (changed source file)",
+      "url": "https://github.com/torvalds/linux/commit/fcf57d066444dfa5cb46080b1b61cde517249530",
+      "verified_content": "Commit adds ALC285_FIXUP_HP_GPIO_AMP_INIT for HP Elite Dragonfly Max G2 subsystem 103c:8890; commit message describes an uninitialized right-speaker amplifier GPIO.",
+      "limits": "This is the Max G2 change, not the original introduction of the regular G2 103c:8716 table row."
+    },
+    {
+      "id": "linux-sof-tgl-pci",
+      "kind": "upstream-source",
+      "repository": "torvalds/linux",
+      "path": "sound/soc/sof/intel/pci-tgl.c",
+      "commit": "24df03e2b43c8a66c0f235320177f7199dca47a9",
+      "blob_sha": "437c438198255569df4eaee210cd330528eb6870",
+      "license": "GPL-2.0-only OR BSD-3-Clause",
+      "license_evidence": "SPDX-License-Identifier in source file",
+      "url": "https://github.com/torvalds/linux/blob/24df03e2b43c8a66c0f235320177f7199dca47a9/sound/soc/sof/intel/pci-tgl.c",
+      "verified_content": "Tiger Lake SOF PCI description names SOF firmware paths, including sof-tgl.ri, topology data and Tiger Lake platform support.",
+      "limits": "Generic Linux driver/platform code; does not prove this machine's actual DMIC route or macOS support."
+    },
+    {
+      "id": "linux-sof-tgl-acpi",
+      "kind": "upstream-source",
+      "repository": "torvalds/linux",
+      "path": "sound/soc/intel/common/soc-acpi-intel-tgl-match.c",
+      "commit": "3588b76db7ba798f54dee39a55708b16e1c61de4",
+      "blob_sha": "b77aafb0bfb6a7af2e3d210ac11cb852b7068ffb",
+      "license": "GPL-2.0-only",
+      "license_evidence": "SPDX-License-Identifier in source file",
+      "url": "https://github.com/torvalds/linux/blob/3588b76db7ba798f54dee39a55708b16e1c61de4/sound/soc/intel/common/soc-acpi-intel-tgl-match.c",
+      "verified_content": "Tiger Lake Linux ACPI machine matches include topology and DMIC capture endpoint examples.",
+      "limits": "No HP Dragonfly G2-specific active topology/capture test was established."
+    },
+    {
+      "id": "itlwm-compatibility-table",
+      "kind": "upstream-project-document",
+      "repository": "OpenIntelWireless/OpenIntelWireless.github.io",
+      "path": "itlwm/Compat.html",
+      "commit": "57cf4ac34fd0028c883e007722a8b84ca1f526b1",
+      "blob_sha": "5312dedf3a1b25b7d37fd171f6d9f0d25ef6ca39",
+      "license": "CC BY-NC-ND 4.0",
+      "license_evidence": "Repository LICENSE and page footer",
+      "url": "https://github.com/OpenIntelWireless/OpenIntelWireless.github.io/blob/57cf4ac34fd0028c883e007722a8b84ca1f526b1/itlwm/Compat.html",
+      "verified_content": "Static compatibility page lists Intel Wi-Fi 6 AX201 160MHz under MVM Gen 2 (IWX).",
+      "limits": "Project compatibility table, not a Tahoe or Dragonfly G2 test."
+    },
+    {
+      "id": "itlwm-tahoe-fork",
+      "kind": "project-self-report-and-release",
+      "repository": "laobamac/itlwm",
+      "path": "README.md",
+      "commit": "bbe368ec7d55a5395d08c729e88eeaabebae8255",
+      "blob_sha": "50b0992a0bf164d3c73b7d7502b699f43f814bcc",
+      "tag": "v2.4.0-alpha",
+      "tag_resolves_to_commit": "bbe368ec7d55a5395d08c729e88eeaabebae8255",
+      "license": "GPL-2.0 (repository LICENSE text, GPL version 2)",
+      "license_evidence": "LICENSE file at the pinned commit",
+      "url": "https://github.com/laobamac/itlwm/blob/bbe368ec7d55a5395d08c729e88eeaabebae8255/README.md",
+      "release_url": "https://github.com/laobamac/itlwm/releases/tag/v2.4.0-alpha",
+      "release_published_at_reported": "2026-10-11",
+      "release_updated_at_reported": "2026-10-15",
+      "release_prerelease": true,
+      "release_tag_immutable": false,
+      "release_asset_sha256_reported": {
+        "AirportItlwm-Tahoe-v2.4.0-RELEASE-alpha-bbe368e.zip": "0b18a819480e516382397d0a7e5a55389e4be121d8419204035750ba101629c9",
+        "AirportItlwm-Tahoe-v2.4.0-DEBUG-alpha-bbe368e.zip": "f47b8320f90b71c25d1bf3d37e471c6e50c016e2e70c1eb7069e599b22dc6878"
+      },
+      "release_asset_digest_status": "GitHub release API metadata only; assets were not downloaded or recomputed",
+      "verified_content": "README claims Tahoe 26 native Wi-Fi and notes feature limits; HE disabled by default and device support follows upstream table. Release describes this as a development build requiring hardware validation.",
+      "limits": "Project self-report only; not tested on this AX201/Dragonfly G2. GitHub release's reported publish time predates the resolved commit's author/committer date; exact commit is pinned separately."
+    },
+    {
+      "id": "intelbluetooth-tahoe-version-bump",
+      "kind": "upstream-project-commit",
+      "repository": "OpenIntelWireless/IntelBluetoothFirmware",
+      "path": "IntelBTPatcher/IntelBTPatcher.cpp",
+      "commit": "a414375505fa3b014be32f8fca31b5bbfdf9f10f",
+      "license": "GPL-3.0 (repository LICENSE text)",
+      "license_evidence": "LICENSE file at the pinned commit",
+      "url": "https://github.com/OpenIntelWireless/IntelBluetoothFirmware/commit/a414375505fa3b014be32f8fca31b5bbfdf9f10f",
+      "verified_content": "Diff raises the patcher's upper KernelVersion from Sequoia to Tahoe.",
+      "limits": "No AX201 USB Bluetooth or Dragonfly G2 validation in this diff."
+    },
+    {
+      "id": "oclp-300-rc3-release-and-source",
+      "kind": "official-project-release-and-source",
+      "repository": "dortania/OpenCore-Legacy-Patcher",
+      "tag": "3.0.0-rc.3",
+      "commit": "238a876f9a08d405745ae25ef0fd563af6bc28e1",
+      "release_prerelease": true,
+      "release_published_at": "2026-10-08T01:07:17Z",
+      "license": "BSD-4-Clause-style custom license (LICENSE.txt; no SPDX identifier)",
+      "license_evidence": "LICENSE.txt at pinned tag/commit; includes advertising and non-endorsement clauses",
+      "release_url": "https://github.com/dortania/OpenCore-Legacy-Patcher/releases/tag/3.0.0-rc.3",
+      "files": [
+        {
+          "path": "opencore_legacy_patcher/sys_patch/patchsets/hardware/misc/modern_audio.py",
+          "blob_sha": "84abcb94a192e70d6595c64d18199c55ea9d03ef",
+          "url": "https://github.com/dortania/OpenCore-Legacy-Patcher/blob/238a876f9a08d405745ae25ef0fd563af6bc28e1/opencore_legacy_patcher/sys_patch/patchsets/hardware/misc/modern_audio.py"
+        },
+        {
+          "path": "docs/MODELS.md",
+          "blob_sha": "a7c1d4456275f6e5d7d5a26f8782a89434e08712",
+          "url": "https://github.com/dortania/OpenCore-Legacy-Patcher/blob/238a876f9a08d405745ae25ef0fd563af6bc28e1/docs/MODELS.md"
+        },
+        {
+          "path": "LICENSE.txt",
+          "blob_sha": "987d4e604bdf424c7ace9fd28197489521f65d29"
+        }
+      ],
+      "verified_content": "modern_audio.py requires KDK for Tahoe, treats build 25A5279m (Tahoe Beta 1) as native, and describes overwriting AppleHDA.kext from 26.0 Beta 1 for later Tahoe builds. MODELS.md states supported models are listed Intel-based Macs and unlisted models are unsupported.",
+      "limits": "Source implementation and release exist, but neither establishes OCLP support for HP PCs or this codec/device."
+    },
+    {
+      "id": "dortania-tahoe-audio-guide",
+      "kind": "project-document-claim",
+      "repository": "dortania/OpenCore-Install-Guide",
+      "path": "extras/tahoe.md",
+      "commit": "a4b2ab54e5ec628871dec26596f587d89c01d44e",
+      "blob_sha": "6698628cf9d286a2c2aa9b84a0c35074a4f1a1ac",
+      "license": "CC BY-NC-SA 4.0",
+      "license_evidence": "LICENSE.md at pinned revision",
+      "url": "https://github.com/dortania/OpenCore-Install-Guide/blob/a4b2ab54e5ec628871dec26596f587d89c01d44e/extras/tahoe.md",
+      "verified_content": "Guide states AppleHDA.kext is no longer present in macOS 26 and analog AppleALC audio is affected.",
+      "limits": "Community project documentation, not Apple primary documentation; precise beta 2 removal boundary remains unverified."
+    },
+    {
+      "id": "voodooi2c-readme",
+      "kind": "upstream-project-document",
+      "repository": "VoodooI2C/VoodooI2C",
+      "path": "README.md",
+      "commit": "f266cb1b806e094b0412273c6b37e2430c39b080",
+      "blob_sha": "f0002d4e013e87980a0629d585f719644ce88ec3",
+      "license": "GPL-3.0 (repository LICENSE.txt is GPL version 3 text)",
+      "license_evidence": "LICENSE.txt at pinned commit",
+      "url": "https://github.com/VoodooI2C/VoodooI2C/blob/f266cb1b806e094b0412273c6b37e2430c39b080/README.md",
+      "verified_content": "README lists supported Intel I2C controller families through Ice Lake and device classes I2C-HID, ELAN and FTE.",
+      "limits": "Does not list Tiger Lake controller IDs 8086:a0e8/a0e9 or establish this machine's touchpad/pen support."
+    },
+    {
+      "id": "dortania-gpu-guide",
+      "kind": "project-document-claim",
+      "repository": "dortania/GPU-Buyers-Guide",
+      "path": "modern-gpus/intel-gpu.md",
+      "commit": "88c1bf01bbb247fd5eb5805943a86927681d166d",
+      "blob_sha": "3d372833b7f785d8e88b8fc5f0df35cebe471748",
+      "license": "Copyright / All rights reserved notice; no open license identified",
+      "license_status": "source file states copyright and all rights reserved; license terms not otherwise identified",
+      "url": "https://github.com/dortania/GPU-Buyers-Guide/blob/88c1bf01bbb247fd5eb5805943a86927681d166d/modern-gpus/intel-gpu.md",
+      "license_url": "https://github.com/dortania/GPU-Buyers-Guide/blob/88c1bf01bbb247fd5eb5805943a86927681d166d/License",
+      "verified_content": "Guide lists Tiger Lake/Rocket Lake Xe-based iGPUs and 11th Gen Intel UHD as unsupported in macOS.",
+      "limits": "Third-party compatibility guide, not vendor support documentation."
+    },
+    {
+      "id": "hp-maintenance-manual",
+      "kind": "vendor-primary-pdf",
+      "publisher": "HP",
+      "url": "https://kaas.hpcloud.hp.com/pdf-public/pdf_12594923_en-US-1.pdf",
+      "commit": null,
+      "license": "not stated in retrieved document; unverified",
+      "retrieved_content_status": "prior read-only review",
+      "verified_content": "Maintenance manual describes Dragonfly G2 configurations and component/sensor classes; it does not establish macOS driver support or all exact SSH-captured IDs."
+    },
+    {
+      "id": "hp-product-specifications",
+      "kind": "vendor-primary-webpage",
+      "publisher": "HP",
+      "url": "https://support.hp.com/ph-en/document/c06994777",
+      "commit": null,
+      "license": "not stated/verified",
+      "retrieved_content_status": "prior read-only review",
+      "verified_content": "HP product specification source for the model family/configuration."
+    },
+    {
+      "id": "intel-ax201-specifications",
+      "kind": "vendor-primary-webpage",
+      "publisher": "Intel",
+      "url": "https://www.intel.com/content/www/us/en/products/sku/130293/intel-wifi-6-ax201-gig/specifications.html",
+      "commit": null,
+      "license": "not stated/verified",
+      "retrieved_content_status": "prior read-only review",
+      "verified_content": "Intel's AX201 specifications; does not list macOS as a supported operating system."
+    },
+    {
+      "id": "micron-2210-product-brief",
+      "kind": "vendor-primary-pdf",
+      "publisher": "Micron",
+      "url": "https://assets.micron.com/adobe/assets/urn:aaid:aem:dc6eafec-7157-48df-9c75-fd4ee77711b1/original/as/2210-qlc-ssd-product-brief.pdf",
+      "commit": null,
+      "license": "not stated/verified",
+      "retrieved_content_status": "prior read-only review",
+      "verified_content": "2210 product brief identifies an M.2 2280, PCIe Gen3 x4, NVMe 1.3 SSD.",
+      "limits": "No reliable model-specific macOS compatibility or incompatibility finding."
+    }
+  ],
+  "assessments": [
+    {
+      "id": "alc285-linux-only",
+      "status": "upstream-source-fact; macOS applicability unverified",
+      "statement": "Linux fixed source maps 103c:8716 to ALC285_FIXUP_HP_GPIO_AMP_INIT; this cannot be equated with AppleALC support.",
+      "source_ids": ["linux-alc285-quirk", "linux-alc285-commit"]
+    },
+    {
+      "id": "sof-dmic-boundary",
+      "status": "generic-upstream-fact; machine route and capture unverified",
+      "statement": "Tiger Lake SOF source includes firmware/topology and DMIC endpoint machinery; active module binding alone proves neither successful mic capture nor macOS support.",
+      "source_ids": ["linux-sof-tgl-pci", "linux-sof-tgl-acpi"]
+    },
+    {
+      "id": "tahoe-applehda-boundary",
+      "status": "project-claim verified; Apple primary confirmation and exact beta boundary unverified",
+      "statement": "Dortania guide says AppleHDA is absent on macOS 26; no Apple primary source was verified for a beta-2-specific removal date.",
+      "source_ids": ["dortania-tahoe-audio-guide"]
+    },
+    {
+      "id": "tpd0-tpl0-acpi-resources",
+      "status": "main-agent read-only capture and per-table AML analysis; this page author did not rerun",
+      "statement": "TPD0 _INI sets I2C address 0x2c and HID descriptor address 0x20; GPIO/IRQ are dynamically evaluated via GNUM(GPDI)/INUM(GPDI), so 0x0000 resource-template placeholders are not real pin values. TPL0 resource methods are supplied by SSDT17 (INTTPL).",
+      "evidence_refs": ["capture-dsdt-aml", "capture-ssdt17-aml", "capture-touchpad-hid-descriptor", "capture-wacom-hid-descriptor"],
+      "inventory_url": "../hardware/elite-dragonfly-g2.json",
+      "verification_url": "../docs/verification.md"
+    },
+    {
+      "id": "oclp-rc3",
+      "status": "official prerelease and source code verified; HP PC applicability unverified",
+      "statement": "OCLP 3.0.0-rc.3 contains a Tahoe AppleHDA restore patch for its supported Mac models; it is not evidence of G2 Hackintosh support.",
+      "source_ids": ["oclp-300-rc3-release-and-source"]
+    },
+    {
+      "id": "itlwm-tahoe",
+      "status": "project-self-report; device validation explicitly required",
+      "statement": "Fork claims Tahoe native Wi-Fi; its alpha release asks for hardware validation. AX201/G2-specific Tahoe behavior remains unverified.",
+      "source_ids": ["itlwm-compatibility-table", "itlwm-tahoe-fork"]
+    },
+    {
+      "id": "bluetooth-separate",
+      "status": "upstream-version-bump verified; this device support unverified",
+      "statement": "Bluetooth Tahoe commit changes maximum OS version only; it does not verify AX201 Bluetooth on Dragonfly G2.",
+      "source_ids": ["intelbluetooth-tahoe-version-bump"]
+    },
+    {
+      "id": "i2c-controller-gap",
+      "status": "project-document scope verified; actual compatibility unverified",
+      "statement": "VoodooI2C README lists controllers through Ice Lake and omits reported Tiger Lake IDs; do not infer either support or absolute impossibility from omission alone.",
+      "source_ids": ["voodooi2c-readme"]
+    },
+    {
+      "id": "tigerlake-igpu",
+      "status": "project-document compatibility claim",
+      "statement": "Dortania guide marks Tiger Lake/11th Gen iGPU unsupported; this is a major laptop display/acceleration limitation.",
+      "source_ids": ["dortania-gpu-guide"]
+    },
+    {
+      "id": "micron-2210-compatibility",
+      "status": "unverified",
+      "statement": "Micron form factor/protocol specs are verified, but no reliable evidence establishes model-specific macOS incompatibility or working behavior in this machine.",
+      "source_ids": ["micron-2210-product-brief"]
+    },
+    {
+      "id": "jis-keyboard",
+      "status": "PS/2 bus confirmed by SSH capture; JIS layout user-provided and key verification pending",
+      "statement": "SSH inventory records i8042/PS2; JIS layout is user-provided, and actual key mapping is not yet tested.",
+      "evidence_refs": ["capture-input-text"],
+      "source_ids": []
+    },
+    {
+      "id": "same-model-efi",
+      "status": "not found in this public-source review; absolute absence not established",
+      "statement": "No independently verifiable same-model EFI or complete Tahoe hardware test was found during the cited review.",
+      "source_ids": []
+    },
+    {
+      "id": "vendor-driver-installability",
+      "status": "not a macOS support claim",
+      "statement": "Vendor Windows/Linux driver packages are protocol/hardware references and must not be treated as macOS kexts.",
+      "source_ids": []
+    }
+  ],
+  "audit_notes": [
+    "The 40-character Git commit is recorded for every cited Git source. A source SHA marked unverified is intentionally not guessed.",
+    "Machine facts now cite the main agent's read-only SSH inventory and verified capture hashes, not user recollection. This page author did not independently SSH or re-run AML decompilation.",
+    "The sanitized inventory is ../hardware/elite-dragonfly-g2.json; the capture/analysis record is ../docs/verification.md. Capture time was 2026-10-15T17:40:49.365004+00:00; 62 file hashes and lengths passed, and 32 AML tables were independently decompiled to DSL with exit code 0 while namespace diagnostics remain.",
+    "GitHub API reports the laobamac release tag as mutable; its currently resolved full commit and API-reported asset digests are recorded separately. Asset digests were not locally recomputed.",
+    "The OCLP 3.0.0-rc.3 release and relevant source files were checked directly in the official GitHub repository; third-party posts were not used as proof.",
+    "Only docs/peripherals.md and manifests/peripheral-sources.json were updated; no code, vendor driver, EFI, USB, firmware, remote machine, or other repository file was modified."
+  ]
+}

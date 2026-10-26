@@ -1,0 +1,201 @@
+# GA36 writer-review bounded closure
+
+## Closure disposition
+
+This is a **bounded follow-up closure**, not a replacement for the initial
+`AUDIT.md`. The initial audit is preserved byte-for-byte; its SHA-256 remains
+`0c52c7dbb04bf3ebc5e05293c7f82283a4afe1c70b01cb0837fbcb44aaf4482a`.
+
+**F6 (`attemptReasons[]` retry history): CLOSED for the reviewed source and
+CPU/offline evidence.** F1, F2, F3, F4, F5, F7, and F8 remain unresolved for
+actual/XNU integration exactly as stated in `AUDIT.md`; none is promoted to
+fixed. The truthful final state remains:
+
+```text
+CAS_VERIFIED = YES (isolated CPU protocol plus bounded source/harness evidence)
+FULL_PIPELINE = PARTIAL / NOT INTEGRATED
+REAL_CAPTURE = BLOCKED
+HARDWARE_APPROVAL = NO
+```
+
+No SSH, hardware, MMIO, deployment, IMG, EFI, firmware, or boot-order action
+was performed. This follow-up adds only this file under
+`audit/writer-review/`.
+
+## F6 source verification
+
+Current source hashes, independently recomputed:
+
+| Artifact | SHA-256 |
+|---|---|
+| `track-a/candidate/kern_capture36.hpp` | `7771dfb4bbc229fbec746976559a4ffeba9ac7c348c0e1ec1322f7898ef1afae` |
+| `track-a/candidate/kern_igfx.cpp` | `62e3abf2a303a5c27910c35c363d5b286ede88353da38b91773de218855d4ab9` |
+| `track-a/tests/pipeline.cpp` | `2dad4b4005f0251c8dc1a60cfb58a75f5cfc3a17f27dc9a5133238e1e1818668` |
+| `track-a/logs/legacy/tracka-results.json` | `d2c8c7e33cff4716b277c610bc23d23602502d90ae47192640cb5ddd1b4389a2` |
+| `track-a/logs/pipeline/results.json` | `08f586b27bd659262283b5b5b0fb3a33a55932add8270f095c06e8a4e389dc14` |
+| `track-c/results.json` | `795eb98526b3c7b4349d3e911d1476d3dac3182a735c5d7f1f1195682f00e7b3` |
+
+The latest authoritative legacy result (`track-a/logs/legacy/tracka-results.json`,
+generated `2026-10-18T13:27:12Z`) records the same current candidate source
+hash, `62e3abf2…`, and verbatim brace-balanced extraction hashes:
+
+```text
+candidate hangWriteRecords = d5294d34b2c6550feaf3a84a5ed3a0cb7282f4325abb54b6fb28731a96920329
+candidate hangThread       = 726f28c24684fcd7912a692f4bd2d8f3d7828a3c97e1cc582dde3eec3c8b6033
+```
+
+All eight legacy matrix entries (baseline/candidate × Clang/GCC × release/
+ASan+UBSan) have compile return 0, run return 0, and pass=true. Each candidate
+entry reports 158 checks and zero failures; the THAG parser reports 22 checks
+and zero failures. The harness explicitly records its limits: XNU vnode/uio
+and thread-call operations are mocks, and the mock `HangRecord` is not the
+real THAG size. This is source/harness evidence, not a live-kext claim.
+
+### Helper and caller evidence
+
+- `kern_capture36.hpp:9-18` adds `Capture36::beginAttempt`. For attempt 1 it
+  clears a new record. For attempt >1 it copies the prior
+  `attemptReasons[]` into a bounded local array, clears the trivially-copyable
+  record, and restores only that reason prefix. It adds no object storage and
+  does not claim serialization.
+- `kern_igfx.cpp:1370-1379` calls `beginAttempt(r, attempts)` before filling
+  the current record fields.
+- `kern_igfx.cpp:1505-1512` bounds the producer's retry count (`hangAttempts`
+  is capped at 4) and writes the current result only when
+  `1 <= r.attempts <= arrsize(r.attemptReasons)`. The helper test separately
+  exercises attempts 1 through 8 and then verifies attempt 1 clears all slots
+  (`pipeline.cpp:131-140`).
+- The deterministic retry test verifies that reasons 1..N-1 survive the next
+  attempt and that a new attempt 1 resets both the reason array and payload.
+
+This closes the prior F6 counterexample: attempts 1, 2, and 3 no longer erase
+the earlier reason slots before the current result is recorded. It does **not**
+close F2's separate producer/publication race; preserving a prefix is only
+truthful when the retrying record is exclusively owned.
+
+## Core and exact-layout evidence
+
+The current primary pipeline result contains four fresh successful runs:
+
+```text
+clang release       PASS ... 16 producers, terminal races, retry reasons, 120x16 stress
+clang ASan/UBSan    PASS ... 16 producers, terminal races, retry reasons, 120x16 stress
+GCC release         PASS ... 16 producers, terminal races, retry reasons, 120x16 stress
+GCC ASan/UBSan      PASS ... 16 producers, terminal races, retry reasons, 120x16 stress
+```
+
+The new tests cover 16 concurrent producer try-claims and publication races
+that return `RetainedStopped` / `RetainedFailed` (`pipeline.cpp:108-129`), in
+addition to the existing writer-contender and close tests. ASan/UBSan emitted
+no diagnostics. These remain CPU tests; they do not prove ThreadCall or live
+hook lifetime.
+
+The exact original `HangRecord` layout is independently compiled by
+`track-a/tests/wire.py`, not by the small `RetryRecord` helper test:
+
+```text
+static_assert(sizeof(HangRecord) == 0xc2f8); // v3
+offsetof(diag) == 0xc2a0
+offsetof(out)  == 0x90
+```
+
+The wire test copies exactly `sizeof(HangRecord) * count` through
+`Capture36::Pipeline`, decodes/re-encodes the generated bytes, compares Clang
+and GCC output, and retains the structural-only claim. Its result records
+v2/v3 layouts and negative truncation/version/size/magic/index/attempt cases;
+it does not claim real GPU or context identity. Thus the helper did not alter
+the wire layout, and the exact-size copy remains separately checked.
+
+## Track C closure evidence
+
+The current Track C result is generated at `2026-10-18T13:23:51Z` and records
+8/8 build-and-run pairs, with gate checks increased to 524580. The current
+sanitizer gate output is:
+
+```text
+EVIDENCE_GATE_PASS checks=524580 conditions=9 exhaustive_states=262144 hardware=NONE backend=NONE
+```
+
+The new within-capture model is documented in
+`track-c/FAULT-TUPLE-CONSISTENCY.md:76-119` and exercised by
+`within_capture_mutation_tears_tuple_in_mock`:
+
+```text
+O1 observer A
+R0 read CEC4 = A.fault
+M0 mutate mock device to B
+O2/O3 observers still report epoch=3, token=41
+R1 read CEB8 = B.data0
+M1 mutate mock device to A
+O4/O5 observers still report epoch=3, token=41
+R2 read CEBC = A.data1
+O6 observer A
+```
+
+The resulting mock sample is `Complete + StableEpoch` and can be derivable,
+but its raw tuple is `(A.fault, B.data0, A.data1)`, equal to neither A nor B.
+This is explicitly a mock-modeled torn sample, not evidence that real hardware
+mutated. Track C still sets `FaultTupleConsistencyEstablished=UNKNOWN` and
+admission remains DENY.
+
+The prefix correction is also bounded to static stock evidence in
+`track-c/HOOK-ABI-REVIEW.md:26-38`:
+
+```text
+doHangAnalysis: requested minimum 14 bytes, whole-instruction prefix 16 bytes
+SafeForceWake:  requested minimum 14 bytes, whole-instruction prefix 14 bytes
+5-byte boundary check bytes shown as 6 actual bytes: 554889e54157
+```
+
+These are stock-file prefix facts only. They do not verify live patched bytes,
+Lilu trampoline relocation, route targets, or hook context safety.
+
+## Thread-call contract and unload ordering
+
+`reference/thread-call/CONTRACT.md` is a pinned reference to the public
+MacKernelSDK/XNU `thread_call` contract, not a claim about an exact 25G83
+implementation. It explicitly warns that the public reference is
+`xnu-12377.121.6`, while the target identity is `12377.161.14`; OS-version
+identity must not be promoted.
+
+The safety ordering required by that reference is:
+
+```text
+stop all entries (routes, callbacks, interrupt paths)
+  -> thread_call_cancel_wait
+  -> thread_call_free
+  -> restore Lilu trampolines / release buffers
+```
+
+This ordering is mandatory for any future actual integration. In particular:
+
+- `thread_call_enter1`'s boolean means “already pending”, not failure;
+- `thread_call_cancel_wait` waits/cancels the current invocation but does not
+  stop a live hook or another CPU from re-arming a later invocation;
+- `thread_call_free` can refuse a pending call;
+- therefore `cancel_wait + free` alone is not a global unload barrier;
+- all routes, callbacks, and interrupt entries must be fenced before waiting,
+  and trampoline restoration must not race an executing hook.
+
+No alive-callback contract or exact target-OS implementation is claimed here.
+F1, F2, F4, F5, F7, and F8 remain blocked by these lifetime facts; F3 remains
+the known `O_TRUNC` non-transactional backend limitation.
+
+## Evidence bookkeeping warning
+
+`track-a/logs/legacy/tracka-results.json` is the current hash-consistent
+8-run result and must be the source used by a final manifest. The older
+`track-a/logs/legacy/tracka-summary.json` still contains the pre-change
+candidate hash `a05a0f17…`; it is not hash-consistent with the current source.
+No historical file was rewritten in this closure. The parent final report/
+manifest should cite the current `tracka-results.json` and current source hash,
+not silently reuse that stale summary hash.
+
+## Final reviewer statement
+
+F6 is closed with source, bounded retry tests, exact-layout wire evidence, and
+current 8-run extraction evidence. The closure does not convert the actual
+kext into an integrated producer/consumer, does not close the raw callback
+unload window, does not make disk writes transactional or interruptible, and
+does not upgrade Track C's mock tuple evidence or Track B's static forcewake
+facts into hardware safety.

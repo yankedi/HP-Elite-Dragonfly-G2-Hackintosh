@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "opencore_version": "1.0.8",
+  "scope": "Sanitized configuration examples; not a newly boot-tested binary EFI.",
+  "configurations": [
+    {
+      "source_config_sha256": "33be6366d5c0f1da0d4faddc3576319de14840b812af3f8d892eb278e1330019",
+      "public_config": "config-accelerated.example.plist",
+      "public_config_sha256": "d9a54cb0c07d53a4cfd43df7cd4394277494187d8e970c4d536ed0faa5323d7c",
+      "identity_fields_cleared": [
+        "SystemSerialNumber",
+        "MLB",
+        "SystemUUID",
+        "ROM"
+      ],
+      "security_fields_cleared": [
+        "PasswordHash",
+        "PasswordSalt",
+        "ApECID"
+      ],
+      "removed_cached_fields": [
+        "NVRAM/Add/7C436110-AB2A-4BBB-A880-FE41995C9F82/bluetoothExternalDongleFailed",
+        "NVRAM/Add/7C436110-AB2A-4BBB-A880-FE41995C9F82/bluetoothInternalControllerInfo"
+      ]
+    },
+    {
+      "source_config_sha256": "15d3d47a5aa1a4171cfebdd12fc20e172ed0ec052c9bc12b9b0f954238b0b879",
+      "public_config": "config-software-display.example.plist",
+      "public_config_sha256": "810f5749369afb4d31afc754dca523c6e22ab1cc1de82da705d21c72d834f7d4",
+      "identity_fields_cleared": [
+        "SystemSerialNumber",
+        "MLB",
+        "SystemUUID",
+        "ROM"
+      ],
+      "security_fields_cleared": [
+        "PasswordHash",
+        "PasswordSalt",
+        "ApECID"
+      ],
+      "removed_cached_fields": [
+        "NVRAM/Add/7C436110-AB2A-4BBB-A880-FE41995C9F82/bluetoothExternalDongleFailed",
+        "NVRAM/Add/7C436110-AB2A-4BBB-A880-FE41995C9F82/bluetoothInternalControllerInfo"
+      ]
+    }
+  ]
+}

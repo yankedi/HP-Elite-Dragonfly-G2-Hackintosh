@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "checked_on": "2026-10-16",
+  "status": "passed_virtual_uefi_component_checks",
+  "runner": "scripts/check_nonboot_vm.py",
+  "runner_sha256": "6101cecafe099138d47cc898b91fa4b27675884e3c48ac4218e258c405a738fc",
+  "probe_source": "tests/uefi_component_probe.c",
+  "probe_source_sha256": "9337ccd19ecdca33946b7e73ab16d695b7687ea5095ffcec2886be3092abdb06",
+  "probe_efi_sha256": "b22454da67ea567f0899c3b0a7335459afa16745603b3bd0f403d97901643fdc",
+  "private_report": ".local/nonboot-vm/run-v8rrfd3i/report.json",
+  "private_report_sha256": "77f89bcd91d5221220b92d97a0bfbd299b2848952185b96373abadcd97903ef8",
+  "opencore": {
+    "version": "1.0.8",
+    "commit": "6fe4d15cb66596d99d8cfedce69d8fc6dad71886",
+    "archive_sha256": "2011e8b7216ecb2645d97ea710df965947edd406846e92050b9bc4190be6d27b",
+    "license": "BSD-3-Clause",
+    "profile": "Dedicated VM profile; no HP ACPI, CPU spoof, kext injection or identity updates",
+    "runtime_protocol_guid": "570332E4-FC50-4B21-ABE8-AE72F05B4FF7",
+    "runtime_protocol_revision": 12,
+    "hfs_driver_name": "Fsw hfsplus File System Driver",
+    "hfs_name_source_path": "Staging/OpenHfsPlus/fsw_efi.c",
+    "hfs_name_source_blob_sha": "df75f08ee7eb60fdf19b8d091b964aa87e3bdb25"
+  },
+  "virtual_machine": {
+    "qemu_version": "11.1.2",
+    "ovmf_version": "202608",
+    "gnu_efi_version": "4.0.2",
+    "lld_version": "21.1.8",
+    "accelerator": "tcg",
+    "cpu": "Haswell-noTSX,-pcid,-tsc-deadline,-invpcid",
+    "memory_mib": 512,
+    "network": false,
+    "physical_disks": false,
+    "pci_passthrough": false,
+    "variable_store": "Per-run OVMF_VARS regular file only"
+  },
+  "toolchain_inventory": {
+    "path": ".local/nonboot-vm/toolchain-inventory.json",
+    "sha256": "f1527a1a0f754f94dee9ae80ddd5ebe06e620422f07820c7004f4d519c7fbc43",
+    "nixpkgs_source_nar_hash": "sha256-jBYGPi4udQ9uo4KQp9m2J0546nJVQitG15gvZSaVVAs=",
+    "git_revision_known": false,
+    "qemu_nar_hash": "sha256-cdejF42c405vjL94mo3Tq6Il1+cO2G9YWLq80aaYc6M=",
+    "ovmf_nar_hash": "sha256-//tP//Er6GOuEPR50ahk8fbh2bMMtI50bdocTVtxEEs=",
+    "gnu_efi_nar_hash": "sha256-vLV84lwZluAPqKd+Q+WmvOKv/TcQiVMGchgIlb/uHpo=",
+    "lld_nar_hash": "sha256-Ckv/L+cQgo6JPBcKvWIItJKXm88KI2IuCUHBfh3Wm3g=",
+    "licenses": {"qemu": "GPL-2.0-or-later", "ovmf": "BSD-2-Clause", "gnu_efi": "Upstream mixed BSD/GPL/MIT files; see fixed package source", "lld": "Apache-2.0 WITH LLVM-exception and upstream legacy notices"}
+  },
+  "cases": [
+    {"name": "firmware-control", "exit_code": 35, "expected_exit_code": 35, "openruntime_revision_12": false, "hfs_driver_binding": false, "virtual_gop": true, "virtual_acpi_2": true, "result": "Expected missing-component result detected"},
+    {"name": "opencore-drivers", "exit_code": 33, "expected_exit_code": 33, "openruntime_revision_12": true, "hfs_driver_binding": true, "virtual_gop": true, "virtual_acpi_2": true, "result": "Actual OpenCore and both UEFI driver interfaces available; driver-name function called successfully"},
+    {"name": "missing-hfs-control", "exit_code": 35, "expected_exit_code": 35, "openruntime_revision_12": true, "hfs_driver_binding": false, "virtual_gop": true, "virtual_acpi_2": true, "result": "Removing the actual driver changes the observed interface set"}
+  ],
+  "opencore_config_validation_exit_codes": [0, 0],
+  "unattended_picker": "QMP captures picker, then sends Enter to the sole visible ComponentProbe tool",
+  "hfs_image_filename_retained": false,
+  "hfs_volume_reads_tested": false,
+  "kernel_executed": false,
+  "kext_loaded": false,
+  "hp_hardware_tested": false,
+  "metal_tested": false,
+  "recovery_diagnostic_manifest": "manifests/nonboot-recovery-check.json"
+}

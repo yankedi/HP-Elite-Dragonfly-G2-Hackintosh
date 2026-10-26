@@ -1,0 +1,63 @@
+--- GA38/corpus/corpus.py
++++ GA39/validator/ga38/corpus/corpus.py
+@@ -39,7 +39,7 @@
+ 
+ def extract(destination: Path) -> dict:
+     destination = output_root(destination)
+-    capture = ROOT.parent / 'GA32/capture/tgl-hang-GA32b-crash-20261018.bin'
++    capture = HISTORY.parent / 'GA32/capture/tgl-hang-GA32b-crash-20261018.bin'
+     raw = authenticated(capture, CAPTURE_SHA)
+     if len(raw) != 99648:
+         raise Rejected('CAPTURE_LENGTH', str(len(raw)))
+--- GA38/ir/iga_adapter.py
++++ GA39/validator/ga38/ir/iga_adapter.py
+@@ -34,7 +34,7 @@
+         # as GA32 evidence. Preserve the distinction in the tool receipt.
+         identities = load(ROOT / 'reference/inventory/PROVENANCE.json')['tool_identity']
+         libentry = next((v for v in identities.values()
+-                         if v.get('path') == str(library.relative_to(ROOT.parent))), None)
++                         if v.get('path') == str(library.relative_to(HISTORY.parent))), None)
+     if libentry is None or sha(library.read_bytes()) != libentry['sha256']:
+         raise Rejected('TOOL_LIBRARY_HASH_MISMATCH', str(library))
+     return {'binary_path': str(binary), 'binary_sha256': entry['sha256'], 'source_commit': PIN,
+--- GA38/tests/test_core.py
++++ GA39/validator/ga38/tests/test_core.py
+@@ -16,7 +16,7 @@
+ ROOT = Path(__file__).resolve().parents[1]
+ for sub in ['tools', 'ir', 'dependency', 'validator']:
+     sys.path.insert(0, str(ROOT / sub))
+-from common import Rejected, frames, load, output_root, sha, analysis_run
++from common import HISTORY, Rejected, frames, load, output_root, sha, analysis_run
+ from semantic_ir import operand_access, symbolic
+ from dependency_graph import overlap
+ from message_ir import bits, immediate
+@@ -128,7 +128,7 @@
+                 bits(n, 31, 0)
+ 
+     def test_output_scope_rejected(self):
+-        for p in [ROOT.parent / 'GA32-ISA-Lab', Path('/tmp/opencode/ga38-escape')]:
++        for p in [HISTORY, HISTORY.parent / 'GA38-Shader-IR-Lab', Path('/tmp/opencode/ga38-escape')]:
+             with self.assertRaises(Rejected):
+                 output_root(p)
+ 
+--- GA38/tools/common.py
++++ GA39/validator/ga38/tools/common.py
+@@ -7,7 +7,8 @@
+ from pathlib import Path
+ 
+ ROOT = Path(__file__).resolve().parents[1]
+-HISTORY = ROOT.parent / 'GA32-ISA-Lab'
++LAB39 = ROOT.parents[1]
++HISTORY = LAB39.parent / 'GA32-ISA-Lab'
+ MAX_PROGRAM_BYTES = 1 << 20
+ MAX_INSTRUCTIONS = 256  # bounded straight-line corpus/expansion model, per program
+ 
+@@ -53,7 +54,7 @@
+ def output_root(path: Path) -> Path:
+     """Resolve before any write; historical directories are never output roots."""
+     result = path.resolve()
+-    if result != ROOT and ROOT not in result.parents:
++    if result != LAB39 and LAB39 not in result.parents:
+         raise Rejected('OUTPUT_SCOPE', str(result))
+     return result
+ 

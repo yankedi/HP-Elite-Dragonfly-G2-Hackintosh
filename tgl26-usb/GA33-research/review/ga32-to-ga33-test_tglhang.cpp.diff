@@ -1,0 +1,152 @@
+--- ga32/tests/test_tglhang.cpp	2026-10-18 02:20:15.526916764 +0800
++++ ga33/tests/test_tglhang.cpp	2026-10-18 04:31:33.953910379 +0800
+@@ -238,10 +238,12 @@
+ 	map4K(p, pml4, IBASE + PS_OFF, psPhys0);
+ }
+ 
++static Reader g_lastReader {}; // GA3.3: the reader of the most recent capture, for diagnostics tests
++
+ static void runCapture(Platform &p, CaptureInput &in, CaptureOutput &out) {
+-	Reader reader {&p, harnessRead, harnessAllow, &p};
+-	capture(reader, in, out);
+-	finishCounters(reader, out);
++	g_lastReader = Reader {&p, harnessRead, harnessAllow, &p};
++	capture(g_lastReader, in, out);
++	finishCounters(g_lastReader, out);
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -612,6 +614,124 @@
+ 	CHECK_EQ(packResolveDiag(false, true, true, false, 0x0F), 0x000F0006u);
+ }
+ 
++// GA3.3: the reader records the first refusal with its context and the stage reached.
++static void test_ga33_first_failure_context() {
++	tests++;
++	// (a) the batch data page is refused by the classifier: level 0, the page is recorded
++	{
++		Platform p;
++		Fences f {};
++		standardFences(f);
++		p.fences = f;
++		uint64_t pml4 = p.alloc();
++		std::vector<uint64_t> batchPhys;
++		for (int i = 0; i < 8; i++)
++			batchPhys.push_back(p.alloc());
++		uint64_t badPage = batchPhys[0];
++		p.invalidate(badPage);
++		for (int i = 0; i < 8; i++)
++			map4K(p, pml4, BSTART + i * 4096, batchPhys[i]);
++		CaptureOutput out {};
++		CaptureInput in = makeInput(pml4);
++		runCapture(p, in, out);
++		CHECK_EQ(out.result, UnsafePhysicalRange);
++		CHECK(g_lastReader.failSeen);
++		CHECK_EQ(g_lastReader.failStage, StageBatch);
++		CHECK_EQ(g_lastReader.failLevel, 0u);
++		CHECK_EQ(g_lastReader.failGpuVA, BSTART);
++		CHECK_EQ(g_lastReader.failPhys, badPage);
++		CHECK_EQ(g_lastReader.readAttempts, 4u); // PML4E, PDPE, PDE, PTE
++		CHECK_EQ(g_lastReader.readSuccesses, 4u);
++		CHECK_EQ(g_lastReader.stage, StageBatch);
++	}
++	// (b) the page-table page is refused: the refusal happens at the entry level
++	{
++		Platform p;
++		Fences f {};
++		standardFences(f);
++		p.fences = f;
++		uint64_t pml4 = p.alloc();
++		std::vector<uint64_t> batchPhys;
++		for (int i = 0; i < 8; i++)
++			batchPhys.push_back(p.alloc());
++		for (int i = 0; i < 8; i++)
++			map4K(p, pml4, BSTART + i * 4096, batchPhys[i]);
++		uint64_t pt = tableFor(p, pml4, BSTART, 0, true);
++		p.invalidate(pt);
++		CaptureOutput out {};
++		CaptureInput in = makeInput(pml4);
++		runCapture(p, in, out);
++		CHECK_EQ(out.result, UnsafePhysicalRange);
++		CHECK(g_lastReader.failSeen);
++		CHECK_EQ(g_lastReader.failStage, StageBatch);
++		CHECK_EQ(g_lastReader.failLevel, 0u);
++		CHECK_EQ(g_lastReader.failTable, pt & ~0xFFFULL);
++		CHECK_EQ(g_lastReader.failPhys, pt + ((BSTART >> 12) & 0x1FF) * 8);
++		CHECK_EQ(g_lastReader.readAttempts, 3u);
++		CHECK_EQ(g_lastReader.failGpuVA, BSTART);
++	}
++	// (c) classifier gate: nothing was attempted, the stage is the gate
++	{
++		Platform p;
++		uint64_t pml4 = p.alloc();
++		CaptureOutput out {};
++		CaptureInput in = makeInput(pml4, false);
++		runCapture(p, in, out);
++		CHECK_EQ(out.result, MemoryMapUnverified);
++		CHECK(!g_lastReader.failSeen);
++		CHECK_EQ(g_lastReader.stage, StageClassifier);
++	}
++	// (d) exclusions gate
++	{
++		Platform p;
++		uint64_t pml4 = p.alloc();
++		CaptureOutput out {};
++		CaptureInput in = makeInput(pml4);
++		deriveFences(0, 0, 0, 0, true, STOLEN_BASE, 128ULL << 20, true, 16ULL << 30, in.fences);
++		runCapture(p, in, out);
++		CHECK_EQ(out.result, UnsafePhysicalRange);
++		CHECK(!g_lastReader.failSeen);
++		CHECK_EQ(g_lastReader.stage, StageExclusions);
++	}
++	// (e) a 2 MiB large page keeps its level in the diagnostics
++	{
++		Platform p;
++		Fences f {};
++		standardFences(f);
++		p.fences = f;
++		uint64_t pml4 = p.alloc();
++		uint64_t base2M = p.alloc();
++		map2M(p, pml4, BATCH, base2M);
++		CaptureOutput out {};
++		CaptureInput in = makeInput(pml4);
++		runCapture(p, in, out);
++		CHECK_EQ(out.result, UnsafePhysicalRange);
++		CHECK(g_lastReader.failSeen);
++		CHECK_EQ(g_lastReader.failLevel, 1u); // 2 MiB page entry found at level 1
++		CHECK_EQ(g_lastReader.failPhys, (base2M & ~0x1FFFFFULL) + (BSTART & 0x1FFFFFULL & ~0xFFFULL));
++	}
++}
++
++// GA3.3: a complete capture reaches the done stage with all reads successful.
++static void test_ga33_happy_path_diag() {
++	tests++;
++	Platform p;
++	Fences f {};
++	standardFences(f);
++	p.fences = f;
++	uint64_t pml4 = p.alloc();
++	std::vector<uint64_t> batchPhys;
++	buildHappyPath(p, pml4, batchPhys);
++	CaptureOutput out {};
++	CaptureInput in = makeInput(pml4);
++	runCapture(p, in, out);
++	CHECK_EQ(out.result, Ok);
++	CHECK_EQ(g_lastReader.stage, StageDone);
++	CHECK(!g_lastReader.failSeen);
++	CHECK_EQ(g_lastReader.readAttempts, 59u); // 48 table entries + 11 data pages
++	CHECK_EQ(g_lastReader.readSuccesses, 59u);
++}
++
+ static void test_limits() {
+ 	tests++;
+ 	Platform p;
+@@ -796,6 +916,8 @@
+ 	test_stolen_fence_blocks_even_if_classifier_lies();
+ 	test_tolud_fence_blocks_hole();
+ 	test_pack_resolve_diag();
++	test_ga33_first_failure_context();
++	test_ga33_happy_path_diag();
+ 	test_forged_high_physical_addresses();
+ 	test_ppnum_conversion();
+ 	test_missing_earlier_pages_tolerated();

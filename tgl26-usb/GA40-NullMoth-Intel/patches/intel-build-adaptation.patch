@@ -1,0 +1,312 @@
+--- a/meson.options
++++ b/meson.options
+@@ -722,6 +722,14 @@
+ )
+ 
+ option(
++  'intel-compiler-standalone',
++  type : 'boolean',
++  value : false,
++  description : 'Enter the Intel source subtree to build compiler libraries ' +
++                'without an Intel Vulkan/GL driver (GA40 offline build harness).'
++)
++
++option(
+   'video-codecs',
+   type : 'array',
+   value : ['all_free'],
+--- a/meson.build
++++ b/meson.build
+@@ -998,6 +998,7 @@
+   with_clc,
+   with_gallium_va and with_video_encode,
+   with_gallium_mediafoundation and with_video_encode,
++  get_option('intel-compiler-standalone'),
+ ].contains(true)
+ if with_gfx_compute
+   pre_args += '-DHAVE_GFX_COMPUTE'
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -98,7 +98,7 @@
+ if with_imagination_vk or with_tools.contains('imagination')
+   subdir('imagination')
+ endif
+-if with_any_intel
++if with_any_intel or get_option('intel-compiler-standalone')
+   subdir('intel')
+ endif
+ if with_gallium_panfrost or with_gallium_lima or with_panfrost_vk or with_tools.contains('panfrost')
+--- a/src/intel/compiler/meson.build
++++ b/src/intel/compiler/meson.build
+@@ -54,6 +54,7 @@
+ subdir('gen')
+ subdir('brw')
+ subdir('jay')
++subdir('standalone')
+ 
+ if with_intel_elk
+   subdir('elk')
+--- a/src/intel/compiler/standalone/meson.build
++++ b/src/intel/compiler/standalone/meson.build
+@@ -0,0 +1,14 @@
++# GA40 offline Intel Gen12 compiler harness (links real Mesa compiler libs).
++intel_gen12_compile = executable(
++  'intel_gen12_compile',
++  files('intel_gen12_compile.c'),
++  include_directories : [inc_include, inc_src, inc_intel, inc_intel_compiler],
++  dependencies : [
++    idep_intel_compiler_brw,
++    idep_nir, idep_vtn, idep_mesautil, idep_intel_dev, idep_genxml, idep_mda,
++    dep_dl, dep_thread, dep_m,
++  ],
++  c_args : [no_override_init_args],
++  gnu_symbol_visibility : 'hidden',
++  install : false,
++)
+--- a/src/intel/compiler/standalone/intel_gen12_compile.c
++++ b/src/intel/compiler/standalone/intel_gen12_compile.c
+@@ -0,0 +1,244 @@
++/*
++ * GA40 offline Intel Gen12 (TGL) compiler harness.
++ *
++ * This is NOT an ANV device driver and does not open /dev/dri, issue ioctls,
++ * or submit GPU work.  It links the actual Mesa 26.2.3 Intel compiler
++ * libraries and calls the same internal interfaces ANV uses, but with a
++ * static device description:
++ *
++ *   intel_get_device_info_for_build(0x9a49, &devinfo)   (TGL GT2)
++ *   brw_compiler_create()
++ *   spirv_to_nir()  [optional real SPIR-V input]
++ *   brw_preprocess_nir()
++ *   brw_compile_cs()
++ *
++ * Input:  argv[1] = .spv file, or "-" for a built-in direct-NIR compute shader.
++ * Output: argv[2] = raw kernel binary for the Intel IGA disassembler.
++ */
++
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/stat.h>
++
++#include "compiler/nir/nir.h"
++#include "compiler/nir/nir_builder.h"
++#include "compiler/spirv/nir_spirv.h"
++#include "compiler/brw/brw_compiler.h"
++#include "compiler/brw/brw_nir.h"
++#include "dev/intel_device_info.h"
++#include "dev/intel_debug.h"
++#include <stdarg.h>
++#include "util/ralloc.h"
++#include "compiler/glsl_types.h"
++
++static nir_shader *
++build_direct_nir(const nir_shader_compiler_options *options)
++{
++   nir_builder b = nir_builder_init_simple_shader(MESA_SHADER_COMPUTE,
++                                                  options,
++                                                  "ga40-direct-nir-cs");
++   b.shader->info.workgroup_size[0] = 16;
++   b.shader->info.workgroup_size[1] = 1;
++   b.shader->info.workgroup_size[2] = 1;
++
++   nir_def *gid = nir_load_global_invocation_id(&b, 32);
++   nir_def *v = nir_iadd(&b, nir_channel(&b, gid, 0), nir_imm_int(&b, 7));
++   nir_def *addr = nir_imm_int64(&b, 0x1000);
++   nir_store_global(&b, v, addr);
++
++   return b.shader;
++}
++
++
++/* ANV internal kernels use this same lowering for offline dispatches whose
++ * base workgroup id is (0,0,0).  It keeps base_workgroup_id out of the
++ * backend, which has no hardware payload slot for it. */
++static bool
++lower_base_workgroup_id(nir_builder *b, nir_intrinsic_instr *intrin,
++                        void *data)
++{
++   if (intrin->intrinsic != nir_intrinsic_load_base_workgroup_id)
++      return false;
++
++   b->cursor = nir_instr_remove(&intrin->instr);
++   nir_def_rewrite_uses(&intrin->def, nir_imm_zero(b, 3, 32));
++   return true;
++}
++
++static void
++noop_shader_log(void *data, unsigned *id, const char *fmt, ...)
++{
++   (void)data;
++   (void)id;
++   (void)fmt;
++}
++
++static void
++shared_type_info(const struct glsl_type *type, unsigned *size, unsigned *align)
++{
++   assert(glsl_type_is_vector_or_scalar(type));
++
++   uint32_t comp_size = glsl_type_is_boolean(type)
++      ? 4 : glsl_get_bit_size(type) / 8;
++   unsigned length = glsl_get_vector_elements(type);
++   *size = comp_size * length;
++   *align = comp_size * (length == 3 ? 4 : length);
++}
++
++static uint32_t *
++read_spirv(const char *path, size_t *out_words)
++{
++   FILE *f = fopen(path, "rb");
++   if (!f) {
++      perror(path);
++      return NULL;
++   }
++   if (fseek(f, 0, SEEK_END) != 0) {
++      fclose(f);
++      return NULL;
++   }
++   long size = ftell(f);
++   if (size <= 0 || (size % 4) != 0) {
++      fprintf(stderr, "invalid SPIR-V size: %ld\n", size);
++      fclose(f);
++      return NULL;
++   }
++   rewind(f);
++   uint32_t *words = malloc((size_t)size);
++   if (!words || fread(words, 1, (size_t)size, f) != (size_t)size) {
++      fprintf(stderr, "short read: %s\n", path);
++      free(words);
++      fclose(f);
++      return NULL;
++   }
++   fclose(f);
++   *out_words = (size_t)size / 4;
++   return words;
++}
++
++int
++main(int argc, char **argv)
++{
++   if (argc != 3) {
++      fprintf(stderr, "usage: %s <input.spv|-> <output.bin>\n", argv[0]);
++      return 2;
++   }
++
++   void *mem_ctx = ralloc_context(NULL);
++
++   process_intel_debug_variable();
++   glsl_type_singleton_init_or_ref();
++
++   struct intel_device_info devinfo = { 0 };
++   /* TGL GT2, the same Gen12 family used by the EliteBook; no device opened. */
++   if (!intel_get_device_info_for_build(0x9a49, &devinfo)) {
++      fprintf(stderr, "intel_get_device_info_for_build failed\n");
++      return 1;
++   }
++
++   struct brw_compiler *compiler = brw_compiler_create(mem_ctx, &devinfo);
++   compiler->shader_debug_log = noop_shader_log;
++   compiler->shader_perf_log = noop_shader_log;
++   if (!compiler) {
++      fprintf(stderr, "brw_compiler_create failed\n");
++      return 1;
++   }
++
++   nir_shader *nir = NULL;
++   const char *mode;
++   if (strcmp(argv[1], "-") == 0) {
++      mode = "direct-nir";
++      nir = build_direct_nir(&compiler->nir_options[MESA_SHADER_COMPUTE]);
++   } else {
++      mode = "spirv";
++      size_t word_count = 0;
++      uint32_t *words = read_spirv(argv[1], &word_count);
++      if (!words)
++         return 1;
++
++      struct spirv_to_nir_options spirv_opts = {
++         .environment = NIR_SPIRV_VULKAN,
++         .create_library = false,
++      };
++      nir = spirv_to_nir(words, word_count, NULL, MESA_SHADER_COMPUTE, "main",
++                         &spirv_opts,
++                         &compiler->nir_options[MESA_SHADER_COMPUTE]);
++      free(words);
++      if (!nir) {
++         fprintf(stderr, "spirv_to_nir failed\n");
++         return 1;
++      }
++   }
++
++   if (!nir) {
++      fprintf(stderr, "NIR creation failed\n");
++      return 1;
++   }
++
++   nir_shader_gather_info(nir, nir_shader_get_entrypoint(nir));
++
++   struct brw_nir_compiler_opts brw_opts = { 0 };
++   brw_preprocess_nir(compiler, nir, &brw_opts);
++
++   NIR_PASS(_, nir, nir_shader_intrinsics_pass, lower_base_workgroup_id,
++            nir_metadata_control_flow, NULL);
++
++   struct brw_cs_prog_key key = { 0 };
++   struct brw_cs_prog_data prog_data = { 0 };
++
++   if (mesa_shader_stage_uses_workgroup(nir->info.stage)) {
++      NIR_PASS(_, nir, nir_lower_vars_to_explicit_types,
++               nir_var_mem_shared, shared_type_info);
++      NIR_PASS(_, nir, nir_lower_explicit_io,
++               nir_var_mem_shared, nir_address_format_32bit_offset);
++   }
++
++   NIR_PASS(_, nir, brw_nir_lower_cs_intrinsics, compiler->devinfo, &prog_data);
++   NIR_PASS(_, nir, brw_nir_lower_cs_subgroup_id, compiler->devinfo, 0);
++
++   /* One dword of push data carries the subgroup id at offset 0. */
++   prog_data.base.push_sizes[0] = 4;
++   brw_cs_fill_push_const_info(compiler->devinfo, &prog_data, -1);
++   prog_data.base.push_sizes[0] = align(prog_data.base.push_sizes[0], 32);
++   struct brw_compile_cs_params params = {
++      .base = {
++         .mem_ctx = mem_ctx,
++         .nir = nir,
++         .key = &key.base,
++         .prog_data = (struct brw_stage_prog_data *)&prog_data,
++      },
++   };
++
++   const unsigned *program = brw_compile(compiler, &params.base);
++   if (!program || prog_data.base.program_size == 0) {
++      fprintf(stderr, "brw_compile failed: %s\n",
++              params.base.error_str ? params.base.error_str : "(no error_str)");
++      return 1;
++   }
++
++   FILE *out = fopen(argv[2], "wb");
++   if (!out) {
++      perror(argv[2]);
++      return 1;
++   }
++   fwrite(program, 1, prog_data.base.program_size, out);
++   fclose(out);
++
++   printf("mode=%s\n", mode);
++   printf("pci_id=0x%04x name=%s ver=%u verx10=%u\n",
++          devinfo.pci_device_id, devinfo.name, devinfo.ver, devinfo.verx10);
++   printf("local_size=%u,%u,%u\n", prog_data.local_size[0],
++          prog_data.local_size[1], prog_data.local_size[2]);
++   printf("prog_mask=0x%x prog_offset=%u,%u,%u program_size=%u\n",
++          prog_data.prog_mask, prog_data.prog_offset[0],
++          prog_data.prog_offset[1], prog_data.prog_offset[2],
++          prog_data.base.program_size);
++   printf("total_scratch=%u total_shared=%u\n",
++          prog_data.base.total_scratch, prog_data.base.total_shared);
++
++   ralloc_free(mem_ctx);
++   glsl_type_singleton_decref();
++   return 0;
++}

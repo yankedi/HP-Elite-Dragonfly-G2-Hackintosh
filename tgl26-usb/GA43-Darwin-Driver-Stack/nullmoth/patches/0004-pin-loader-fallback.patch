@@ -1,0 +1,33 @@
+Subject: [PATCH] plugin: refuse conflicting ambient ICDs on loader fallback
+
+Apply after 0001..0003. Preserve a known vendor's standard Vulkan loader
+fallback only when ambient driver paths agree with the selected ICD.
+
+--- a/plugin/nvmtl_vk.c
++++ b/plugin/nvmtl_vk.c
+@@ -722,3 +722,15 @@
++static int nvmtl_vk_loader_env_matches(const char *selected_json)
++{
++    if (!selected_json) return 0;
++    const char *modern = getenv("VK_DRIVER_FILES");
++    const char *legacy = getenv("VK_ICD_FILENAMES");
++    const char *extra = getenv("VK_ADD_DRIVER_FILES");
++    /* No environment rewrites/restoration for an already configured loader.
++     * Reject lists and empty overrides too; accept only the exact bound ICD. */
++    return (!modern || !strcmp(modern, selected_json)) &&
++           (!legacy || !strcmp(legacy, selected_json)) && (!extra || !*extra);
++}
++
+ static int nvmtl_vk_initialize(void)
+ {
+     if (g_state) return g_state == 1 ? 0 : -1;
+@@ -775,3 +787,8 @@
+     if (!pvkGetInstanceProcAddr) {
+-        if (!getenv("VK_ICD_FILENAMES")) setenv("VK_ICD_FILENAMES", selected_json, 1);
++        if (!nvmtl_vk_loader_env_matches(selected_json)) {
++            nvlog("vk: ambient ICD configuration conflicts with the bound vendor");
++            return -1;
++        }
++        if (!getenv("VK_ICD_FILENAMES") && setenv("VK_ICD_FILENAMES", selected_json, 1))
++            return -1;
+         g_lib = dlopen(NVMTL_LOADER, RTLD_NOW | RTLD_LOCAL);

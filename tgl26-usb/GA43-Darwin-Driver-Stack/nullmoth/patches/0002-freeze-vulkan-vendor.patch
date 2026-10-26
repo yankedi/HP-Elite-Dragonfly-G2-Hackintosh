@@ -1,0 +1,87 @@
+Subject: [PATCH] plugin: serialize first binding and freeze vendor before Vulkan
+
+Apply after 0001 to NullMoth 47f818b11cef59acb480210afdf9065fdd44e356.
+The one-shot Vulkan state cannot switch vendors after selecting an ICD.
+
+--- a/plugin/nvmtl_vk.c
++++ b/plugin/nvmtl_vk.c
+@@ -14,6 +14,7 @@
+ #include <string.h>
+ #include <stdint.h>
+ #include <stdatomic.h>
++#include <pthread.h>
+ #include <math.h>
+ #define VK_NO_PROTOTYPES 1
+ #include <vulkan/vulkan.h>
+@@ -67,6 +68,8 @@
+ static uint16_t g_vendor;
+ /* An explicit Metal accelerator binding wins over any system-wide discovery. */
+ static int g_accelerator_bound;
++static int g_vendor_frozen;
++static pthread_mutex_t g_vendor_lock = PTHREAD_MUTEX_INITIALIZER;
+ static uint16_t nvmtl_pci_vendor_of(io_service_t accel)
+ {
+     io_registry_entry_t pci = 0; uint16_t v = 0;
+@@ -84,23 +87,29 @@
+ {
+     uint16_t v = 0;
+     if (accel) {
+-        g_accelerator_bound = 1;
+         if (IOObjectConformsTo(accel, "NMXAccel")) {
+             v = nvmtl_pci_vendor_of(accel);
+             if (v != 0x1002 && v != 0x8086) v = 0;
+         } else if (IOObjectConformsTo(accel, "NVAccel")) {
+             v = 0x10de;
+         }
+-        /* An explicit unknown binding must clear a previously discovered GPU. */
++    }
++    pthread_mutex_lock(&g_vendor_lock);
++    /* The first explicit binding wins until process exit. Vulkan startup
++     * also freezes discovery before any ICD/global handles are selected.
++     * Return this accelerator's vendor so NVMTLDevice rejects a mismatch. */
++    if (accel && !g_accelerator_bound && !g_vendor_frozen) {
++        g_accelerator_bound = 1;
+         g_vendor = v;
+     }
++    pthread_mutex_unlock(&g_vendor_lock);
+     return v;
+ }
+ /* A process that starts Vulkan before Metal may discover any supported
+  * accelerator. An explicit binding always wins and never falls back. */
+-uint16_t nvmtl_vk_vendor(void)
++static uint16_t nvmtl_vk_vendor_locked(void)
+ {
+-    if (g_accelerator_bound) return g_vendor;
++    if (g_accelerator_bound || g_vendor_frozen) return g_vendor;
+     if (g_vendor) return g_vendor;
+     io_service_t s = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("NVAccel"));
+     if (s) { IOObjectRelease(s); g_vendor = 0x10de; return g_vendor; }
+@@ -110,6 +119,20 @@
+     g_vendor = (v == 0x1002 || v == 0x8086) ? v : 0;
+     return g_vendor;
+ }
++uint16_t nvmtl_vk_vendor(void)
++{
++    pthread_mutex_lock(&g_vendor_lock);
++    uint16_t v = nvmtl_vk_vendor_locked();
++    pthread_mutex_unlock(&g_vendor_lock);
++    return v;
++}
++static void nvmtl_vk_freeze_vendor(void)
++{
++    pthread_mutex_lock(&g_vendor_lock);
++    (void)nvmtl_vk_vendor_locked();
++    g_vendor_frozen = 1;
++    pthread_mutex_unlock(&g_vendor_lock);
++}
+ static const char *nvmtl_vk_icd_json(void) {
+     switch (nvmtl_vk_vendor()) {
+     case 0x10de: return "/Library/GPUBundles/nvmtl/nvk_icd.json";
+@@ -702,6 +725,7 @@
+ {
+     if (g_state) return g_state == 1 ? 0 : -1;
+     g_state = -1;
++    nvmtl_vk_freeze_vendor();
+     if (!getenv("NVRM_FLUSH_TIMEOUT_MS")) {
+         char budget[32]; snprintf(budget, sizeof budget, "%ld", nvmtl_gpu_wait_budget_ms());
+         setenv("NVRM_FLUSH_TIMEOUT_MS", budget, 1);

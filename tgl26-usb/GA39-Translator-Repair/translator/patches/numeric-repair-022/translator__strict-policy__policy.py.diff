@@ -1,0 +1,36 @@
+--- before/translator/strict-policy/policy.py
++++ after/translator/strict-policy/policy.py
+@@ -18,13 +18,13 @@
+         return False, 'EXECUTION_OPTIONS_NOT_PROVEN'
+     if any(ins.get(k) not in (None, False) for k in ('sat', 'fm', 'cond', 'pred')):
+         return False, 'MODIFIED_OR_PREDICATED_MOV_NOT_PROVEN'
+-    if ins.get('es') not in {1, 2, 4, 8, 16, 32}:
+-        return False, 'EXECUTION_WIDTH_INVALID'
++    if ins.get('es') != 8 or ins.get('eo', 0) != 0 or ins.get('wren') is not True:
++        return False, 'BITCOPY_THEOREM_SHAPE_UNSUPPORTED'
+     operands = [ins.get('dst', {}), *ins.get('srcs', [])]
+     if len(operands) != 2:
+         return False, 'MOV_ARITY'
+     types = {o.get('type') for o in operands}
+-    if len(types) != 1 or not types <= {'ud', 'd', 'uw', 'w'}:
++    if len(types) != 1 or not types <= {'ud', 'd'}:
+         return False, 'NON_INTEGER_BITCOPY_OR_CONVERSION'
+     for o in operands:
+         if o.get('kind') != 'RD' or o.get('reg', {}).get('rn') != 'r':
+@@ -34,8 +34,15 @@
+         reg = o['reg']
+         if set(reg) - {'rn', 'r', 'sr'}:
+             return False, 'REGISTER_FIELD_UNPROVEN'
+-        if not 0 <= reg.get('r', 0) < 128:
++        if type(reg.get('r')) is not int or not 0 <= reg['r'] < 128:
+             return False, 'REGISTER_RANGE'
++        if reg.get('sr', 0) != 0:
++            return False, 'BITCOPY_THEOREM_SHAPE_UNSUPPORTED'
++    dst, src = operands
++    if dst.get('rgn') != {'h': 1} or src.get('rgn') != {'h': 1, 'v': 8, 'w': 8}:
++        return False, 'BITCOPY_THEOREM_SHAPE_UNSUPPORTED'
++    if dst['reg']['r'] == src['reg']['r']:
++        return False, 'SELF_COPY_THEOREM_NOT_REGISTERED'
+     allowed = {'kind', 'id', 'pc', 'op', 'es', 'eo', 'wren', 'opts', 'dst', 'srcs'}
+     if set(ins) - allowed:
+         return False, 'UNKNOWN_INSTRUCTION_FIELD'

@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "scope": "Stock DebugEnhancer diagnostic candidate prepared/delivered and subsequently HP-tested; buffer enlargement effective, USB absent",
+  "runner": "scripts/prepare_hp_dbgenh_retry.py",
+  "runner_sha256": "9de7421a60a456b537c74de2628623078e3b421c396794fb0062ab336b526194",
+  "basis": "manifests/hp-logbuffer-runtime-check.json",
+  "source": {
+    "path": ".local/install-prep/hp-dbgenh-source-tzbtwamm/provenance.json",
+    "sha256": "b9d2c803d32e5c88df27282dac338494d14702cf900bd5d5637d0a7bc53cc484",
+    "repository": "https://github.com/acidanthera/DebugEnhancer",
+    "tag": "1.1.1",
+    "commit": "8792fba2b28e51599e45e1293de868a179563d3a",
+    "asset_id": 270691119,
+    "asset_sha256": "2c0978c43fb6179fd5195ddec14c4dd9ab2eb46262021a33fcab78b5568ef67f",
+    "github_asset_digest_verified": true,
+    "release_notes_claim_macos26_constants": true,
+    "stock_binary_and_info_plist_preserved": true,
+    "license_preserved": true
+  },
+  "actual_kernel_static_audit": {
+    "path": ".local/install-prep/hp-dbgenh-source-tzbtwamm/actual-kernel-audit.json",
+    "sha256": "8b749b9554eedb0e7b2b409fb5ef781712ed239238f9ba242cfd372bfa19b745",
+    "kc_sha256": "c80161fa3065883753fc285339281361a8469cbb6fb27653c88e2a22eb4807a4",
+    "log_setsize_symbol_absent": true,
+    "fallback_symbols_kalloc_data_bsd_log_lock_safe_bsd_log_unlock_msgbuf_present": true,
+    "static_msgbuf_layout_and_magic_0x63061_size131072_match_upstream": true,
+    "stock_unmangled_IOHibernateSystemSleep_absent": true,
+    "expected_logging_route_group_failure": true,
+    "buffer_allocation_path_independent_of_route_group": true,
+    "runtime_allocation_not_verified": true
+  },
+  "lilu_route_review": {
+    "path": ".local/install-prep/hp-dbgenh-source-tzbtwamm/lilu-route-analysis.json",
+    "sha256": "a16b421f66366b7e5b8c94ec199718c0e61ffa06c54ed0503bc97ee92991eb4f",
+    "finding": "Pinned Lilu resolves entire stock group before routing; missing hibernate symbol returns before any group hooks. Buffer fallback is later independent source code; no IOLog redirect requested"
+  },
+  "candidate": {
+    "path": ".local/install-prep/hp-dbgenh-6n_6u7at/report.json",
+    "sha256": "c5dd7586752767e1bcae94ed9bfc44a23f567271763f02fc6f19a92305cbbe33",
+    "private_image": ".local/install-prep/hp-dbgenh-6n_6u7at/HP-Tahoe-VESA-XHCI-DBGENH.img",
+    "image_sha256": "c94f6010c804365c0730474fbfa18391223a43723549b30c4c3139b6932b4f19",
+    "source_image_sha256": "e55eb607858afda49cda89fe8a9f023143ff49ce20a937424cd9ba704a66ae72",
+    "config_sha256": "4a6ac7f1170420669cd2d4c96d018db244d2cc5edd38919d294649c8d8a296f4",
+    "only_change_from_xhci_baseline": "Add stock DebugEnhancer1.1.1 plus its Kernel.Add entry and license",
+    "ineffective_msgbuf_argument_absent": true,
+    "no_extra_debug_bootargs": true,
+    "other_image_files_identical": 47,
+    "other_configuration_and_private_identity_preserved": true,
+    "fallback_requested_buffer_bytes": 10485760,
+    "matching_opencore_version": "1.0.8",
+    "ocvalidate_exit": 0,
+    "physical_media_written": true,
+    "hp_tested": false
+  },
+  "native_injection": {
+    "path": ".local/install-prep/hp-dbgenh-6n_6u7at/native-summary.json",
+    "sha256": "21823710b1ec1b66f63499c1e8f589a512879b012f6f31d83122dcdd7ae3fc76",
+    "executable_kexts": 12,
+    "plist_only_injectors": 1,
+    "positive_exit": 0,
+    "new_debug_binary_corrupt_import_negative_exit": 255,
+    "generated_kc_metadata_readback_passed": true,
+    "original_kc_unchanged": true,
+    "host_harness": "Previously audited same-version tool with only FreePool(NULL) guard; production injection library/actual candidate OpenCore unmodified",
+    "generated_kc_deployed": false
+  },
+  "limit": "Static allocation symbols/layout and native linking are not bootability or early-log-retention proof. Stock plugin also requests PMRootDomain/Hibernate logging bits. Its other kernel route group is expected to fail on a missing name; no sleep behavior is being tested. USB/I2C/graphics matching and hardware settings retained",
+  "integration_audit": {
+    "path": ".local/install-prep/hp-dbgenh-6n_6u7at/integration-audit.json",
+    "sha256": "957d5a0f633eb7173892b07943611921e8e781a266df207c295710e88a66a5e5",
+    "history_events": 33,
+    "unique_history_runtime_dbgenh_refs_verified": 52,
+    "repository_checks": "make check passes45Python/38JSON/25Markdown;git diff --check passes"
+  },
+  "tested_log_capture": {
+    "path": ".local/install-prep/hp-log-capture-0oeph39o/report.json",
+    "sha256": "edd805c3462505969521fe7346bbda48f784e6c2ad1e8e821eb3dd644baacbe3",
+    "image_sha256": "09b2897260a31d51711bfe0c506d44ef9aa34e272cf6208c7940f106f0eeba28",
+    "original_files_identical": 48,
+    "all_files_saved": 50,
+    "two_added_exitbs_logs": [
+      "e5847a680ffadc5b295413583d268b1a77d966262206c2557957dd178bbd6304",
+      "d7349700ae7b86b2db43d976b65e55a419f4232d515d81d240aa8c30523e0b56"
+    ]
+  },
+  "usb_delivery": {
+    "path": ".local/install-prep/hp-dbgenh-delivery-7noy4xrx/report.json",
+    "sha256": "5591bc1279784974c4ca1ea79305cb1f5e57f246210ff9d179fe74972dc6e612",
+    "new_files": 3,
+    "candidate": "/ISO/linux/HP-Tahoe-VESA-XHCI-DBGENH.img",
+    "readback_after_unmount_and_readonly_remount": true,
+    "original_file_size_mtime_preserved": 229,
+    "six_original_image_hashes_verified": true,
+    "ventoy_efi_file_hashes_preserved": 995,
+    "ventoy_config_and_partition_geometry_preserved": true,
+    "offline_hfs_full_hash_before_copy_matches_original": true,
+    "offline_hfs_not_written_and_metadata_preserved": true,
+    "both_partitions_safely_unmounted": true
+  },
+  "final_delivery_audit": {
+    "path": ".local/install-prep/hp-dbgenh-delivery-7noy4xrx/final-audit.json",
+    "sha256": "cc53e6c0d7c5e5020e92fc7944def0624b67bba69ef731a825ef2e867119b3c6",
+    "history_events": 35,
+    "unique_history_runtime_dbgenh_refs_verified": 55,
+    "repository_checks": "make check passes45Python/38JSON/25Markdown;git diff --check passes"
+  },
+  "subsequent_physical_result": {
+    "evidence": "manifests/hp-dbgenh-runtime-check.json",
+    "actual_kern_msgbuf_bytes": 10485760,
+    "earliest_saved_kernel_uptime_seconds": 0.000175,
+    "full_runtime_archive_sha256": "068e94ce84362d6f02b7433dc8e45ff77e87cfd3a2507b724719aed49bbfc1b1",
+    "usb_restored": false
+  },
+  "next_action": "DBGENH tested IMG/newlog preserved; independent PCH-only RHUB fallback candidate delivered/readback verified,await user physical boot",
+  "vm_executed": false
+}

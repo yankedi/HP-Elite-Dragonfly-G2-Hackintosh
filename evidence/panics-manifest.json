@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "public_file": "panics/ga419-trial-1.txt",
+      "source_sha256": "89424ab0aedc69f6bdc0d409e7333a9b154797c2d7129ab22ba76f1e236f981e",
+      "public_text_sha256": "4f418fa62990be44f40c1b9febe91731b8db65057e43e89210775ca37fd15391",
+      "transformation": "Extracted complete macOSPanicString; removed native report envelope/stackshot field, no panic-text substitutions."
+    },
+    {
+      "public_file": "panics/ga419-trial-2.txt",
+      "source_sha256": "aaabce85f792842766849cfc5ee1b5d52e7220d05242502b192a99aad3f301ec",
+      "public_text_sha256": "8a59e55d3df904487081868ab0bd84777bdc22f8bf1ec859ece4815c86f813d4",
+      "transformation": "Extracted complete macOSPanicString; removed native report envelope/stackshot field, no panic-text substitutions."
+    },
+    {
+      "public_file": "panics/ga419-trial-3.txt",
+      "source_sha256": "f5c48657ed42f9d2a71abdccf19e429489086b1b0be8df88c3e13ece38beeeab",
+      "public_text_sha256": "6ffce8afaa04a746a23e4c2cf8d6770d977198e229fd07b7e521f2e5f0fdd968",
+      "transformation": "Extracted complete macOSPanicString; removed native report envelope/stackshot field, no panic-text substitutions."
+    },
+    {
+      "public_file": "panics/ga419-trial-4.txt",
+      "source_sha256": "d47336309e80c0585b0224ee3003309117cd89354bedb03ea65f869abef9fb60",
+      "public_text_sha256": "d47336309e80c0585b0224ee3003309117cd89354bedb03ea65f869abef9fb60",
+      "transformation": "Recovered firmware text from verified packA decoder; no native incident UUID exists."
+    }
+  ],
+  "review": "Reviewed panic text contains kernel addresses/version/model/bundle identities, not private hardware serials, SSH credentials or personal network data."
+}

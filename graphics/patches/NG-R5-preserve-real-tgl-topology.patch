@@ -1,0 +1,36 @@
+--- a/src/NootedGreen/kern_gen11.cpp
++++ b/src/NootedGreen/kern_gen11.cpp
+@@ -6326,6 +6326,33 @@
+ 	
+ 	FunctionCast(getGPUInfo, callback->ogetGPUInfo)(that);
+ 
++	// HP-R5: getGPUInfo already reads TGL's fuse-derived topology and computes
++	// its dispatch limits. The RPL override below changed 80 EU / 10 SS into
++	// 96 EU / 12 SS after those limits were computed (R4 boot + client trace).
++	// Keep the native fields, mirrors, frequencies and masks on real TGL.
++	if (NGreen::callback->isRealTGL) {
++		const UInt32 slices = getMember<UInt32>(that, 0x115c);
++		const UInt32 subslices = getMember<UInt32>(that, 0x1158);
++		const UInt32 euPerSS = getMember<UInt32>(that, 0x116c);
++		const UInt32 totalEU = getMember<UInt32>(that, 0x1124);
++		const UInt32 nativeL3 = getMember<UInt32>(that, 0x1164);
++		// The donor's L3 switch accepts 12 SS or a special 4-SS SKU, but
++		// leaves L3=0 for this verified 10-SS GT2. Retain R4's existing
++		// upstream 8-bank compatibility value only for that exact case.
++		// This is a fallback, not a fuse measurement or new EU override.
++		if (getKernelVersion() == KernelVersion::Tahoe &&
++			getMember<UInt32>(that, 0x1120) == 2 && slices == 1 &&
++			subslices == 10 && euPerSS == 8 && totalEU == 80 && nativeL3 == 0) {
++			getMember<UInt32>(that, 0x1164) = 8;
++			SYSLOG("ngreen", "HP-R5: TGL 80EU donor L3 fallback 0 -> 8 (retained R4 value)");
++		}
++		SYSLOG("ngreen", "HP-R5: native TGL topology slices=%u subslices=%u maxEU/SS=%u totalEU=%u L3Banks=%u nativeL3=%u mirrors=%u/%u dispatchers=%u",
++			slices, subslices, euPerSS, totalEU, getMember<UInt32>(that, 0x1164),
++			nativeL3, getMember<UInt32>(that, 0x0dd8), getMember<UInt32>(that, 0x0ddc),
++			getMember<UInt32>(that, 0x114c));
++		return;
++	}
++
+ 	// --- GPU topology override for RPL i7-13700H (verified from Linux i915 syslog) ---
+ 	// Linux i915 reports: 1 slice, 6 DSS (mask=0x3f), 16 EU/DSS, 96 EU total.
+ 	// TGL binary uses traditional sub-slices (SS), not dual sub-slices (DSS):

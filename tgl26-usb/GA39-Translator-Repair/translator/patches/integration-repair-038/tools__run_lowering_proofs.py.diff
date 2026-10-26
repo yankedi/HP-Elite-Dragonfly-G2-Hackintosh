@@ -1,0 +1,27 @@
+--- before/tools/run_lowering_proofs.py
++++ after/tools/run_lowering_proofs.py
+@@ -5,6 +5,9 @@
+ from pathlib import Path
+ 
+ ROOT = Path(__file__).resolve().parents[1]
++import sys
++sys.path.insert(0, str(ROOT / 'translator'))
++from trust import baseline_inputs
+ spec = importlib.util.spec_from_file_location('nf_proof', ROOT / 'numeric/proofs/lowering.py')
+ module = importlib.util.module_from_spec(spec)
+ spec.loader.exec_module(module)
+@@ -17,11 +20,9 @@
+     destination.mkdir(parents=True)
+     counts = {}
+     for shader in ['PS0', 'PS-KP1', 'PS-KP2', 'VS']:
+-        def load(p):
+-            return json.loads((baseline / p).read_text())
+-        source, target = [load(f'ir/outputs/{shader}-{side}.json') for side in ['source', 'candidate']]
+-        witness = load(f'validator/outputs/{shader}-comparison.json')['mapping_witness']
+-        paths = {shader: f'numeric/scratch-liveness/run-004/{shader}-scratch.json'} if shader != 'VS' else {}
++        _, source, target, comparison, _, _, _ = baseline_inputs(baseline, shader)
++        witness = comparison['mapping_witness']
++        paths = {shader: f'numeric/scratch-liveness/run-031/{shader}-scratch.json'} if shader != 'VS' else {}
+         proofs = module.prove(source, target, witness, paths)
+         (destination / f'{shader}.json').write_text(json.dumps(proofs, sort_keys=True, indent=2) + '\n')
+         counts[shader] = len(proofs['proofs'])

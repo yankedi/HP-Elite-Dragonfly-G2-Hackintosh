@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "opencore_version": "1.0.8",
+  "ocvalidate_examples": "PASS, matching1.0.8 Linux binary, both exit0",
+  "acpi_sources_compiled": [
+    "SSDT-EC-USBX-HP.dsl",
+    "SSDT-RHUB-HP.dsl",
+    "SSDT-PNLF-HP-GA419.dsl"
+  ],
+  "acpi_errors_warnings_remarks": 0,
+  "non_graphics_config_structures_equal": true,
+  "excluded_graphics_group_for_comparison": [
+    "NootedGreen/WhateverGreen Kernel/Add entries",
+    "GPU DeviceProperties/Add entry",
+    "boot-args value"
+  ],
+  "physical_retest_of_public_templates": false,
+  "note": "Schema/source compilation validates publication, not bootability or acceleration stability."
+}

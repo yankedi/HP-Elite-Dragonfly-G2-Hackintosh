@@ -1,0 +1,12 @@
+--- before/translator/research-mode/generator.json
++++ after/translator/research-mode/generator.json
+@@ -5,6 +5,9 @@
+   "mesa_pin": "863338275d915e867319c3690ffd3272b06303c3",
+   "provenance": "translator/source/native/PROVENANCE.json",
+   "build_receipt": "translator/source/native/BUILD-MATRIX.json",
++  "provenance_sha256": "9ef3e4e49ba9f7a4c8f90963d70f65349df68b86cb399d3e7adc586e6aac60ab",
++  "build_receipt_sha256": "ed9df8e995fa9c94cbc4c26f79d90501e1e9a80d8c3080f09042103183dbee06",
++  "cell": "clang-release",
+   "scope": "Archived 13-blob translator plus documented standalone Mesa adapter; not a complete upstream worktree",
+   "artifact_class": "NOT_FOR_HARDWARE",
+   "strict_admission": false

@@ -1,0 +1,29 @@
+--- before/translator/translate_unit.py
++++ after/translator/translate_unit.py
+@@ -29,13 +29,13 @@
+ 
+ def invoke(args, directory):
+     binary = ROOT39.parent / 'GA32-ISA-Lab/tools/iga/build/IGAExe/iga64'
+-    tool = verify_iga(binary)
+-    env = {k: v for k, v in os.environ.items() if k not in {'LD_PRELOAD', 'LD_AUDIT', 'LD_LIBRARY_PATH'}}
+-    env.update(PYTHONDONTWRITEBYTECODE='1', LD_LIBRARY_PATH=str(Path(tool['library_path']).parent))
+     command = [str(binary), *map(str, args)]
+     try:
++        tool = verify_iga(binary)
++        env = {k: v for k, v in os.environ.items() if k not in {'LD_PRELOAD', 'LD_AUDIT', 'LD_LIBRARY_PATH'}}
++        env.update(PYTHONDONTWRITEBYTECODE='1', LD_LIBRARY_PATH=str(Path(tool['library_path']).parent))
+         p = subprocess.run(command, env=env, capture_output=True, timeout=30)
+-    except (OSError, subprocess.TimeoutExpired) as e:
++    except (OSError, subprocess.SubprocessError) as e:
+         raise Rejected('TOOL_FAILURE', str(e)) from e
+     directory.mkdir(parents=True, exist_ok=True)
+     (directory / 'stdout.txt').write_bytes(p.stdout)
+@@ -127,6 +127,8 @@
+                              'not_a_complete_shader_or_GPU_execution_certificate': True})
+     except Rejected as exc:
+         report['rejection'] = exc.as_dict()
++    except (OSError, subprocess.SubprocessError, KeyError, TypeError, ValueError) as exc:
++        report['rejection'] = Rejected('UNIT_INPUT_OR_TOOL_FAILURE', str(exc)).as_dict()
+     dump(destination / 'report.json', report)
+     return report
+ 

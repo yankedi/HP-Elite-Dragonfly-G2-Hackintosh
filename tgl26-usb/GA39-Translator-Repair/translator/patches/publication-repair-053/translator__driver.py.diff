@@ -1,0 +1,61 @@
+--- before/translator/driver.py
++++ after/translator/driver.py
+@@ -128,20 +128,51 @@
+                        baseline_bytes_unchanged=sha(raw) == fixed['candidate']['sha256'],
+                        fresh_ga38_comparison_counts=review['counts'])
+             report['elapsed_seconds'] = time.monotonic() - begin
+-            # Candidate, successful validation state and report publish together.
++            # All fallible report writes precede the single publication rename.
++            # No post-publication root write can invalidate a committed bundle.
+             dump(stage / 'report.json', report)
++            dump(destination / 'report.json', report)
+             stage.rename(work)
+-        report['elapsed_seconds'] = time.monotonic() - begin
+-        dump(destination / 'report.json', report)
++        else:
++            report['elapsed_seconds'] = time.monotonic() - begin
++            dump(destination / 'report.json', report)
+     except (Rejected, OSError, subprocess.SubprocessError, KeyError, TypeError, ValueError) as exc:
+         rejection = exc if isinstance(exc, Rejected) else Rejected('RESEARCH_OR_ANALYSIS_FAILURE', str(exc))
+-        for partial in [stage, work]:
+-            if partial.exists():
+-                partial.rename(destination / 'rejected-NOT_FOR_HARDWARE')
+         report.update(rejection=rejection.as_dict(), full_shader_emitted=False,
+                       research_program_generated=False, verified_executable_program_emitted=False,
+                       research_validation_state='FAILED_NOT_PUBLISHED', elapsed_seconds=time.monotonic() - begin)
+-        dump(destination / 'report.json', report)
++        errors = []
++        # Best-effort independent failure records. Persistent failure of the root
++        # report path must not escape or leave a success report in quarantine.
++        for partial in [stage, work]:
++            if not partial.exists():
++                continue
++            quarantine = destination / 'rejected-NOT_FOR_HARDWARE'
++            try:
++                dump(partial / 'report.json', report)
++            except OSError as error:
++                errors.append({'path': str(partial / 'report.json'), 'error': str(error)})
++                try:
++                    (partial / 'report.json').unlink(missing_ok=True)
++                except OSError as unlink_error:
++                    errors.append({'path': str(partial / 'report.json'), 'error': str(unlink_error)})
++            try:
++                partial.rename(quarantine)
++            except OSError as error:
++                errors.append({'path': str(partial), 'error': str(error)})
++        if errors:
++            report['failure_record_io_errors'] = errors
++        try:
++            dump(destination / 'report.json', report)
++        except OSError as error:
++            errors.append({'path': str(destination / 'report.json'), 'error': str(error)})
++            report['failure_record_io_errors'] = errors
++            try:
++                dump(destination / 'failure-report.json', report)
++            except OSError as fallback_error:
++                errors.append({'path': str(destination / 'failure-report.json'), 'error': str(fallback_error)})
++                # The in-memory result remains structured even if all storage
++                # writes fail. No claim of a persisted failure record is made.
+     return report
+ 
+ 

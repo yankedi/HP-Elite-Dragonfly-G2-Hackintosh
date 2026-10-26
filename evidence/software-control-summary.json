@@ -1,0 +1,31 @@
+{
+  "gzip_and_both_hashes_verified": true,
+  "uncompressed_bytes": 2822835856,
+  "events": 2613574,
+  "invalid_JSON_lines": 1,
+  "partial_bytes": 386,
+  "schema_version": 1,
+  "last_event_uptime_seconds": 3755.013865024,
+  "stream_first_timestamp": "2026-10-27 01:20:27.497155+0800",
+  "stream_last_timestamp": "2026-10-27 02:20:57.069752+0800",
+  "compressed_bytes": 198641921,
+  "uncompressed_sha256": "3583e3ee91bc5c7ec35d8357e376885331ea0aea62f76d60b8442cbe62ed9f6d",
+  "compressed_sha256": "41910347c68afc6f5bcff585251b2ab4148dc2ca8d8059372ba3263c2c406d69",
+  "runtime_display": {
+    "resolution": "1920x1080",
+    "class": "IONDRVFramebuffer",
+    "memory_bytes": 8294400,
+    "device_id": "0xffff",
+    "absent_loaded_kexts": [
+      "NootedGreen",
+      "AppleIntelTGLGraphicsFramebuffer",
+      "AppleIntelTGLGraphics",
+      "HookCase"
+    ],
+    "actual_IntelAccelerator_services": [],
+    "WhateverGreen_version": "1.7.1"
+  },
+  "raw_stream_published": false,
+  "shutdown": "Confirmation and GUI shutdown/termination sequence visible; physical poweroff outside capture.",
+  "limitation": "One control run, workload not quantitatively matched; no exact-component causality or permanent-stability claim."
+}

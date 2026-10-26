@@ -1,0 +1,36 @@
+--- before/tests/test_integration_repairs.py
++++ after/tests/test_integration_repairs.py
+@@ -98,6 +98,33 @@
+         self.assertFalse((out / 'research-NOT_FOR_HARDWARE').exists())
+         self.assertEqual((out / 'rejected-NOT_FOR_HARDWARE/candidate.NOT_FOR_HARDWARE.bin').read_bytes(), raw)
+ 
++    def test_persistent_root_report_failure_never_publishes_success(self):
++        out = self.work / 'root-failure'
++        original = driver.dump
++
++        def fail_root(path, obj):
++            if path == out / 'report.json':
++                raise OSError('injected root report write failure')
++            return original(path, obj)
++
++        with patch.object(driver, 'dump', side_effect=fail_root):
++            result = driver.run('PS0', out, 'research')
++        self.assertEqual(result['research_validation_state'], 'FAILED_NOT_PUBLISHED')
++        self.assertFalse(result['full_shader_emitted'])
++        self.assertFalse((out / 'research-NOT_FOR_HARDWARE').exists())
++        quarantine = json.loads((out / 'rejected-NOT_FOR_HARDWARE/report.json').read_text())
++        self.assertEqual(quarantine['research_validation_state'], 'FAILED_NOT_PUBLISHED')
++        self.assertFalse(quarantine['research_program_generated'])
++        fallback = json.loads((out / 'failure-report.json').read_text())
++        self.assertFalse(fallback['full_shader_emitted'])
++
++    def test_total_report_storage_failure_returns_structured_result(self):
++        with patch.object(driver, 'dump', side_effect=OSError('injected storage failure')):
++            result = driver.run('PS0', self.work / 'no-storage', 'research')
++        self.assertEqual(result['research_validation_state'], 'FAILED_NOT_PUBLISHED')
++        self.assertIn('failure_record_io_errors', result)
++        self.assertFalse(result['full_shader_emitted'])
++
+ 
+ if __name__ == '__main__':
+     unittest.main()

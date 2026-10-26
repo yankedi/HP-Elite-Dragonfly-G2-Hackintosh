@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "scope": "Actual PCH-only RHUB boot: PCH builds its own ports, USB fully restored (Lexar mounted, external USB mouse works); TXHC control unchanged",
+  "basis": "manifests/hp-rhub-retry-check.json",
+  "private_report": ".local/install-prep/hp-rhub-boot-kefc4lbr/report.json",
+  "private_report_sha256": "64f3bd02e580bf4597d4ae669ba1949eb88389d800f09768fd488d746216a570",
+  "new_boot_utc": "2026-10-16T19:02:05Z",
+  "kernel": "xnu-12377.161.14~5/RELEASE_X86_64",
+  "bootargs": "-v keepsyms=1 debug=0x100 -igfxvesa -vi2c-force-polling",
+  "kern_msgbuf_bytes": 10485760,
+  "debugenhancer_loaded": "1.1.1",
+  "delivered_image_sha256_before_boot": "563b6a8cdaa2468c127b6440d5274441e76f864ddc4ad1984bcdce129cfc320b",
+  "post_boot_usb_img_recovered": false,
+  "acpi_result": {
+    "pch_RHUB_present_in_darwin": false,
+    "txhc_RHUB_retained": true,
+    "rhub_lines_removed_vs_prior_boot": 23,
+    "hp_xhc_p_load_error_still_logged_at_0_947952s": true,
+    "conclusion": "PCH _SB.PC00.XHCI.RHUB hidden from Darwin; TXHC RHUB untouched; OEM table load error persists but no longer blocks PCH port creation"
+  },
+  "usb_result": {
+    "pch_ports": {
+      "usb2": 12,
+      "usb3": 3,
+      "total": 15,
+      "macos_limit_message": "ports limit reached. Not creating the remaining 1 ports (macOS 15-port limit)"
+    },
+    "txhc_ports": {"usb2": 0, "usb3": 0},
+    "devices_enumerated": [
+      {"name": "Lexar USB Flash Drive", "vid_pid": "21c4:0809", "port": "PCH HS06", "speed_mbps": 480, "result": "enumerated; mounted removable exFAT volume; listing and 4MiB reads OK"},
+      {"name": "HP HD Camera", "vid_pid": "0408:5349", "port": "PCH HS02", "speed_mbps": 480},
+      {"name": "Intel Bluetooth", "vid_pid": "8087:0026", "port": "PCH HS10", "speed_mbps": 12},
+      {"name": "Synaptics", "vid_pid": "06cb:00f0", "port": "PCH HS07", "speed_mbps": 12},
+      {"name": "ATK A9 Mini+ external mouse", "vid_pid": "373b:128e", "port": "PCH HS04", "speed_mbps": 12, "hid_mouse_input_reports": 47287}
+    ]
+  },
+  "external_usb_mouse_user_report": "User reports it works (conversation-only; registry evidence: HID mouse usage with 47287 input reports)",
+  "lexar_read_tests": {
+    "sha256sums_file_read": true,
+    "offline_hfs_first4m_sha256": "4b07abbf9941e3ffe322b1c2970666198c645150f60cfd11328f340ed6e14e63",
+    "rhub_img_first4m_sha256": "eecd26e9b7d6da6b196390cc7ce07ba788e5539df39b77c83728700cb49a2f61"
+  },
+  "unchanged": {
+    "wifi": "AirportItlwm 2.4.0; en0 up; LAN SSH works",
+    "touchpad_SYNA30B6": "Polling",
+    "touchscreen_WACF4233": "APIC"
+  },
+  "evidence": {
+    "dmesg_full": {"path": ".local/install-prep/hp-rhub-boot-kefc4lbr/dmesg-full.txt", "sha256": "2433297744548ce9d37af18be0f36d3682db00195f0a0a73ef62a2162b1347bc"},
+    "acpi_plane_diff_vs_dbgensession": {"path": ".local/install-prep/hp-rhub-boot-kefc4lbr/acpi-plane-vs-dbgenh.diff", "sha256": "bdad89cee0ebcd6bb8a34c0fe6aae57251b9c821ef68632ebca0e1b693820ffe"},
+    "collector_archive": {"path": ".local/install-prep/hp-rhub-boot-kefc4lbr/hp-macos-observation.HQxUyS.tar.gz", "sha256": "d00fee85693c9a57408162f3a511ab6176be5fee988f8bfd3c0bb9108bfdeed2", "extracted_files": 155},
+    "lexar_read_proof": {"path": ".local/install-prep/hp-rhub-boot-kefc4lbr/lexar-read-proof.stdout", "sha256": "fee41da2fd8c67c32c8ab7a278bac5e6b43c60d4cc50e2d4639c8e0b53b5f69f"},
+    "ports_detail": {"path": ".local/install-prep/hp-rhub-boot-kefc4lbr/ports-detail.stdout", "sha256": "3a42f5c33d8e8e2201618a634e8949d91a5e65f95d24c26755aafe1c96d5aa90"}
+  },
+  "limits": "Tested IMG not yet recovered (contains new booter logs); installation start, sleep/audio/acceleration and general peripheral validation remain untested; no firmware/NVRAM/internal-EFI/partition writes",
+  "next_action": "When the USB returns: preserve the complete tested RHUB IMG and its new booter log, then plan installation on the existing free space or further validation"
+}

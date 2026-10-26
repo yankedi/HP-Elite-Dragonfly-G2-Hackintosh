@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "name": "vesa-prototype",
+  "status": "offline-prototype-not-deployment-ready",
+  "opencore_version": "1.0.8",
+  "system_product_name": "MacBookPro16,2",
+  "cpu_spoof_eax": "000706e5",
+  "kernel_range": ["25.0.0", "25.99.99"],
+  "boot_args": "-v keepsyms=1 debug=0x100 -igfxvesa",
+  "acpi": ["SSDT-PLUG.dsl"],
+  "kexts": ["Lilu.kext", "VirtualSMC.kext", "WhateverGreen.kext", "VoodooPS2Controller.kext", "VoodooPS2Controller.kext/Contents/PlugIns/VoodooPS2Keyboard.kext"],
+  "drivers": ["OpenRuntime.efi", "OpenHfsPlus.efi"],
+  "deployment_blockers": [
+    "No user-authorized reboot or first-boot test window",
+    "Keep existing Ventoy data; boot-media integration not established (92.40 GiB free verified read-only)",
+    "No macOS installation target selected",
+    "Firmware Secure Boot is currently enabled; firmware strategy must be settled before any external test",
+    "CPU spoof, CFG Lock bypass, memory-map quirks and EC behavior have not been tested on this HP",
+    "Complete USB map and installer network/offline image path are not available",
+    "Prototype uses blank machine identity fields; deployment requires a private identity and a fresh validation"
+  ]
+}

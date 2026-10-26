@@ -1,0 +1,36 @@
+--- a/src/NootedGreen/kern_gen11.cpp
++++ b/src/NootedGreen/kern_gen11.cpp
+@@ -2247,0 +2248,18 @@
++			// HP-R4: resolve_ccs+0xc7 also faults on real TGL with Tahoe IOAF2.
++			// Reuse upstream NOCCS3 independently of RPL topology overrides.
++			if (!NGreen::callback->isRealTGL || getKernelVersion() == KernelVersion::Tahoe) {
++				// xe/noccs3 (19/10): o XE-NOCCS2 (cortar enableRenderCompressionWithAccelTask inteira) deixava o driver Metal
++				// usando fast clear / stencil comprimido SEM mapeamento AUX -> hang do RCS no PIPE_CONTROL após o fast clear.
++				// O que panicava era só o RESOLVE: IntelAccelerator::submitCCSResolve -> resolve_ccs escreve no buffer 2 do
++				// IOAccelCommandBufferPool2, que no IOAcceleratorFamily2 do Tahoe não existe/difere (page fault).
++				// Agora: a compressão/AUX segue normal e submitCCSResolve retorna logo (xor eax,eax; ret); o chamador
++				// (IGAccelResource::submitCCSResolve) ignora o retorno. Prólogo (24 bytes, único) em 0x2c84c no 16.0.32.
++				static const uint8_t f_noccs3[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54,
++				                                    0x53, 0x48, 0x83, 0xec, 0x48, 0x48, 0x89, 0x75, 0xc0, 0xf6, 0x87, 0x78};
++				static const uint8_t r_noccs3[] = {0x31, 0xc0, 0xc3, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54,
++				                                    0x53, 0x48, 0x83, 0xec, 0x48, 0x48, 0x89, 0x75, 0xc0, 0xf6, 0x87, 0x78};
++				LookupPatchPlus const patchNoCCS3[] = {{activeKext, f_noccs3, r_noccs3, arrsize(f_noccs3), 1}};
++				SYSLOG("ngreen", "XE-NOCCS3: IntelAccelerator::submitCCSResolve -> retorno imediato: %s",
++					   LookupPatchPlus::applyAll(patcher, patchNoCCS3, address, size) ? "aplicado" : "NAO encontrado");
++			}
++
+@@ -2259,10 +2276,0 @@
+-				// xe/noccs3 (19/10): o XE-NOCCS2 (cortar enableRenderCompressionWithAccelTask inteira) deixava o driver Metal
+-				// usando fast clear / stencil comprimido SEM mapeamento AUX -> hang do RCS no PIPE_CONTROL após o fast clear.
+-				// O que panicava era só o RESOLVE: IntelAccelerator::submitCCSResolve -> resolve_ccs escreve no buffer 2 do
+-				// IOAccelCommandBufferPool2, que no IOAcceleratorFamily2 do Tahoe não existe/difere (page fault).
+-				// Agora: a compressão/AUX segue normal e submitCCSResolve retorna logo (xor eax,eax; ret); o chamador
+-				// (IGAccelResource::submitCCSResolve) ignora o retorno. Prólogo (24 bytes, único) em 0x2c84c no 16.0.32.
+-				static const uint8_t f_noccs3[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54,
+-				                                    0x53, 0x48, 0x83, 0xec, 0x48, 0x48, 0x89, 0x75, 0xc0, 0xf6, 0x87, 0x78};
+-				static const uint8_t r_noccs3[] = {0x31, 0xc0, 0xc3, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54,
+-				                                    0x53, 0x48, 0x83, 0xec, 0x48, 0x48, 0x89, 0x75, 0xc0, 0xf6, 0x87, 0x78};
+@@ -2284,3 +2291,0 @@
+-				LookupPatchPlus const patchNoCCS3[] = {{activeKext, f_noccs3, r_noccs3, arrsize(f_noccs3), 1}};
+-				SYSLOG("ngreen", "XE-NOCCS3: IntelAccelerator::submitCCSResolve -> retorno imediato: %s",
+-					   LookupPatchPlus::applyAll(patcher, patchNoCCS3, address, size) ? "aplicado" : "NAO encontrado");

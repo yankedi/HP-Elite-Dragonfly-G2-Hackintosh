@@ -1,0 +1,27 @@
+--- before/numeric/proofs/lowering.py
++++ after/numeric/proofs/lowering.py
+@@ -4,6 +4,13 @@
+ operand replacements are recorded separately from the unproved numeric theorem.
+ """
+ from __future__ import annotations
++from pathlib import Path
++import sys
++
++_ROOT = Path(__file__).resolve().parents[2]
++for _part in ['tools', 'ir']:
++    sys.path.insert(0, str(_ROOT / 'validator/ga38' / _part))
++from integrity import validate_program
+ 
+ NUMERIC_OBLIGATIONS = [
+     'NF_INTERNAL_REPRESENTATION', 'ACC_PACK_UNPACK', 'INTERMEDIATE_PRECISION',
+@@ -14,6 +21,10 @@
+ 
+ 
+ def prove(source, target, witness, scratch_paths=None):
++    # A caller cannot suppress obligations by changing derived nf/acc flags.
++    # Native decoder authenticity is supplied by the sealed/fresh CLI boundary.
++    validate_program(source)
++    validate_program(target)
+     if witness.get('source_sha256') != source['program_sha256'] or witness.get('candidate_sha256') != target['program_sha256']:
+         raise ValueError('Lowering witness identity mismatch')
+     source_nodes = {n['byte_range'][0]: n for n in source['nodes']}

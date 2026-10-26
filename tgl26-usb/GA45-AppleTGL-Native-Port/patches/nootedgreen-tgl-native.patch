@@ -1,0 +1,114 @@
+--- a/NootedGreen/kern_gen11.cpp
++++ b/NootedGreen/kern_gen11.cpp
+@@ -301,6 +301,38 @@
+ // são chamadas, então corrige-se na origem: o imediato de "movl $0xfffffffb, 0x4250(%rbx)" (fCurrentMode, offset
+ // 0x53de3 em 16.0.32) passa a ser 0x80001000, o modo nativo 3840x2400 que a EFI deixa programado (-ngreenkeepefi).
+ static volatile uint32_t gFbModePatchTried = 0, gFbModePatchOk = 0;
++// GA4.4: native Tiger Lake / Tahoe profile.  This is deliberately a
++// separate switch from -ngreenxefix: xefix bundles display-13 and RPL
++// workarounds that must not run on a real TGL (CPUID model 0x8C/0x8D).
++static bool xeTglTahoeEnabled() {
++	static int v = -1;
++	if (v < 0) v = checkKernelArgument("-ngreentgltahoe") ? 1 : 0;
++	return v == 1;
++}
++static void applyTglTahoeLayoutFixes(KernelPatcher &patcher, KernelPatcher::KextInfo *kext,
++                                     mach_vm_address_t address, size_t size) {
++	if (!NGreen::callback || !NGreen::callback->getIsRealTGL() || !xeTglTahoeEnabled()) return;
++
++	// XE-FMT: 16.0.32 performTransaction+0x81361 reads IOSurface+0xa4.
++	// On Tahoe that field is stale/zero, so force the desktop 'BGRA' value.
++	static const uint8_t fmt_old[] = {0x8b, 0x83, 0xa4, 0x00, 0x00, 0x00, 0x89, 0x85, 0xf4, 0xfe, 0xff, 0xff};
++	static const uint8_t fmt_new[] = {0xb8, 0x41, 0x52, 0x47, 0x42, 0x90, 0x89, 0x85, 0xf4, 0xfe, 0xff, 0xff};
++	LookupPatchPlus const fmtPatch[] = {{kext, fmt_old, fmt_new, arrsize(fmt_old), 1}};
++	bool fmt_ok = LookupPatchPlus::applyAll(patcher, fmtPatch, address, size);
++
++	// XE-PLANES2: the same 16.0.32 driver reads the plane count from
++	// IOSurface+0xb0; the 25G241/25G83 object exposes it through the
++	// getPlaneCount path.  +0x98 is the 25G241 raw offset and is only a
++	// candidate for 25G83 until the target binary confirms it.
++	static const uint8_t planes_old[] = {0x8b, 0x83, 0xb0, 0x00, 0x00, 0x00, 0x85, 0xc0, 0xba, 0x01, 0x00, 0x00, 0x00};
++	static const uint8_t planes_new[] = {0x8b, 0x83, 0x98, 0x00, 0x00, 0x00, 0x85, 0xc0, 0xba, 0x01, 0x00, 0x00, 0x00};
++	LookupPatchPlus const planesPatch[] = {{kext, planes_old, planes_new, arrsize(planes_old), 1}};
++	bool planes_ok = LookupPatchPlus::applyAll(patcher, planesPatch, address, size);
++
++	SYSLOG("ngreen", "TGL-Tahoe: XE-FMT %s, XE-PLANES2 %s (target offset still needs validation)",
++	       fmt_ok ? "applied" : "NOT found", planes_ok ? "applied" : "NOT found");
++}
++
+ static void applyFixBootMode(KernelPatcher &patcher, KernelPatcher::KextInfo *kext, mach_vm_address_t address, size_t size) {
+ 	if (!checkKernelArgument("-ngreenfixbootpatch")) return;
+ 	static const uint8_t fbm[] = {0xc7, 0x83, 0x50, 0x42, 0x00, 0x00, 0xfb, 0xff, 0xff, 0xff};
+@@ -2002,7 +2034,8 @@
+ 			}
+ 		}
+ 
+-		if (!wegCoexist || forceFullMTL) {
++		if ((!wegCoexist || forceFullMTL) &&
++		    !(NGreen::callback && NGreen::callback->getIsRealTGL() && xeTglTahoeEnabled())) {
+ 			RouteRequestPlus coexistOffRoutes[] = {
+ 				// ForceWake: replace Apple's SafeForceWakeMultithreaded with i915-ported version.
+ 				// Apple's code uses 90ms timeouts and no fallback; ours uses 50ms + reserve-bit fallback.
+@@ -2224,7 +2257,11 @@
+ 			};
+ 			PANIC_COND(!LookupPatchPlus::applyAll(patcher, patchesAlways, address, size), "ngreen",
+ 				"kextG11HWT Failed to apply base patches!");
+-			
++
++			// GA4.4: apply only the two Tahoe IOSurface-layout fixes on a real TGL,
++			// behind an independent opt-in.  The RPL-only block below keeps its own copies.
++			applyTglTahoeLayoutFixes(patcher, activeKext, address, size);
++
+ 			if (!NGreen::callback->isRealTGL) {
+ 				// RPL-only: hardcode topology and bypass BCS readiness check
+ 				LookupPatchPlus const patchesRPL[] = {
+@@ -3778,6 +3815,8 @@
+ 	xeBootDiagRecord(reg, val);
+ 	val = xeBootHold(reg, val);
+ 	if (!xeFixEnabled()) return val;
++	// GA4.4: xefix's display-13 register filter is not a native-TGL fix.
++	if (NGreen::callback && NGreen::callback->getIsRealTGL() && !checkKernelArgument("-ngreenallowrplfixes")) return val;
+ 	val = xeNoDpms((uint32_t)(reg & 0x1FFFFF), val);
+ 	// 20/10 (XE-BLR): o brilho ia só até ~50%. Como o BacklightRegistersFix do WhateverGreen: mantém o período do
+ 	// hardware (lido antes da 1ª escrita da Apple) e reescala o duty por período_hw / período_Apple. Se a Apple não
+@@ -3829,6 +3868,8 @@
+ }
+ static void xeFixEnsure() {
+ 	if (!xeFixEnabled() || !NGreen::callback) return;
++	// GA4.4: do not program display-13 registers on a real TGL.
++	if (NGreen::callback->getIsRealTGL() && !checkKernelArgument("-ngreenallowrplfixes")) return;
+ 	uint32_t ck = NGreen::callback->readReg32(0x42084);
+ 	if (!(ck & 0x40000000u)) NGreen::callback->writeReg32(0x42084, ck | 0x40000000u);
+ 	if (NGreen::callback->readReg32(0x4A480) != 0) NGreen::callback->writeReg32(0x4A480, 0);
+@@ -6766,6 +6807,10 @@
+ // padrão 1500 = RP0 desde 20/10 noite, antes 1100; 0 desliga). Ocioso a GPU entra em RC6 de qualquer jeito, então o piso só vale com trabalho.
+ void Gen11::wrapSetGTFrequencyMMIO(void *that, uint32_t val)
+ {
++	if (NGreen::callback && NGreen::callback->getIsRealTGL() && !checkKernelArgument("-ngreenallowrplfixes")) {
++		FunctionCast(wrapSetGTFrequencyMMIO, callback->oSetGTFrequencyMMIO)(that, val);
++		return;
++	}
+ 	static int pisoMhz = -1;
+ 	if (pisoMhz < 0) {
+ 		pisoMhz = 1500;
+@@ -6789,6 +6834,10 @@
+ static volatile uint64_t gXeWedgedUntil = 0; static volatile uint32_t gXeIdleSkips = 0;
+ void Gen11::wrapWaitForGpuIdle(void *that)
+ {
++	if (NGreen::callback && NGreen::callback->getIsRealTGL() && !checkKernelArgument("-ngreenallowrplfixes")) {
++		FunctionCast(wrapWaitForGpuIdle, callback->oWaitForGpuIdle)(that);
++		return;
++	}
+ 	static int off = -1;
+ 	if (off < 0) off = checkKernelArgument("-ngreennoidlebound") ? 1 : 0;
+ 	uint64_t now = mach_absolute_time();
+@@ -6815,7 +6864,8 @@
+ IOReturn Gen11::wrapSetFramebufferPowerState(void *that, unsigned int state)
+ {
+ 	static int on = -1;
+-	if (on < 0) on = (xeFixEnabled() && !checkKernelArgument("-ngreenfbdpms")) ? 1 : 0;
++	if (on < 0) on = (xeFixEnabled() && !checkKernelArgument("-ngreenfbdpms") &&
++	                 !(NGreen::callback && NGreen::callback->getIsRealTGL() && !checkKernelArgument("-ngreenallowrplfixes"))) ? 1 : 0;
+ 	auto *fb = static_cast<uint8_t *>(that);
+ 	if (on && fb && NGreen::callback && *reinterpret_cast<uint32_t *>(fb + 0x1dc) == 0) {
+ 		uint32_t cur = *reinterpret_cast<uint32_t *>(fb + 0x4284);

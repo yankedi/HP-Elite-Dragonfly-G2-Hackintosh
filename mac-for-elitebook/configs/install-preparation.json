@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "record_type": "sanitized_public_current_status",
+  "as_of": "2026-10-27",
+  "target": {
+    "model": "HP Elite Dragonfly G2",
+    "macos": "26.6.2",
+    "build": "25G83",
+    "installation_status": "installed; desktop reached"
+  },
+  "graphics_and_stability": {
+    "accelerated_tiger_lake_boots_with_panics": 4,
+    "observed_panic_window_seconds": [252, 340],
+    "software_display_control_duration_seconds": 3755,
+    "user_reported_freeze_during_control": false,
+    "control_preserved_basic_display": true,
+    "control_workload_matched_or_repeated": false,
+    "shutdown_sequence_seen_in_capture": true,
+    "physical_poweroff_independently_observed": false,
+    "causation_or_component_attribution_proven": false,
+    "first_memory_corrupter": "unknown",
+    "panic_root_cause": "unknown"
+  },
+  "runtime_hardware_observation": {
+    "gpu_eus": 80,
+    "gpu_subslices": 10,
+    "proves_macos_graphics_acceleration": false
+  },
+  "user_reported_working": [
+    "Bluetooth",
+    "touchpad",
+    "battery display",
+    "camera",
+    "Bluetooth audio input",
+    "Bluetooth audio output"
+  ],
+  "unresolved": [
+    "built-in HDA audio",
+    "built-in digital microphone (DMIC)",
+    "brightness control",
+    "long-term system stability",
+    "Xe graphics acceleration",
+    "Metal"
+  ],
+  "evidence_policy": {
+    "private_raw_evidence_included": false,
+    "private_orchestration_history_included": false,
+    "missing_private_evidence_means_verified": false,
+    "detail": "This sanitized index summarizes the supplied progress record; it is not a substitute for private raw captures or independent reproduction."
+  },
+  "public_indexes": {
+    "readme": "../README.md",
+    "continuation": "../docs/continuation.md",
+    "historical_evidence": "../manifests/experiment-history.json"
+  }
+}

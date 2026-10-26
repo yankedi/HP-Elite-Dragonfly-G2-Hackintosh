@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-10-16",
+  "purpose": "Stock WhateverGreen for a VESA-only offline prototype; no Tiger Lake framebuffer patches",
+  "sources": [
+    {
+      "name": "WhateverGreen",
+      "upstream": "https://github.com/acidanthera/WhateverGreen",
+      "tag": "1.7.1",
+      "commit": "0762cecc2a70054cd4dc3cf4d08979aca6acd9bb",
+      "release": {
+        "url": "https://github.com/acidanthera/WhateverGreen/releases/tag/1.7.1",
+        "published_at": "2026-09-27T21:42:10Z",
+        "assets": [
+          {
+            "name": "WhateverGreen-1.7.1-RELEASE.zip",
+            "url": "https://github.com/acidanthera/WhateverGreen/releases/download/1.7.1/WhateverGreen-1.7.1-RELEASE.zip",
+            "size_bytes": 567275,
+            "official_digest": "sha256:1bfdd2d40290ecce237606db121cbc01d7041179f03394bd59660a2ed52e5c95"
+          }
+        ]
+      },
+      "license": {
+        "spdx": "BSD-3-Clause",
+        "evidence_url": "https://github.com/acidanthera/WhateverGreen/blob/0762cecc2a70054cd4dc3cf4d08979aca6acd9bb/LICENSE.txt"
+      },
+      "status": "Official upstream release; no claim of HP/Tiger Lake/Tahoe acceleration support"
+    }
+  ],
+  "cpu_reference": {
+    "url": "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/EFI/OC/config.plist",
+    "commit": "1010490d3421628c9d6fd0bd518b6c4b6f8ee33c",
+    "git_blob_sha": "d5c2871bae036b5e538425022a8361423b09c2a1",
+    "observed_cpuid1_data_hex": "e5060700000000000000000000000000",
+    "observed_cpuid1_mask_hex": "ffffffff000000000000000000000000",
+    "observed_system_product_name": "MacBookPro16,2",
+    "status": "Same-generation reference only, not proof of HP bootability. Only explicitly reviewed settings are used; Dell ACPI, USB map, SMM sensors and framebuffer parameters are excluded."
+  }
+}

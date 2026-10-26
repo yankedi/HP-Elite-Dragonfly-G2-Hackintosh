@@ -1,0 +1,89 @@
+--- before/drm/I915-UAPI-MATRIX.md
++++ after/drm/I915-UAPI-MATRIX.md
+@@ -5,7 +5,7 @@
+ - **9A49 = `0x9a49` = `INTEL_PLATFORM_TGL`，`ver=12`，`verx10=120`，`has_llc=true`，`has_local_mem=false`。**
+ - Mesa **不按 PCI ID 选择 i915 或 xe**。`intel_get_kmd_type()` 读取 `drmGetVersion()->name`：`"i915"` 走 i915 UAPI，`"xe"` 走 xe UAPI（`src/intel/dev/intel_kmd.c:34-53`）。同一个 9A49 被哪个内核驱动绑定，就走哪条路径；本矩阵只覆盖 **i915 路径**。
+ - 当前 NMDRM 的 **第一阻塞不是缺某个 i915 ioctl**，而是 **VERSION 返回的驱动名是 `"nmdrm"`**。`intel_get_kmd_type()` 只认 `"i915"` / `"xe"`，因此得到 `INTEL_KMD_TYPE_INVALID`，`intel_get_device_info_from_fd()` 失败，`anv_physical_device_try_create()` 返回 `VK_ERROR_INCOMPATIBLE_DRIVER`。这条路径发生在第一个 i915 专用 ioctl 之前。
+-- 即使把 VERSION 名字改成 `"i915"`，仍有 **GETPARAM(CS_TIMESTAMP_FREQUENCY) → QUERY(TOPOLOGY_INFO) → GETPARAM(HAS_CONTEXT_ISOLATION) → GEM_CREATE(UNREACHABLE 探针) → 七个 GETPARAM → PRIME/dma-buf → GTT_SIZE 门 → syncobj** 这一串硬阻塞；只改名字不能枚举出设备。
++- 即使把 VERSION 名字改成 `"i915"`，仍有 **GETPARAM(CS_TIMESTAMP_FREQUENCY) → QUERY(TOPOLOGY_INFO) → GEM_CREATE(UNREACHABLE 探针) → GETPARAM(HAS_CONTEXT_ISOLATION) → 七个 GETPARAM → PRIME/dma-buf → GTT_SIZE 门 → syncobj** 这一串硬阻塞；只改名字不能枚举出设备。
+ - 如果连 libdrm/DRM 枚举 shim 都没有，则更早的阻塞是 `drmGetDevices2()` 返回 `<1`（Mesa 无 libdrm fallback 返回 `-ENOENT`）或 `drmGetDevice2()` 取不到 PCI 身份。**“只实现 i915 ioctl”不够，还需要 libdrm 枚举/PCI shim、dma-buf、cdev `d_mmap` 和 syncobj fd 语义。**
+ 
+ 本文件是**静态源码 + CPU ABI 探针**的库存，不是运行验证：没有打开 `/dev/dri`、没有发 ioctl、没有加载 kext、没有接触 GPU/固件。完整、逐字段、可机读的矩阵在：
+@@ -80,7 +80,7 @@
+ | `VERSION` (`0xc0406400`) | 是 | 返回 0，`name="nmdrm"`，date/desc 自定义 |
+ | `GET_UNIQUE` (`0xc0106401`) | 是 | 返回 `pci:DDDD:BB:DD.F` |
+ | `GET_CAP` (`0xc010640c`) | 部分 | `DRM_CAP_PRIME(0x5)` 返回 0；`DRM_CAP_SYNCOBJ_TIMELINE(0x14)` 返回 **EINVAL (22)** |
+-| `GET_PCIINFO` (`0x80106415`，非标准) | 是 | 16 字节 PCI 身份 |
++| `GET_PCIINFO` (Darwin `0x40106415`，非标准) | 是 | 16 字节 PCI 身份；Linux `_IOR` 对应数值才是 `0x80106415` |
+ | 其他所有命令 | `default:` | **`return ENOTTY`** |
+ 
+ 关键点：
+@@ -115,7 +115,7 @@
+ - `drmGetDevices2()` 返回 `-ENOENT`（`src/util/libdrm.h:114`），所以枚举直接得到 0 个设备；
+ - `drmGetVersion()` 返回 `NULL`（`src/util/libdrm.h:159`），而 `is_virtio_fd()` 会直接解引用 `version->name`（`src/intel/dev/virtio/intel_virtio_device.c:69-70`）。
+ 
+-因此，在 Darwin 上必须先有一个能返回 NMDRM render node、并且能提供 PCI 身份的 libdrm 兼容 shim。NMDRM 自己实现了非标准 `GET_PCIINFO`（`0x80106415`），但 Mesa 不会调用它；shim 可以用它来合成 `drmDevice` 的 PCI 字段。**这是“不只是 i915”的第一层。**
++因此，在 Darwin 上必须先有一个能返回 NMDRM render node、并且能提供 PCI 身份的 libdrm 兼容 shim。NMDRM 自己实现了非标准 `GET_PCIINFO`（Darwin `0x40106415`），但 Mesa 不会调用它；shim 可以用它来合成 `drmDevice` 的 PCI 字段。**这是“不只是 i915”的第一层。**
+ 
+ ### 3.2 在有枚举 shim 的前提下：NMDRM 侧第一阻塞是 VERSION 名字
+ 
+@@ -140,8 +140,8 @@
+ |---:|---|---|---|---|
+ | 1 | `GETPARAM(CS_TIMESTAMP_FREQUENCY=51)` | `0xc0106446` | TGL `ver=12>=10`，直接 `return false` | `intel_device_info.c:567-572` |
+ | 2 | `QUERY(TOPOLOGY_INFO=1)` 两阶段 | `0xc0106479` | `intel_i915_query_alloc` 返回 NULL；`ver>=10` 失败 | `intel_device_info.c:297-322,577-581` |
+-| 3 | `GETPARAM(HAS_CONTEXT_ISOLATION=50)` | `0xc0106446` | 必须为 1，否则 `VK_ERROR_INCOMPATIBLE_DRIVER` | `intel_device_info.c:630-631`; `anv_physical_device.c:2884-2888` |
+-| 4 | `GEM_CREATE(4096)` + `GET_TILING` + `GEM_CLOSE` | `0xc010645b` / `0xc0106462` / `0x40086409` | GEM_CREATE 失败触发 `UNREACHABLE("Failed to create GEM BO")` | `intel_device_info.c:472-497` |
++| 3 | `GEM_CREATE(4096)` + `GET_TILING` + `GEM_CLOSE` | `0xc010645b` / `0xc0106462` / `0x40086409` | GEM_CREATE 失败触发 `UNREACHABLE("Failed to create GEM BO")` | `i915/intel_device_info.c:620` 调用 `:472-497` |
++| 4 | `GETPARAM(HAS_CONTEXT_ISOLATION=50)` | `0xc0106446` | 必须为 1，否则 `VK_ERROR_INCOMPATIBLE_DRIVER` | `i915/intel_device_info.c:630-631`; `anv_physical_device.c:2884-2888` |
+ | 5 | 七个 `GETPARAM`（WAIT_TIMEOUT/EXECBUF2/SOFTPIN/FENCE_ARRAY/ASYNC/CAPTURE/TIMELINE_FENCES） | `0xc0106446` | 任一失败/为 0 → `VK_ERROR_INITIALIZATION_FAILED` | `i915/anv_device.c:75-122` |
+ | 6 | `GEM_CREATE(64KiB)` + `PRIME_HANDLE_TO_FD` + dma-buf export/import + `GEM_CLOSE` | `0xc010645b` / `0xc00c642d` / `0xc0086202` / `0x40086203` / `0x40086409` | 任一失败 → `VK_ERROR_INCOMPATIBLE_DRIVER` | `common/i915/intel_gem.c:317-366`; `i915/anv_device.c:124-128` |
+ | 7 | `CONTEXT_GETPARAM(GTT_SIZE=3)` 的**逻辑门**（值在设备信息阶段读取） | `0xc0186474` | 0 → `GTT size too small` | `intel_device_info.c:615`; `anv_physical_device.c:2935-2941` |
+@@ -149,7 +149,7 @@
+ 
+ > 本表请求号默认是 **Linux `__linux__`** 值；`GEM_CLOSE`、`GET_APERTURE`、`EXECBUFFER2`、dma-buf import、`PERF_*` 等的 Darwin 值不同，见 §7.1。mock 必须按目标平台分派。
+ 
+-其中 **第 4 条特别重要**：`has_get_tiling()` 在 GEM_CREATE 失败时不是简单返回 false，而是先 `UNREACHABLE`：
++其中 **第 3 条特别重要**：`has_get_tiling()` 在 GEM_CREATE 失败时不是简单返回 false，而是先 `UNREACHABLE`：
+ 
+ ```c
+ if (intel_ioctl(fd, DRM_IOCTL_I915_GEM_CREATE, &gem_create)) {
+--- before/reference/i915-abi/build_matrix.py
++++ after/reference/i915-abi/build_matrix.py
+@@ -951,7 +951,7 @@
+             src("sources/mesa/src/intel/dev/virtio/intel_virtio_device.c", 69, "is_virtio_fd", "dereferences drmGetVersion result"),
+             src("sources/mesa/src/intel/dev/intel_device_info.c", 1933, "intel_get_device_info_from_fd", "drmGetDevice2 for PCI ID"),
+         ],
+-        "note": "NMDRM's nonstandard GET_PCIINFO (0x80106415, _IOR('d',0x15,16)) is not used by Mesa; a Darwin libdrm shim could use it to synthesize drmDevice PCI info."
++        "note": "NMDRM's nonstandard GET_PCIINFO (Darwin 0x40106415; Linux _IOR equivalent 0x80106415) is not used by Mesa; a Darwin libdrm shim could use it to synthesize drmDevice PCI info."
+     },
+     "first_init_blocker": {
+         "assumption": "A working libdrm/DRM enumeration shim exposes the NMDRM render node and implements drmGetDevice2 PCI identity.",
+@@ -966,7 +966,7 @@
+             "anv_physical_device_try_create maps false to VK_ERROR_INCOMPATIBLE_DRIVER (2856-2859); enumeration yields no Intel physical device",
+         ],
+         "errno": "No i915 ioctl is reached. NMDRM VERSION itself returns success (0) and the string 'nmdrm'; the failure is ENOTSUP-equivalent at the Mesa logic level (VK_ERROR_INCOMPATIBLE_DRIVER), not an i915 errno.",
+-        "not_just_i915": "Changing the VERSION name to 'i915' is necessary but far from sufficient. The next hard stops are GETPARAM(CS_TIMESTAMP_FREQUENCY), QUERY(TOPOLOGY_INFO), GETPARAM(HAS_CONTEXT_ISOLATION), GEM_CREATE (UNREACHABLE probe), GTT_SIZE, the PRIME/dma-buf sync-file probe, and syncobj create/wait/destroy."
++        "not_just_i915": "Changing the VERSION name to 'i915' is necessary but far from sufficient. In source order: GETPARAM(CS_TIMESTAMP_FREQUENCY), QUERY(TOPOLOGY_INFO), GEM_CREATE (UNREACHABLE probe), GETPARAM(HAS_CONTEXT_ISOLATION); later ANV GETPARAM requirements, PRIME/dma-buf probe, GTT_SIZE logical gate, syncobj."
+     },
+     "earliest_physical_device_sequence_platform": "Linux __linux__ request numbers. Darwin/BSD values differ for non-_IOWR commands; use requests[].darwin_request_hex for the target platform.",
+     "earliest_physical_device_sequence": [
+--- before/reference/i915-abi/i915-uapi-matrix.json
++++ after/reference/i915-abi/i915-uapi-matrix.json
+@@ -110,7 +110,7 @@
+         "role": "drmGetDevice2 for PCI ID"
+       }
+     ],
+-    "note": "NMDRM's nonstandard GET_PCIINFO (0x80106415, _IOR('d',0x15,16)) is not used by Mesa; a Darwin libdrm shim could use it to synthesize drmDevice PCI info."
++    "note": "NMDRM's nonstandard GET_PCIINFO (Darwin 0x40106415; Linux _IOR equivalent 0x80106415) is not used by Mesa; a Darwin libdrm shim could use it to synthesize drmDevice PCI info."
+   },
+   "first_init_blocker": {
+     "assumption": "A working libdrm/DRM enumeration shim exposes the NMDRM render node and implements drmGetDevice2 PCI identity.",
+@@ -125,7 +125,7 @@
+       "anv_physical_device_try_create maps false to VK_ERROR_INCOMPATIBLE_DRIVER (2856-2859); enumeration yields no Intel physical device"
+     ],
+     "errno": "No i915 ioctl is reached. NMDRM VERSION itself returns success (0) and the string 'nmdrm'; the failure is ENOTSUP-equivalent at the Mesa logic level (VK_ERROR_INCOMPATIBLE_DRIVER), not an i915 errno.",
+-    "not_just_i915": "Changing the VERSION name to 'i915' is necessary but far from sufficient. The next hard stops are GETPARAM(CS_TIMESTAMP_FREQUENCY), QUERY(TOPOLOGY_INFO), GETPARAM(HAS_CONTEXT_ISOLATION), GEM_CREATE (UNREACHABLE probe), GTT_SIZE, the PRIME/dma-buf sync-file probe, and syncobj create/wait/destroy."
++    "not_just_i915": "Changing the VERSION name to 'i915' is necessary but far from sufficient. In source order: GETPARAM(CS_TIMESTAMP_FREQUENCY), QUERY(TOPOLOGY_INFO), GEM_CREATE (UNREACHABLE probe), GETPARAM(HAS_CONTEXT_ISOLATION); later ANV GETPARAM requirements, PRIME/dma-buf probe, GTT_SIZE logical gate, syncobj."
+   },
+   "earliest_physical_device_sequence_platform": "Linux __linux__ request numbers. Darwin/BSD values differ for non-_IOWR commands; use requests[].darwin_request_hex for the target platform.",
+   "earliest_physical_device_sequence": [

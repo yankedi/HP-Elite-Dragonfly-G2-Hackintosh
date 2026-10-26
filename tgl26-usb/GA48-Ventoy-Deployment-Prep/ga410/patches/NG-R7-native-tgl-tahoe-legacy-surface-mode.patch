@@ -1,0 +1,35 @@
+--- a/src/NootedGreen/kern_green.cpp
++++ b/src/NootedGreen/kern_green.cpp
+@@ -494,17 +494,27 @@
+ 	return ret;
+ }
+ 
+-// V500: IOAccelLegacySurface::set_id_mode(uint32_t id, uint32_t mode) active fix.
+-// Hardware rejects mode bits covered by 0xff8073c0 with kIOReturnUnsupported.
+-// On non-TGL (RPL-P spoofed as TGL), strip those bits before the call so the
+-// GPU task gets a valid scheduling mode instead of silently failing.
++// V500: IOAccelLegacySurface::set_id_mode(uint32_t id, uint32_t mode).
++// Tahoe IOAF2 rejects mode & 0xff8073c0 in software with kIOReturnBadArgument,
++// before any hardware access. Preserve the upstream spoofed-CPU normalization.
++// HP-R7 additionally handles the exact 0x224 native-TGL/Tahoe mismatch below.
+ static mach_vm_address_t orgSetIdMode = 0;
+ static IOReturn wrapSetIdMode(void *that, uint32_t id, uint32_t mode) {
+     uint32_t patchedMode = mode;
+     if (NGreen::callback && !NGreen::callback->getIsRealTGL())
+-        patchedMode = mode & ~0xff8073c0u;  // strip TGL-only preemption/mode bits
++        patchedMode = mode & ~0xff8073c0u;  // retain the upstream spoofed-CPU behavior
++    else if (NGreen::callback && NGreen::callback->getIsRealTGL() &&
++             getKernelVersion() == KernelVersion::Tahoe && mode == 0x224u) {
++        // The live control probe rejects 0x224 and accepts 0x24 on the same GPU.
++        // Clear only rejected bit 9; preserve windowed bit 5 and color depth 4.
++        // Call the real implementation and propagate its actual result.
++        patchedMode = mode & ~0x200u;
++    }
+ 
+     IOReturn ret = FunctionCast(wrapSetIdMode, orgSetIdMode)(that, id, patchedMode);
++    static unsigned int hpModeLogCount = 0;
++    if (mode == 0x224u && patchedMode == 0x24u && hpModeLogCount++ < 16)
++        SYSLOG("ngreen", "HP-R7: IOAF2 legacy surface mode 0x224->0x24 id=0x%x ret=0x%x", id, ret);
+ 
+     static int v500Count = 0;
+     if (v500Count < 32) {

@@ -1,0 +1,120 @@
+{
+  "schema": "mac-for-elitebook/nonboot-hid-check-v1",
+  "runner": "scripts/check_nonboot_hid.py",
+  "runner_sha256": "ed69bd6eb0736f331d832b54d3cdf6d887b6872f48e41b3e59dcac924f759503",
+  "private_report": ".local/nonboot-hid/run-20261015T234625.123764Z-65845/report.json",
+  "private_report_sha256": "2a4e0b347019a603ed413b9c4c0d8bbd8fae7bd1d97fbd343b31d38a54da2ee8",
+  "purpose": "Offline parse and summarize the two captured HID report descriptors with an immutable upstream hid-tools parser.",
+  "private_root": ".local/nonboot-hid/",
+  "capture_directory": ".local/hardware/20261015T174049.365004Z",
+  "parser": {
+    "project": "libevdev/hid-tools",
+    "version": "0.12",
+    "commit": "f4a32530ea548df2ae5efd2ebfd16d4c3e658875",
+    "source_archive": {
+      "url": "https://gitlab.freedesktop.org/libevdev/hid-tools/-/archive/f4a32530ea548df2ae5efd2ebfd16d4c3e658875/hid-tools-f4a32530ea548df2ae5efd2ebfd16d4c3e658875.tar.gz",
+      "local_path": ".local/nonboot-hid/hid-tools-f4a32530ea548df2ae5efd2ebfd16d4c3e658875.tar.gz",
+      "bytes": 186471,
+      "sha256": "3899284c5d45ca4e034944ef5f29f64b78159455ac62ee37f5ee4f75f645f861"
+    },
+    "source_tree": {
+      "local_path": ".local/nonboot-hid/src",
+      "file_count_excluding_python_bytecode": 97,
+      "bytes_excluding_python_bytecode": 1186780,
+      "sha256": "277eca118b6fe0810bca68fbef21f7148c411c802f7de22801679b3d5cf91a0e",
+      "hash_definition": "SHA256 over sorted files, updating with 4-byte big-endian relative-path length, UTF-8 relative POSIX path, 8-byte big-endian file length, and SHA256(file bytes); __pycache__ and *.pyc excluded."
+    },
+    "entrypoint": "hid-decode",
+    "api": "hidtools.hid.ReportDescriptor.from_bytes",
+    "license": {
+      "license_file": "COPYING",
+      "license_file_sha256": "e6d6a009505e345fe949e1310334fcb0747f28dae2856759de102ab66b722cb4",
+      "upstream_readme": "GPLv2+",
+      "source_file_headers": "GPL-2.0-or-later",
+      "project_metadata": "GPL-2.0-only",
+      "note": "Pinned upstream files make inconsistent license declarations. Preserve these source statements; no legal conclusion is made."
+    },
+    "runtime_dependencies": {
+      "local_root": ".local/nonboot-hid/deps",
+      "python": "CPython 3.13, Linux x86_64",
+      "file_count_excluding_python_bytecode": 51,
+      "bytes_excluding_python_bytecode": 3087103,
+      "tree_sha256": "8ea0bf7bba822a7a935e641b524a0210b2b0661133e5019b9417c7f363e52722",
+      "packages": [
+        {
+          "name": "parse",
+          "version": "1.20.2",
+          "license": "MIT",
+          "wheel_url": "https://files.pythonhosted.org/packages/d0/31/ba45bf0b2aa7898d81cbbfac0e88c267befb59ad91a19e36e1bc5578ddb1/parse-1.20.2-py2.py3-none-any.whl",
+          "local_path": ".local/nonboot-hid/wheels/parse-1.20.2-py2.py3-none-any.whl",
+          "sha256": "967095588cb802add9177d0c0b6133b5ba33b1ea9007ca800e526f42a85af558"
+        },
+        {
+          "name": "click",
+          "version": "8.1.8",
+          "license": "BSD-3-Clause",
+          "wheel_url": "https://files.pythonhosted.org/packages/7e/d4/7ebdbd03970677812aac39c869717059dbb71a4cfc033ca6e5221787892c/click-8.1.8-py3-none-any.whl",
+          "local_path": ".local/nonboot-hid/wheels/click-8.1.8-py3-none-any.whl",
+          "sha256": "63c132bbbed01578a06712a2d1f497bb62d9c1c0d329b7903a866228027263b2"
+        },
+        {
+          "name": "PyYAML",
+          "version": "6.0.2",
+          "license": "MIT",
+          "wheel_url": "https://files.pythonhosted.org/packages/04/24/b7721e4845c2f162d26f50521b825fb061bc0a5afcf9a386840f23ea19fa/PyYAML-6.0.2-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+          "local_path": ".local/nonboot-hid/wheels/PyYAML-6.0.2-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+          "sha256": "70b189594dbe54f75ab3a1acec5f1e3faa7e8cf2f1e08d9b561cb41b845f69d5"
+        }
+      ]
+    }
+  },
+  "inputs": [
+    {
+      "id": "synaptics-700b",
+      "label": "Synaptics HID report descriptor (700 bytes)",
+      "path": "raw/sys/bus/hid/devices/0018:06CB:CD74.0001/report_descriptor",
+      "bytes": 700,
+      "sha256": "0ee8e6bddf6ee6adf071cdb72983bb0970e2b20e5363ee64bcccc208762cec86"
+    },
+    {
+      "id": "wacom-843b",
+      "label": "Wacom HID report descriptor (843 bytes)",
+      "path": "raw/sys/bus/hid/devices/0018:056A:4924.0002/report_descriptor",
+      "bytes": 843,
+      "sha256": "5ad4378537251bc2c6bdf43cec57b542aba7b709028ab02906a80afeb6bcc217"
+    }
+  ],
+  "negative_cases": [
+    {
+      "id": "truncated-final-short-item",
+      "description": "A Usage short item followed by a Usage Page item with its required payload byte missing.",
+      "descriptor_hex": "09 00 05",
+      "expected_exception": "IndexError"
+    },
+    {
+      "id": "reserved-main-tag",
+      "description": "Reserved Main item tag, followed by a byte to prevent the parser's trailing-zero compatibility exception.",
+      "descriptor_hex": "00 01",
+      "expected_exception": "ParseError"
+    }
+  ],
+  "checks": {
+    "descriptor_parse_exit_code": 0,
+    "require_application_collection": true,
+    "require_balanced_collections": true,
+    "require_at_least_one_input_report": true,
+    "require_nonempty_reports": true,
+    "require_byte_aligned_reports": true,
+    "require_valid_report_ids": true,
+    "require_logical_min_not_greater_than_max": true,
+    "negative_cli_exit_code": 1
+  },
+  "scope": {
+    "remote_access": false,
+    "usb_access": false,
+    "hardware_devices_accessed": false,
+    "drivers_loaded_or_unbound": false,
+    "macos_installed_or_booted": false,
+    "claim": "Offline report-descriptor syntax and structure summary only; not evidence of macOS I2C binding, IRQ routing, multitouch gestures, pen behavior, or driver compatibility."
+  }
+}

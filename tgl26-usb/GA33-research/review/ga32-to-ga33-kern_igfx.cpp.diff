@@ -1,0 +1,67 @@
+--- ga32/kern_igfx.cpp	2026-10-18 02:20:15.526663978 +0800
++++ ga33/kern_igfx.cpp	2026-10-18 04:30:17.514375003 +0800
+@@ -1302,16 +1302,22 @@
+ 		return false;                       // one page at a time, by contract
+ 	if (address >= TglHang::MaxPhysical || length > TglHang::MaxPhysical - address)
+ 		return false;                       // overflow, or beyond the 32-bit ppnum_t space
+-	if (!TglHang::fencesAllow(self->hangFences, address, length))
++	if (!TglHang::fencesAllow(self->hangFences, address, length)) {
++		self->fenceRejected++; // GA3.3: attribute the refusal
+ 		return false;
++	}
+ 	uint64_t end = address + length;
+ 	for (uint64_t page = address & ~(TglHang::PageSize - 1); page < end; page += TglHang::PageSize) {
+ 		// Alignment and range are checked before the conversion; the page number is never truncated.
+ 		uint32_t ppn = 0;
+ 		if (!TglHang::toPpnum(page, ppn))
+ 			return false;
+-		if (!self->pmapValidPage(ppn))
++		self->pmapChecked++; // GA3.3
++		if (!self->pmapValidPage(ppn)) {
++			self->pmapRejected++;
+ 			return false;
++		}
++		self->pmapAccepted++;
+ 	}
+ 	return true;
+ }
+@@ -1411,6 +1417,9 @@
+ 	    in.haveMaxMem, in.maxMem, in.fences);
+ 	hangFences = in.fences;
+ 
++	// GA3.3: reset the classifier counters for this attempt
++	pmapChecked = pmapAccepted = pmapRejected = fenceRejected = 0;
++
+ 	TglHang::Reader reader {};
+ 	reader.context = this;
+ 	reader.read = hangReadPhysical;
+@@ -1418,6 +1427,29 @@
+ 	reader.allowContext = this;
+ 	TglHang::capture(reader, in, r.out);
+ 	TglHang::finishCounters(reader, r.out);
++
++	// GA3.3: fill the diagnostics. Every value is an observation of the run, nothing is inferred.
++	r.diag.version = TglHang::RecordVersion;
++	r.diag.size = sizeof(HangRecord);
++	r.diag.stage = reader.stage;
++	r.diag.failReason = reader.failSeen ? reader.failReason : static_cast<uint32_t>(r.out.result);
++	r.diag.failLevel = reader.failLevel;
++	r.diag.pmapChecked = pmapChecked;
++	r.diag.pmapAccepted = pmapAccepted;
++	r.diag.pmapRejected = pmapRejected;
++	r.diag.fenceRejected = fenceRejected;
++	r.diag.readAttempts = reader.readAttempts;
++	r.diag.readSuccesses = reader.readSuccesses;
++	r.diag.batchBytes = r.out.batchPages * static_cast<uint32_t>(TglHang::PageSize);
++	r.diag.vsBytes = r.out.kernelPages[0] * static_cast<uint32_t>(TglHang::PageSize);
++	r.diag.psBytes = r.out.kernelPages[1] * static_cast<uint32_t>(TglHang::PageSize);
++	r.diag.bridgeDiag = (bridgeState == 1 ? 1U : 0U) |
++	    ((r.out.exclusionStolen ? 1U : 0U) << 1) | ((r.out.exclusionLowTop ? 1U : 0U) << 2) |
++	    ((r.out.exclusionTseg ? 1U : 0U) << 3) | (r.out.bridgeValid << 4) |
++	    ((bridgeState & 0xFFU) << 8);
++	r.diag.failGpuVA = reader.failGpuVA;
++	r.diag.failPhys = reader.failPhys;
++	r.diag.failTable = reader.failTable;
+ }
+ 
+ uint32_t IGFX::TigerLakeRegisterMap::wrapDoHangAnalysis(void *that) {

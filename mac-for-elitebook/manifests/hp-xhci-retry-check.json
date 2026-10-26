@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "scope": "Exact a0ed -> AppleUSBXHCISPT physically effective, USB not restored; later runtime evidence appended",
+  "runner": "scripts/prepare_hp_xhci_retry.py",
+  "runner_sha256": "6d82c29f9cdd7a48b55ad28443f5de28a87ec4183196d902ef9b28fc466bce39",
+  "private_report": ".local/install-prep/hp-xhci-6atazozs/report.json",
+  "private_report_sha256": "30b4c1242ad3afbb1e58323467dac7f81086ce84a0a545fa8e99c21beb6814d9",
+  "source": {
+    "repository": "https://github.com/daliansky/OS-X-USB-Inject-All",
+    "commit": "ce55e00966ac90c5e2504fb39b4ecf3fcebab51a",
+    "upstream_plist_sha256": "9b66b803577d7dea089bc5dc6352f25fb2f2de9c3333cb899c9a838ad7106571",
+    "license_preserved": true,
+    "private_report": ".local/install-prep/hp-xhci-source-yox7n17x/report.json",
+    "sha256": "b7cbc3d2b38974fcac4c29099454c851ff781cdc114f9ca4d048c8548841efd5"
+  },
+  "runtime_basis": "Saved actual Recovery registry shows 8086:a0ed and 8086:9a13 using generic AppleUSBXHCIPCI, both power state 0 with no downstream USB host devices/interfaces. Ownership-only trial did not restore Lexar",
+  "candidate": {
+    "private_image": ".local/install-prep/hp-xhci-6atazozs/HP-Tahoe-VESA-XHCI.img",
+    "sha256": "e55eb607858afda49cda89fe8a9f023143ff49ce20a937424cd9ba704a66ae72",
+    "source_image_sha256": "8ff91489c5c533644af60eee9ed5cd245fa805e6065263b4562992586845c54c",
+    "bytes": 1343225856,
+    "config_sha256": "16a96225ef43189b85bef7405451a9ec84dd047a8e111b5071cf9dfc3398b2c4",
+    "only_config_change": "Append plist-only XHCI-unsupported.kext for Darwin 25.x",
+    "upstream_modifications": "Retain only AppleUSBXHCISPT 500 personality, narrow its PCI match list to 0xa0ed8086; preserve remaining metadata, license and add provenance",
+    "io_class": "AppleUSBXHCISPT",
+    "probe_score": 900,
+    "generic_probe_score": 0,
+    "other_image_files_identical": 44,
+    "all_other_config_fields_and_private_identity_preserved": true,
+    "actual_25G83_kc_class_present": true,
+    "actual_kc_sha256": "c80161fa3065883753fc285339281361a8469cbb6fb27653c88e2a22eb4807a4",
+    "matching_opencore_version": "1.0.8",
+    "ocvalidate_exit": 0,
+    "matches_9a13": false,
+    "hp_tested": true,
+    "physical_media_written": true
+  },
+  "native_injection": {
+    "private_report": ".local/install-prep/hp-xhci-6atazozs/native-plist-positive/report.json",
+    "sha256": "4192553c2f86b6c7c5b637c831d41f25d886137687f34d9f98037e26e8d6b5ff",
+    "exit_code": 0,
+    "executable_kexts": 11,
+    "plist_only_injectors": 1,
+    "generated_kc_metadata_audit": {
+      "path": ".local/install-prep/hp-xhci-6atazozs/native-plist-positive/kc-metadata-audit.json",
+      "sha256": "b56eb92731208e183c2aee8416a0df9a7d7a236099d5b6e1920fee8fbd04f989"
+    },
+    "original_kc_preserved": true,
+    "generated_kc_deployed": false,
+    "limit": "Host-side KC injection and metadata inspection do not execute AppleUSBXHCISPT or establish USB enumeration"
+  },
+  "host_test_harness_correction": {
+    "initial_failure": {
+      "path": ".local/install-prep/hp-xhci-6atazozs/native-link/initial-failure.json",
+      "sha256": "e12eed02e41cd5dfff06343abd0248c33609e260dd196561fd19b7fa3cb625d0"
+    },
+    "initial_exit_code": -6,
+    "cause": "TestKextInject accepts n for plist-only input but unconditionally calls EDK FreePool(NULL) during reservation",
+    "patch": "patches/opencore-kextinject-plist-only-free.patch",
+    "patch_sha256": "a6ede9e1f5103b798d5b2064368ae335b440a79917d0e45df63e067eb31d4cd8",
+    "change": "Guard only that host-harness FreePool call; retain previous link-only patch. Production injection library and deployed OpenCore untouched",
+    "private_report": ".local/install-prep/hp-xhci-native-zkcz10on/report.json",
+    "sha256": "ec4e29133331328bc9b557697197cc25ebba1d5b1ab274eafcd74817ae469ca4",
+    "original_source_tool_and_failure_logs_preserved": true
+  },
+  "validator_controls": {
+    "path": ".local/install-prep/hp-xhci-6atazozs/validator-controls.json",
+    "sha256": "e4438272948d6ac1851a5c2e9eaacb10b7d07ab7e25208e269aa980cb7577941",
+    "negative_cases_rejected": 4,
+    "cases": ["Hidden executable in plist-only injector", "Binary kext with empty executable path", "Injector without personalities", "Malformed existing Mach-O"],
+    "restored_positive_kext_count": 12
+  },
+  "vm_executed": false,
+  "tested_wifi_capture": {
+    "path": ".local/install-prep/hp-wifi-capture-7w0nr6xr/report.json",
+    "sha256": "ba8caaf7433a3bdd060ff6a9a759316c8f2f4c4ad8c8b033aa6998596c476b7c",
+    "tested_image_sha256": "af6893a6a2ddb56dd7c3f353ae2290f5070f5e60e4b48dbcb416dfde6c203b6e",
+    "original_files_identical": 45,
+    "files_saved": 46,
+    "new_log": "opencore-2026-10-16-140821.txt",
+    "new_log_sha256": "727d0320b3807b487352a2712172e60d11c7d841392b905a9f99be1e33ad4888",
+    "exitbs_observed": true,
+    "booter_log_is_not_xnu_usb_runtime": true
+  },
+  "usb_delivery": {
+    "path": ".local/install-prep/hp-xhci-delivery-7z4ju925/report.json",
+    "sha256": "026101b652d0be2587f6e91717adbbf94c0fe73c8cc449e03fbd5a4801cbd1ba",
+    "candidate": "/ISO/linux/HP-Tahoe-VESA-XHCI.img",
+    "new_files": 4,
+    "new_files_full_hash_readback_after_readonly_remount": true,
+    "original_file_size_mtime_entries_preserved": 222,
+    "four_original_image_hashes_verified": true,
+    "ventoy_efi_files_hash_verified_unchanged": 995,
+    "ventoy_configuration_and_partition_geometry_preserved": true,
+    "offline_full_image_hash_verified_before_copy": true,
+    "offline_image_size_mtime_preserved_not_written": true,
+    "pid_wait_helper_fix_delivered_as_new_archive_only": true,
+    "internal_helper_updated": false,
+    "both_partitions_safely_unmounted": true
+  },
+  "live_driver_modified": false,
+  "delivery_final_audit": {
+    "path": ".local/install-prep/hp-xhci-delivery-7z4ju925/final-audit.json",
+    "sha256": "02c2a8ea42b19bb7a1900b12a727de10a0d1ab708d0aa1a0606d4912e153870d",
+    "history_events": 27,
+    "unique_history_and_xhci_evidence_references_verified": 38,
+    "repository_checks": "make check passes 43 Python/34 JSON/25 Markdown; git diff --check passes"
+  },
+  "physical_outcome": {
+    "evidence": "manifests/hp-xhci-runtime-check.json",
+    "a0ed_spt_class_probe900_effective": true,
+    "physical_usb_restored": false,
+    "both_controllers_power_state_zero_and_no_children": true
+  },
+  "next_action": "Saved runtime/rotated logs still lack early initialization failure. Next local candidate enlarges kernel msgbuf only; preserve class-trial result and investigate actual early errors before another hardware patch"
+}

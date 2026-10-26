@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "scope": "Verified Apple inputs and local app reconstruction; HP installation untested",
+  "runner": "scripts/build_offline_app_volume.py",
+  "runner_sha256": "2edc9142943f0a75b63dd142f5e0b344cdcd754ba4bddabf037013c63dd2b9e3",
+  "private_report": ".local/install-prep/offline-volume-74wl2z7u/report.json",
+  "private_report_sha256": "38f73a30b85071df06796cf382d5575ca04999d422e118ccc2e13305d577467e",
+  "offline_app_data_image": {
+    "bytes": 19922944000,
+    "sha256": "75f6cab00020ad6c2124579bc4641ca0f9029ad0ff23cf3d8112d01211523c92",
+    "readonly_fsck_exit": 0,
+    "independent_decoder_app_file_matches": 695,
+    "independent_decoder_symlink_matches": 26,
+    "executable_modes_preserved": true,
+    "complete_nested_package_digest_matches": true,
+    "usb_updated": true
+  },
+  "usb_delivery": {
+    "private_report": ".local/install-prep/usb-offline-delivery-38vmry8y/report.json",
+    "private_report_sha256": "d0a4920e4e865d6582214fdca9c3df64b26c4de2f91a3724b8305a953dda3e15",
+    "destination": "/ISO/linux/Tahoe-26.6.2-Offline-App.hfs",
+    "complete_readback_sha256_verified": true,
+    "mmio_boot_retry_image_sha256_preserved": "ffe4093a37bb54f19dc522e5817f5934c35717dd21c19baae61ddc8bc8371e67",
+    "ventoy_configuration_and_partition_layout_preserved": true,
+    "unrelated_files_size_and_mtime_preserved": true,
+    "safely_unmounted": true,
+    "helper_scripts_delivered": ["collect_macos_handoff.sh", "attach_hp_offline_installer.sh"],
+    "local_handoff_bundle": ".local/install-prep/hp-handoff-wae7ve17",
+    "hp_offline_image_attach_tested": false
+  },
+  "supporting_evidence": [
+    {
+      "path": ".local/install-prep/full-installer/verification-osi8gqeg/report.json",
+      "sha256": "e734f3e50ae1c9b28504bd8b2aa2763614bff693fd5f4501a1100d812aa073da"
+    },
+    {
+      "path": ".local/install-prep/support-inspection-zxwwb2tx/report.json",
+      "sha256": "59a8eb0bf5a8135c80c640a6c72f69ac86aba42b48f959fa19e23eb144f77007"
+    },
+    {
+      "path": ".local/install-prep/offline-app-yazo59vv/report.json",
+      "sha256": "8aefe0bf81e273ac61e06392a3a036f9c2f7647aa56ae1857b4384a5809111d9"
+    },
+    {
+      "path": ".local/install-prep/hfs-tool-probe/fsck-validation.json",
+      "sha256": "1a23cf977d38459606b92068ba165059e2960079d1e147294fef9504a42dd4fc"
+    }
+  ],
+  "apple_package": {
+    "url": "https://swcdn.apple.com/content/downloads/37/33/140-93587-A_GRFFH93NOL/f944yaqo1cjhh2m0kxrl0zhcpg9yb9qphv/InstallAssistant.pkg",
+    "bytes": 18384624402,
+    "sha256": "376923d7494cfa32b69f383bcfdce46aeedb609fe6a242ea12a6e015bfb77ba4",
+    "apple_root_certificate_sha256": "b0b1730ecbc7ff4505142c49f1295e6eda6bcaed7e2c68c5be91b5a11001f024",
+    "toc_rsa_signature_verified": true,
+    "certificate_chain_verified": true,
+    "signed_members_verified": 5,
+    "tampered_signature_rejected": true,
+    "internal_os_version": "26.6.2",
+    "internal_os_build": "25G83",
+    "internal_documentation_id": "PreRelease",
+    "primary_asset": {
+      "path": "com_apple_MobileAsset_MacSoftwareUpdate/60533a8ae8e47c23593a6965d64c1f00a6396cfe.zip",
+      "bytes": 18356020461,
+      "sha256": "0b44a71bd6a721f5ddfb46f8dba39b09ee46bf9678a1c3100b978f512acfc07c",
+      "matches_inner_catalog": true
+    }
+  },
+  "hfs_writer": {
+    "repository": "https://github.com/planetbeing/xpwn",
+    "upstream_commit": "20c32e5c12d1b22a9d55a59a0ff6267f539b77f4",
+    "source_nar_hash": "sha256-wOSIaeNjZOKoeL4padP6UWY1O75qqHuFuSMrdCOLI2s=",
+    "license": "GPL-3.0-or-later",
+    "patch": "patches/xpwn-large-volume-offset.patch",
+    "patch_sha256": "4284884b7335f4b7d8ca54342ffff14cb3c148de073cc18d725b769d48b3d24b",
+    "original_build_patch_sha256": "8b3f28026c3c0df3371dd25e259d36d8fe573c3e5c579e4e0a645bfdee40fc03",
+    "patch_context_reduced_after_build": true,
+    "context_reduced_patch_produces_identical_source_bytes": true,
+    "original_rawfile_sha256": "0ee31cddc733acb0ecef4cdb3bebfb542919d078df2683df4205d3994fee8330",
+    "patched_rawfile_sha256": "43edab9a1f877e84810881d6e7f6c2c19df464857ed24d744c566369440f112e",
+    "local_binary_sha256": "fb8c88c6add87ac4f854f8c608f1926f769010798bea2a06d9b77f41d5816316",
+    "private_build_receipt": ".local/install-prep/tools/xpwn-large-offset/build.json",
+    "reason": "Promote uint32 allocation-zeroing offset before multiplying; avoid physical offset wrap above 4GiB"
+  },
+  "independent_decoder": {
+    "tool": "7zz",
+    "version": "26.04",
+    "sha256": "3e3a0fa5d764701c81076b1574012b7ecb1563b24439d548eb5da498e6875d6f"
+  },
+  "hfs_format_and_check": {
+    "repository": "https://github.com/glaubitz/hfs",
+    "upstream_commit": "a9496556b0a5fa805139ea20b44081d48aae912a",
+    "version": "627.40.1-linux",
+    "source_nar_hash": "sha256-i6fXPWHU03ErUN2irP2cLJbpqi1OrTtcQE+ohAz+Eio=",
+    "license": "APSL-2.0",
+    "mkfs_binary_sha256": "42b12e18d89299cb0170120cb3cdeaed27208fe010788741ba4c9f47c8860e5b",
+    "fsck_binary_sha256": "293df35c84a92283c710fafaa6507560f0a3dbe37b42e8595140f6a22fe4a180"
+  },
+  "fsck_regular_file_adapter": {
+    "source": "scripts/hfs_regular_ioctl.c",
+    "provided_values": "512-byte logical blocks, real regular-file byte length; other ioctl requests pass through",
+    "clean_probe_exit": 0,
+    "corrupt_btree_negative_control_exit": 8,
+    "volume_contents_modified_by_adapter": false
+  },
+  "limits": {
+    "apple_createinstallmedia_executed": false,
+    "recovery_installer_execution_tested_on_hp": false,
+    "offline_installation_tested_on_hp": false,
+    "vm_executed_for_this_local_assembly": false
+  }
+}

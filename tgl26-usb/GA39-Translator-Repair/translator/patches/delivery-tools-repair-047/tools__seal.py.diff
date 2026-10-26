@@ -1,0 +1,19 @@
+--- before/tools/seal.py
++++ after/tools/seal.py
+@@ -79,7 +79,15 @@
+                 walk(value)
+     walk(inv)
+     for item in inv['history_manifests'].values():
+-        add(Path(item['manifest']), item['sha256'])
++        path = Path(item['manifest'])
++        add(path, item['sha256'])
++        if digest(path) != item['sha256']:
++            raise ValueError('Historical manifest changed: ' + str(path))
++        historical = json.loads(path.read_text())
++        for row in historical['files']:
++            add(path.parent / row['path'], row['sha256'])
++        for row in historical.get('external_sources', []):
++            add(Path(row['path']), row['sha256'])
+     out = []
+     for path, sha in sorted(expected.items()):
+         p = Path(path)

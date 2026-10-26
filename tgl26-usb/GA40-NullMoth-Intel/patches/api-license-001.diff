@@ -1,0 +1,187 @@
+--- before/reports/REUSE-MATRIX.md
++++ after/reports/REUSE-MATRIX.md
+@@ -1,8 +1,9 @@
+-# Reuse matrix — draft (GA40 M1)
+-
+-Status: **draft**. This is a bounded reuse assessment for the pinned NullMoth
+-source, not a final project seal and not a legal opinion. It does not evaluate
+-the GA40 adapter itself.
++# Reuse matrix — corrected source assessment (GA40)
++
++Status: bounded source assessment, corrected after independent G1 review.
++The original draft and exact failing recipes remain in
++`reference/repairs/api-license-001/` and `audit/api-license/negative/`.
++This is not a legal clearance or whole-plugin runtime qualification.
+ 
+ Source: `sources/nullmoth` @ `47f818b11cef59acb480210afdf9065fdd44e356`
+ (`v2.4.3`). Static reading only; no build, GPU, install or runtime test.
+@@ -39,7 +40,7 @@
+ | `plugin/nvmtl_sampler_desc.h` (16 L) | **Direct** | Metal-like sampler descriptor struct | none (stdint only) | PolyForm NC |
+ | `plugin/nvmtl_sampler_state.h` (66 L) | **Direct** | Maps descriptor → `VkSamplerCreateInfo` | caller must include Vulkan headers first; no Darwin | PolyForm NC |
+ | `plugin/nvmtl_sample_positions.h` (70 L) | **Direct** | 1/2/4/8 sample patterns, validation, quantization | none (C math) | PolyForm NC |
+-| `plugin/nvmtl_physical_bounds.h` (38 L) | **Direct** | SPIR-V physical-storage decoration rewrite helper | assumes SPIR-V word layout; specific opcodes need tests | PolyForm NC |
++| `plugin/nvmtl_physical_bounds.h` (38 L) | **Direct** | SPIR-V physical-storage in-bounds access-chain rewrite helper | marks pointer types in storage class5349, rewrites op66→65/70→67; not decorations or general SPIR-V validation | PolyForm NC |
+ | `plugin/nvmtl_tex_upload.h` (61 L) | **Direct** | one-in-flight async upload state machine | caller supplies fence handles | PolyForm NC |
+ | `plugin/nvmtl_sample_depth_contract.h` (14 L) | **Direct but NVK-meaning** | contract bit constants | useful only if matching NVK's sample-depth contract | PolyForm NC |
+ | `plugin/nvmtl_log_failure.h` (34 L) | **Direct** | release-log classifier | not core; plugin-specific wording | PolyForm NC |
+@@ -84,8 +85,10 @@
+ 
+ ### Why this set
+ 
+-- All five are C99/C11 headers with `static inline` functions and no
+-  Objective-C, Darwin, IOKit, IOSurface or Metal include.
++- All five are C99/C11 headers without Objective-C, Darwin, IOKit,
++  IOSurface or Metal includes. Some contain `static inline` functions;
++  `nvmtl_physical_bounds.h` has a non-inline `static int` function which must
++  be called in an include-and-call TU to avoid unused-function warnings.
+ - `nvmtl_sampler_state.h` needs `VkSamplerCreateInfo`, `VkSamplerAddressMode`,
+   `VkBorderColor`, `VkCompareOp`, `VkFilter`, `VkSamplerMipmapMode`; include
+   `vulkan/vulkan.h` before it. It does **not** create a device or call Vulkan.
+@@ -98,12 +101,15 @@
+   Metal→Vulkan adapter: sampler state, sample positions, a SPIR-V rewrite, and
+   upload lifetime.
+ 
+-M1 CPU-only check already performed: `clang -std=c11 -Wall -Wextra
+--Werror -fsyntax-only` over `nvmtl_sampler_desc.h`,
+-`nvmtl_sample_positions.h`, `nvmtl_physical_bounds.h` and
+-`nvmtl_tex_upload.h` passed. `nvmtl_sampler_state.h` was not compiled because
+-Vulkan headers are not installed on this host; it needs `vulkan/vulkan.h` (or
+-the equivalent types) before inclusion. No runtime test was run.
++The original M1 compile claim was overstated. Independent G1 reproduced
++failure of the exact `-Wall -Wextra -Werror` recipe on sampler initialization
++and unused non-inline physical-bounds helper; the original failures are retained.
++Vulkan headers do exist at
++`/nix/store/70gg5639vl0vrh52jc4ivb18rab3z5hq-vulkan-headers-1.4.357.0/include`.
++The include-and-call probe `audit/api-license/probe_helpers.c` passes 106 CPU
++checks with the explicitly documented `-Wno-missing-field-initializers` below.
++This probe creates no Vulkan device. GA40's actual two-header adapter and
++CPU/Lavapipe results are separately described in `metal/backend-adapter/README.md`.
+ 
+ ### What Bundle A is not
+ 
+@@ -114,13 +120,17 @@
+ - It does not make GA40's Intel path work. It only avoids re-deriving a few
+   well-tested small rules.
+ 
+-### Integration recipe (proposed, not executed)
++### Corrected integration recipe (bounded CPU check executed by G1)
+ 
+ 1. Create a dedicated directory (for example `metal/backend-adapter/reuse/` in
+    a later milestone) and copy the five files verbatim.
+-2. Preserve the SPDX line `PolyForm-Noncommercial-1.0.0` and add the archived
+-   `LICENSE-PolyForm-Noncommercial-1.0.0.txt` plus `Required Notice:
+-   Copyright (c) 2026 NullMoth Systems (https://nullmothsystems.com)`.
++2. Preserve existing SPDX/copyright notices and the archived PolyForm licence
++   plus `Required Notice: Copyright (c) 2026 NullMoth Systems
++   (https://nullmothsystems.com)`. `nvmtl_tex_upload.h` has **no SPDX header**;
++   a separately extracted copy should add an explanatory PolyForm SPDX/notice
++   based on the plugin's governing terms. Never claim it already had that line
++   or edit the pinned upstream file. Directory notice in the actual GA40 glue:
++   `metal/backend-adapter/NOTICE.md`.
+ 3. Add a `reuse_compile_check.c` that:
+    - includes `vulkan/vulkan.h` then `nvmtl_sampler_state.h`;
+    - builds a `nvmtl_sampler_desc` and checks a few expected
+@@ -131,8 +141,20 @@
+    - exercises `nvmtl_up_before_upload` / `nvmtl_up_before_consume` /
+      `nvmtl_up_set` / `nvmtl_up_clear`.
+ 4. Compile with a CPU-only command such as
+-   `cc -std=c11 -Wall -Wextra -Werror -I<vulkan-include> -Ireuse reuse_compile_check.c`.
+-   This is a compile/unit check, not a GPU test.
++    `cc -std=c11 -Wall -Wextra -Werror -Wno-missing-field-initializers -I<vulkan-include> -Ireuse reuse_compile_check.c -lm`.
++    Add `-Wno-missing-field-initializers` for the upstream sampler initializer,
++    and use an include-and-call TU for the non-inline helper. An actual command:
++
++    ```sh
++    clang -std=c11 -Wall -Wextra -Werror -Wno-missing-field-initializers -O2 \
++      -I/nix/store/70gg5639vl0vrh52jc4ivb18rab3z5hq-vulkan-headers-1.4.357.0/include \
++      -Isources/nullmoth/plugin audit/api-license/probe_helpers.c -lm \
++      -o build/reuse-helper-probe
++    build/reuse-helper-probe
++    ```
++
++    This is a compile/unit check, not a GPU test; original exact flags remain
++    negative controls, not silently rewritten as a previous pass.
+ 5. Record the copied-file SHA-256 values and keep them pinned. If the upstream
+    commit changes, re-run the extraction and re-check the diffs.
+ 
+--- before/reference/nullmoth-api-inventory/reuse-slice.json
++++ after/reference/nullmoth-api-inventory/reuse-slice.json
+@@ -4,6 +4,9 @@
+   "bundle": "A-pure-c-headers",
+   "total_lines": 265,
+   "total_bytes": 11801,
++  "totals_include_optional_sixth": true,
++  "five_file_bundle_lines": 251,
++  "five_file_bundle_bytes": 11298,
+   "files": [
+     {
+       "path": "sources/nullmoth/plugin/nvmtl_sampler_desc.h",
+@@ -37,7 +40,7 @@
+       "sha256": "bf3afe460229160d82b6948531d65c6f0f8f53662969f7414646f3c4ab552b5a",
+       "size": 1193,
+       "lines": 38,
+-      "role": "SPIR-V physical-storage pointer decoration rewrite helper (38 lines); pure C",
++      "role": "SPIR-V physical-storage in-bounds access-chain opcode rewrite helper (38 lines); pure C, static non-inline",
+       "license": "PolyForm-Noncommercial-1.0.0",
+       "extraction": "copy verbatim with header/licence; no source edits to origin"
+     },
+@@ -48,7 +51,8 @@
+       "lines": 61,
+       "role": "one-in-flight async texture upload state machine (61 lines); pure C",
+       "license": "PolyForm-Noncommercial-1.0.0",
+-      "extraction": "copy verbatim with header/licence; no source edits to origin"
++      "spdx_header": null,
++      "extraction": "Original has no SPDX header; preserve origin. If separately extracted, add governing plugin PolyForm SPDX/Required Notice in new copy, retain license; do not edit pinned origin."
+     },
+     {
+       "path": "sources/nullmoth/plugin/nvmtl_sample_depth_contract.h",
+@@ -63,9 +67,9 @@
+   "constraints": [
+     "PolyForm Noncommercial 1.0.0: noncommercial purposes only; keep licence and Required Notice.",
+     "No Darwin, Metal, IOSurface or Vulkan runtime dependency except nvmtl_sampler_state.h requiring VkSamplerCreateInfo/VkSamplerAddressMode declarations.",
+-    "These headers are static inline code; extraction is a modified/new work, not a relicence.",
++    "These are pure C headers; physical_bounds has a non-inline static function requiring include-and-call compilation. Extraction does not relicense the code.",
+     "Not a complete Metal API; do not present it as a backend."
+   ],
+-  "build_check": "Proposed only: cc -std=c11 -Wall -Wextra -Werror -I<vulkan-include> -Ireuse reuse_compile_check.c. No build was run in M1.",
+-  "verification": "M1 CPU-only syntax check: clang -std=c11 -Wall -Wextra -Werror (with -Wno-unused-command-line-argument for the Nix wrapper) over nvmtl_sampler_desc.h, nvmtl_sample_positions.h, nvmtl_physical_bounds.h and nvmtl_tex_upload.h passed on 2026-10-20. nvmtl_sampler_state.h was not compiled because no Vulkan headers are installed; it requires VkSamplerCreateInfo/VkSamplerAddressMode declarations."
+-}+  "build_check": "Corrected include-and-call TU: clang -std=c11 -Wall -Wextra -Werror -Wno-missing-field-initializers -O2 -I/nix/store/70gg5639vl0vrh52jc4ivb18rab3z5hq-vulkan-headers-1.4.357.0/include -Isources/nullmoth/plugin audit/api-license/probe_helpers.c -lm -o build/reuse-helper-probe",
++  "verification": "Independent G1 audit/api-license/probe.receipt.json: 106 CPU checks pass with documented initializer warning override; original exact-flag failures retained in negative/. Vulkan headers are present at the fixed path used by actual adapter build. Original overstatement and pre-edit source retained under reference/repairs/api-license-001. No full Metal plugin or GPU validation."
++}
+--- before/reference/licenses/LICENSES.md
++++ after/reference/licenses/LICENSES.md
+@@ -42,7 +42,7 @@
+ 
+ | Scope | Stated licence | Evidence | Reuse position |
+ |---|---|---|---|
+-| `plugin/`, `kexts/`, `build/`, `package/` | PolyForm Noncommercial 1.0.0 | `README.md:172-180`; 84 files carry `SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0` | Source-available, **noncommercial only**. Modification and redistribution are allowed only for permitted (noncommercial) purposes, with the licence and Required Notice. |
++| `plugin/`, `kexts/`, `build/`, `package/` | PolyForm Noncommercial 1.0.0 | `README.md:172-180`; 85 files carry `SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0` (24 plugin + 61 kexts) | Source-available, **noncommercial only**. Modification and redistribution are allowed only for permitted (noncommercial) purposes, with the licence and Required Notice. |
+ | `translator/` | LGPL-3.0-or-later | `translator/translator/Cargo.toml` `license = "LGPL-3.0-or-later"`, `translator/README.md`, `NOTICE`; `translator/LICENSE` is the LGPL text | Weak copyleft. Modifying the library triggers LGPL source/relink obligations. It is based on `metal2vulkan` (Anees Iqbal). |
+ | `nvk/` changes | MIT (Mesa) | `nvk/nvk-macos.patch` contains MIT SPDX lines; `README.md:179`, `NOTICE`; patch applies to Mesa `17ca6174` | MIT for the patch/Mesa-derived material. No full MIT text is shipped in this tree. |
+ | NVIDIA r610 kernel modules | MIT / GPL-2.0 (upstream) | `NOTICE`; `kexts/NVRM` builds against external `open-gpu-kernel-modules` tag `610.57.04` | Not vendored as a whole. Per-file lineage of the NullMoth port is not documented; do not assume the entire `kexts/NVRM` port is MIT/GPL. |
+@@ -117,9 +117,11 @@
+ 7. **NVIDIA code is not vendored wholesale.** `NOTICE` says the build uses
+    NVIDIA's r610 modules; the repository contains porting glue and a copied
+    modeset header, not the full NVIDIA tree. The GSP firmware and
+-   `NVIDIAShared.bundle`/`air-runtime/libLLVM.dylib` are external payloads and
+-   are not in this git tree; a binary package may redistribute them under
+-   their own terms.
++    `air-opt`, `NVIDIAShared.bundle` and `air-runtime/libLLVM.dylib` are external
++    payloads, not in this tree and not archived here. Their licences are
++    **Unknown / not established**; translator LGPL does not cover them.
++    Do not redistribute these payloads or claim licence clearance from this
++    inventory. Firmware similarly requires its own verified terms.
+ 
+ ## Reuse rules for GA40
+ 
+--- before/metal/backend-adapter/README.md
++++ after/metal/backend-adapter/README.md
+@@ -28,7 +28,7 @@
+ ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 build/backend-sanitize/backend-test lavapipe
+ ```
+ 
+-这些构建脚本只接受新目录；已执行产物应在私有完整副本中使用新输出路径重放，不覆盖原日志。实际收据 `logs/backend-*006` 至 `011`：全部 exit0，两后端回读符合独立输入/预期值、四线程各64个生命周期、同步失败后资源仍受保护，ASan/UBSan 无诊断。
++这些构建脚本只接受新目录；已执行产物应在私有完整副本中使用新输出路径重放，不覆盖原日志。实际收据 `logs/backend-*006` 至 `011`：全部 exit0，两后端回读符合测试内固定输入/预期值、四线程各64个生命周期、同步失败后资源仍受保护，ASan/UBSan 无诊断。跨组件的Python预期另行计算，与C后端实现分开。
+ 
+ 跨组件 `prototype/tests/cross_component.py`：i915 ABI **CPU backing store** → 显式 CPU 字节复制 → Metal-like facade → adapter → CPU/Lavapipe → 独立期望回读。`logs/pipeline-build-018`、`logs/cross-component-019`、`prototype/results/cross-component-001/` 均保存真实输入、输出和命令。它不是 DRM BO 导入，也未将模拟 handle、Context、VM 或 GPU VA 传入 Vulkan。
+ 

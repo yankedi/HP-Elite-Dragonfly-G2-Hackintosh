@@ -1,0 +1,128 @@
+--- before/tools/run_delivery.py
++++ after/tools/run_delivery.py
+@@ -20,6 +20,28 @@
+ from run_positive_fragment import run as positive
+ from run_semantic_bundle import run as semantic
+ 
++SHADERS = ['PS0', 'PS-KP1', 'PS-KP2', 'VS']
++
++
++def verify_dispositions(root):
++    rows = []
++    for shader in SHADERS:
++        strict = json.loads((root / f'strict/{shader}/report.json').read_text())
++        research = json.loads((root / f'research/{shader}/report.json').read_text())
++        if (strict.get('mode') != 'strict' or strict.get('status') != 'UNKNOWN_REJECTED'
++                or strict.get('accepted_program') is not False or strict.get('full_shader_emitted') is not False):
++            raise ValueError('Unexpected strict acceptance/disposition: ' + shader)
++        if (research.get('mode') != 'research' or research.get('accepted_program') is not False
++                or research.get('research_program_generated') is not True
++                or research.get('research_validation_state') != 'MAPPED_DECODED_ROUNDTRIPPED_NOT_SEMANTICALLY_PROVEN'):
++            raise ValueError('Research did not finish validation: ' + shader)
++        rows.append({'shader_id': shader, 'strict_status': strict['status'],
++                     'strict_accepted': strict['accepted_program'],
++                     'research_generated': research['research_program_generated']})
++    return {'status': 'PASS', 'full_programs_strictly_accepted': sum(int(r['strict_accepted']) for r in rows),
++            'research_programs': sum(int(r['research_generated']) for r in rows),
++            'programs': rows, 'hardware_validated': False}
++
+ 
+ def run(output):
+     output = output.resolve()
+@@ -34,8 +56,9 @@
+     positive(output / 'positive')
+     compare(output / 'baseline', output / 'research', output / 'comparison')
+     metrics(output / 'baseline', output / 'research', output / 'metrics')
+-    print(json.dumps({'status': 'PASS', 'full_programs_strictly_accepted': 0, 'research_programs': 4,
+-                      'hardware_validated': False}, sort_keys=True))
++    summary = verify_dispositions(output)
++    (output / 'delivery-summary.json').write_text(json.dumps(summary, sort_keys=True, indent=2) + '\n')
++    print(json.dumps(summary, sort_keys=True))
+ 
+ 
+ def stable_artifacts(root):
+@@ -47,20 +70,48 @@
+                     'research/*/research-NOT_FOR_HARDWARE/candidate.NOT_FOR_HARDWARE.bin',
+                     'research/*/research-NOT_FOR_HARDWARE/ga38-review/analysis/*.json',
+                     'semantics/*.json', 'positive/strict-unit/report.json',
+-                    'positive/strict-unit/isolated-fragment.bin', 'comparison/diff.json', 'metrics/metrics.json']:
++                    'positive/strict-unit/isolated-fragment.bin', 'comparison/diff.json', 'metrics/metrics.json',
++                    'delivery-summary.json']:
+         selected.extend(root.glob(pattern))
+     return sorted(set(selected))
++
++
++def required_artifacts():
++    out = {'baseline/corpus/provenance.json', 'baseline/summary.json', 'semantics/summary.json',
++           'comparison/diff.json', 'metrics/metrics.json', 'delivery-summary.json',
++           'positive/strict-unit/report.json', 'positive/strict-unit/isolated-fragment.bin'}
++    for s in SHADERS:
++        for side in ['source', 'candidate']:
++            out.update({f'baseline/ir/outputs/{s}-{side}.json', f'baseline/ir/messages/{s}-{side}.json',
++                        f'baseline/dependency/graphs/{s}-{side}.json', f'baseline/corpus/{side}/{s}.bin'})
++        for kind in ['comparison', 'schedule']:
++            out.add(f'baseline/validator/outputs/{s}-{kind}.json')
++        out.update({f'strict/{s}/report.json', f'strict/{s}/source.bin', f'strict/{s}/semantic-bundle.json',
++                    f'research/{s}/report.json', f'research/{s}/semantic-bundle.json', f'semantics/{s}.json'})
++        prefix = f'research/{s}/research-NOT_FOR_HARDWARE/'
++        out.add(prefix + 'candidate.NOT_FOR_HARDWARE.bin')
++        for name in ['source-ir', 'candidate-ir', 'source-graph', 'candidate-graph',
++                     'source-messages', 'candidate-messages', 'schedule', 'comparison']:
++            out.add(prefix + f'ga38-review/analysis/{name}.json')
++    return out
+ 
+ 
+ VOLATILE = {'elapsed_seconds', 'generation_validation_seconds_observed',
+             'research_generation_validation_seconds_observed'}
+ 
+ 
+-def normalize(obj, root):
++def normalize(obj, root, artifact='', trail=()):
+     if isinstance(obj, dict):
+-        return {k: normalize(v, root) for k, v in obj.items() if k not in VOLATILE}
++        def omit(k):
++            if artifact.endswith('/report.json') and not trail and k == 'elapsed_seconds':
++                return True
++            if artifact == 'comparison/diff.json' and len(trail) == 2 and trail[0] == 'programs' and k == 'generation_validation_seconds_observed':
++                return True
++            return (artifact == 'metrics/metrics.json' and len(trail) == 2 and trail[0] == 'programs'
++                    and k == 'research_generation_validation_seconds_observed')
++        return {k: normalize(v, root, artifact, trail + (k,)) for k, v in obj.items() if not omit(k)}
+     if isinstance(obj, list):
+-        return [normalize(v, root) for v in obj]
++        return [normalize(v, root, artifact, trail + (i,)) for i, v in enumerate(obj)]
+     if isinstance(obj, str):
+         return obj.replace(str(root), '<RUN>')
+     return obj
+@@ -73,12 +124,17 @@
+     a, b = [{str(p.relative_to(root)): p for p in stable_artifacts(root)} for root in [left, right]]
+     if set(a) != set(b) or not a:
+         raise ValueError('Semantic artifact sets differ or are empty')
++    required = required_artifacts()
++    if not required <= set(a):
++        raise ValueError('Required semantic artifacts missing: ' + str(sorted(required-set(a))))
++    verify_dispositions(left)
++    verify_dispositions(right)
+     rows = []
+     for name in sorted(a):
+         raw_a, raw_b = a[name].read_bytes(), b[name].read_bytes()
+         normalized_a, normalized_b = raw_a, raw_b
+         if name.endswith('.json'):
+-            normalized_a, normalized_b = [json.dumps(normalize(json.loads(raw), root), sort_keys=True).encode()
++            normalized_a, normalized_b = [json.dumps(normalize(json.loads(raw), root, name), sort_keys=True).encode()
+                                           for raw, root in [(raw_a, left), (raw_b, right)]]
+         rows.append({'path': name, 'left_raw_sha256': hashlib.sha256(raw_a).hexdigest(),
+                      'right_raw_sha256': hashlib.sha256(raw_b).hexdigest(),
+@@ -86,7 +142,11 @@
+                      'equal': normalized_a == normalized_b})
+     output.mkdir(parents=True)
+     data = {'schema': 'ga39-dual-fresh-determinism/v1', 'left': str(left), 'right': str(right),
+-            'normalization': {'keys_omitted': sorted(VOLATILE), 'run_root_string_replaced': '<RUN>'},
++            'normalization': {'timing_fields_omitted': ['*/report.json:$.elapsed_seconds',
++                              'comparison/diff.json:$.programs[*].generation_validation_seconds_observed',
++                              'metrics/metrics.json:$.programs[*].research_generation_validation_seconds_observed'],
++                              'json_object_key_order_and_whitespace_normalized': True,
++                              'run_root_string_replaced': '<RUN>'},
+             'scope': 'Raw shader binaries and full selected semantic JSON, not command-log textual identity',
+             'rows': rows, 'equal': all(r['equal'] for r in rows), 'hardware_validated': False}
+     (output / 'determinism.json').write_text(json.dumps(data, indent=2, sort_keys=True) + '\n')

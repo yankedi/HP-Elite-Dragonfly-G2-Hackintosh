@@ -1,0 +1,14 @@
+# Raw machine evidence contains device serials, ACPI OEM data and disk identifiers.
+.local/
+.cache/
+build/
+dist/
+__pycache__/
+*.py[cod]
+.venv/
+.DS_Store
+# Keep generated machine identities and secrets out of version control.
+*.key
+*.pem
+*.p12
+.env

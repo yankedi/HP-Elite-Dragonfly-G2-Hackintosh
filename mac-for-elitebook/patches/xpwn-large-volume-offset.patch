@@ -1,0 +1,5 @@
+--- a/hfs/rawfile.c
++++ b/hfs/rawfile.c
+@@ -91 +91 @@
+-				ASSERT(WRITE(volume->image, curBlock * volume->volumeHeader->blockSize, volume->volumeHeader->blockSize, zeros), "WRITE");
++				ASSERT(WRITE(volume->image, (off_t)curBlock * volume->volumeHeader->blockSize, volume->volumeHeader->blockSize, zeros), "WRITE");

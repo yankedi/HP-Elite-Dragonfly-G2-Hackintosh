@@ -1,0 +1,56 @@
+--- before/tests/test_determinism.py
++++ after/tests/test_determinism.py
+@@ -21,10 +21,21 @@
+         self.base = Path(t.name)
+         self.left, self.right = self.base / 'left', self.base / 'right'
+         for root, elapsed in [(self.left, 1.0), (self.right, 2.0)]:
+-            (root / 'strict/PS0').mkdir(parents=True)
++            for name in delivery.required_artifacts():
++                path = root / name
++                path.parent.mkdir(parents=True, exist_ok=True)
++                path.write_bytes(b'{}' if name.endswith('.json') else b'synthetic')
++            for s in delivery.SHADERS:
++                (root / f'strict/{s}/report.json').write_text(json.dumps(
++                    {'mode': 'strict', 'status': 'UNKNOWN_REJECTED', 'accepted_program': False,
++                     'full_shader_emitted': False}))
++                (root / f'research/{s}/report.json').write_text(json.dumps(
++                    {'mode': 'research', 'accepted_program': False, 'research_program_generated': True,
++                     'research_validation_state': 'MAPPED_DECODED_ROUNDTRIPPED_NOT_SEMANTICALLY_PROVEN'}))
+             (root / 'strict/PS0/source.bin').write_bytes(b'original')
+             (root / 'strict/PS0/report.json').write_text(json.dumps(
+-                {'status': 'UNKNOWN_REJECTED', 'elapsed_seconds': elapsed, 'input_path': str(root / 'input'),
++                {'mode': 'strict', 'status': 'UNKNOWN_REJECTED', 'accepted_program': False, 'full_shader_emitted': False,
++                 'elapsed_seconds': elapsed, 'input_path': str(root / 'input'),
+                  'numeric_semantics': {'rounding_mode': 'UNKNOWN'}}))
+ 
+     def test_only_run_paths_and_declared_timings_normalized(self):
+@@ -47,6 +58,29 @@
+         with self.assertRaisesRegex(ValueError, 'Determinism failed'):
+             delivery.compare_fresh(self.left, self.right, self.base / 'byte-difference')
+ 
++    def test_shared_missing_artifact_cannot_pass(self):
++        for root in [self.left, self.right]:
++            (root / 'semantics/VS.json').unlink()
++        with self.assertRaisesRegex(ValueError, 'Required semantic artifacts missing'):
++            delivery.compare_fresh(self.left, self.right, self.base / 'missing')
++
++    def test_nested_elapsed_seconds_is_not_omitted(self):
++        for root, value in [(self.left, 'UNKNOWN'), (self.right, 'KNOWN')]:
++            p = root / 'strict/PS0/report.json'
++            d = json.loads(p.read_text())
++            d['numeric_semantics']['elapsed_seconds'] = value
++            p.write_text(json.dumps(d))
++        with self.assertRaisesRegex(ValueError, 'Determinism failed'):
++            delivery.compare_fresh(self.left, self.right, self.base / 'nested-timing')
++
++    def test_acceptance_is_not_hardcoded_to_zero(self):
++        p = self.right / 'strict/PS0/report.json'
++        d = json.loads(p.read_text())
++        d.update(accepted_program=True, status='PROVEN')
++        p.write_text(json.dumps(d))
++        with self.assertRaisesRegex(ValueError, 'Unexpected strict acceptance'):
++            delivery.compare_fresh(self.left, self.right, self.base / 'wrong-acceptance')
++
+ 
+ if __name__ == '__main__':
+     unittest.main()

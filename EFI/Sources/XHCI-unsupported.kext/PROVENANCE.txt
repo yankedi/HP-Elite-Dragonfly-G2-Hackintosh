@@ -1,0 +1,6 @@
+Derived from DalianSky/OS-X-USB-Inject-All commit ce55e00966ac90c5e2504fb39b4ecf3fcebab51a.
+Original XHCI-unsupported plist SHA-256: 9b66b803577d7dea089bc5dc6352f25fb2f2de9c3333cb899c9a838ad7106571
+Original RehabMan/GPL metadata preserved; see License.md.
+Modifications: retain only AppleUSBXHCISPT 500; narrow PCI ID list to 8086:a0ed.
+No executable, PCI spoof, port map or patch. Does not match 8086:9a13.
+Matches an Apple class already present in the actual 25G83 KC; HP behavior untested.

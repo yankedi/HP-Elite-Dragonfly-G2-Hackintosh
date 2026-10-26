@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "file": "accelerated-loaded-kexts.txt",
+      "sha256": "1fa5cfb76086b3532368c86d67c3bf6e5a1f295c11b005a4b7f7fa321d9666e1",
+      "loaded_entries": 175,
+      "transformation": "None; complete reviewed kext inventory, no user paths/serials/network identifiers."
+    },
+    {
+      "file": "software-display-loaded-kexts.txt",
+      "sha256": "d4ce5466d366e6ff8520876ebbd0238326627e7c56e8411408584b6c2cf26933",
+      "loaded_entries": 171,
+      "transformation": "None; complete reviewed kext inventory, no user paths/serials/network identifiers."
+    }
+  ]
+}

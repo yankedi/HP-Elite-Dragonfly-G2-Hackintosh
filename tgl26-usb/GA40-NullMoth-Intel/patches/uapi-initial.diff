@@ -1,0 +1,81 @@
+--- before/drm/mock/layout_probe.c
++++ after/drm/mock/layout_probe.c
+@@ -22,7 +22,7 @@
+     TYPE(drm_syncobj_create); FIELD(drm_syncobj_create,handle,","); FIELD(drm_syncobj_create,flags,""); END(",");
+     TYPE(drm_syncobj_destroy); FIELD(drm_syncobj_destroy,handle,","); FIELD(drm_syncobj_destroy,pad,""); END(",");
+     TYPE(drm_syncobj_array); FIELD(drm_syncobj_array,handles,","); FIELD(drm_syncobj_array,count_handles,","); FIELD(drm_syncobj_array,pad,""); END(",");
+-    TYPE(drm_syncobj_wait); FIELD(drm_syncobj_wait,handles,","); FIELD(drm_syncobj_wait,timeout_nsec,","); FIELD(drm_syncobj_wait,count_handles,","); FIELD(drm_syncobj_wait,flags,","); FIELD(drm_syncobj_wait,first_signaled,","); FIELD(drm_syncobj_wait,pad,""); END(",");
++    TYPE(drm_syncobj_wait); FIELD(drm_syncobj_wait,handles,","); FIELD(drm_syncobj_wait,timeout_nsec,","); FIELD(drm_syncobj_wait,count_handles,","); FIELD(drm_syncobj_wait,flags,","); FIELD(drm_syncobj_wait,first_signaled,","); FIELD(drm_syncobj_wait,pad,","); FIELD(drm_syncobj_wait,deadline_nsec,""); END(",");
+     TYPE(drm_i915_gem_execbuffer2); FIELD(drm_i915_gem_execbuffer2,buffers_ptr,","); FIELD(drm_i915_gem_execbuffer2,buffer_count,","); FIELD(drm_i915_gem_execbuffer2,batch_start_offset,","); FIELD(drm_i915_gem_execbuffer2,batch_len,","); FIELD(drm_i915_gem_execbuffer2,flags,""); END("");
+     printf("},\"requests\":{");
+     REQUEST(VERSION,drm_version,","); REQUEST(GET_CAP,drm_get_cap,","); REQUEST(I915_GETPARAM,drm_i915_getparam,","); REQUEST(I915_QUERY,drm_i915_query,","); REQUEST(I915_GEM_CREATE,drm_i915_gem_create,","); REQUEST(GEM_CLOSE,drm_gem_close,","); REQUEST(I915_GEM_MMAP_OFFSET,drm_i915_gem_mmap_offset,","); REQUEST(I915_GEM_CONTEXT_CREATE_EXT,drm_i915_gem_context_create_ext,","); REQUEST(I915_GEM_CONTEXT_DESTROY,drm_i915_gem_context_destroy,","); REQUEST(I915_GEM_VM_CREATE,drm_i915_gem_vm_control,","); REQUEST(I915_GEM_VM_DESTROY,drm_i915_gem_vm_control,","); REQUEST(SYNCOBJ_CREATE,drm_syncobj_create,","); REQUEST(SYNCOBJ_DESTROY,drm_syncobj_destroy,","); REQUEST(SYNCOBJ_SIGNAL,drm_syncobj_array,","); REQUEST(SYNCOBJ_RESET,drm_syncobj_array,","); REQUEST(SYNCOBJ_WAIT,drm_syncobj_wait,","); REQUEST(I915_GEM_EXECBUFFER2,drm_i915_gem_execbuffer2,"");
+--- before/drm/mock/i915_model.py
++++ after/drm/mock/i915_model.py
+@@ -58,7 +58,7 @@
+ 
+ 
+ class ABI:
+-    def __init__(self, path=ROOT/'build/uapi-layout/abi.json'):
++    def __init__(self, path=ROOT/'build/uapi-layout-v2/abi.json'):
+         self.data = json.loads(Path(path).read_text())
+         if self.data['pointer_size']!=8:
+             fail(errno.ENOTSUP, 'only recorded x86_64 ABI supported')
+@@ -67,8 +67,8 @@
+     def fields(self, name):
+         return self.data['structs'][self.data['requests'][name]['struct']]
+ 
+-    def pack(self, name, **values):
+-        layout = self.fields(name)
++    def pack(self, operation, **values):
++        layout = self.fields(operation)
+         result = bytearray(layout['size'])
+         for key, value in values.items():
+             f = layout['fields'][key]
+@@ -135,6 +135,8 @@
+                 fail(errno.ENOTSUP, 'no real query, BO mapping, GPU VA, or submission in model')
+             if values.get('pad',0) or values.get('extensions',0):
+                 fail(errno.EINVAL, 'unsupported padding or extension chain')
++            if values.get('deadline_nsec',0):
++                fail(errno.EINVAL, 'deadline hints not modeled')
+             if name=='VERSION':
+                 values.update(version_major=0,version_minor=0,version_patchlevel=0)
+                 for key,text in [('name',self.driver_name),('date',b'20261020'),('desc',b'CPU-only explicit ABI simulation')]:
+--- before/drm/tests/test_model.py
++++ after/drm/tests/test_model.py
+@@ -12,9 +12,9 @@
+     @classmethod
+     def setUpClass(cls): cls.abi=ABI()
+     def setUp(self): self.dev=MockI915(self.abi); self.arena=UserArena()
+-    def call(self,name,**values):
+-        raw=self.abi.pack(name,**values)
+-        return self.abi.unpack(name,self.dev.ioctl(self.abi.data['requests'][name]['value'],raw,self.arena))
++    def call(self,operation,**values):
++        raw=self.abi.pack(operation,**values)
++        return self.abi.unpack(operation,self.dev.ioctl(self.abi.data['requests'][operation]['value'],raw,self.arena))
+     def error(self,code,fn,*args,**kwargs):
+         with self.assertRaises(OSError) as cm: fn(*args,**kwargs)
+         self.assertEqual(cm.exception.errno,code)
+@@ -23,10 +23,11 @@
+         expected={'drm_version':64,'drm_get_cap':16,'drm_i915_getparam':16,
+                   'drm_i915_gem_create':16,'drm_gem_close':8,
+                   'drm_i915_gem_context_create_ext':16,'drm_i915_gem_vm_control':16,
+-                  'drm_syncobj_wait':32,'drm_i915_gem_execbuffer2':64}
++                  'drm_syncobj_wait':40,'drm_i915_gem_execbuffer2':64}
+         for name,size in expected.items(): self.assertEqual(self.abi.data['structs'][name]['size'],size)
+         self.assertEqual(self.abi.data['structs']['drm_i915_getparam']['fields']['value']['offset'],8)
+         self.assertEqual(self.abi.data['requests']['I915_GEM_CREATE']['value'],0xc010645b)
++        self.assertEqual(self.abi.data['structs']['drm_syncobj_wait']['fields']['deadline_nsec']['offset'],32)
+ 
+     def test_identity_rejects_anv(self):
+         ptr=self.arena.allocate(64)
+--- before/tools/build_uapi.py
++++ after/tools/build_uapi.py
+@@ -5,7 +5,7 @@
+ import subprocess
+ import sys
+ ROOT=Path(__file__).resolve().parents[1]
+-out=ROOT/'build/uapi-layout'
++out=ROOT/'build'/(sys.argv[1] if len(sys.argv)>1 else 'uapi-layout-v2')
+ out.mkdir(exist_ok=False)
+ command=['clang','-std=c11','-Wall','-Wextra','-Werror','-Isources/mesa/include/drm-uapi',
+          'drm/mock/layout_probe.c','-o',str(out/'layout-probe')]

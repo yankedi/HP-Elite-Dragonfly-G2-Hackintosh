@@ -1,0 +1,33 @@
+--- before/tools/four_shader_metrics.py
++++ after/tools/four_shader_metrics.py
+@@ -17,10 +17,17 @@
+     regs = {o.get('reg', {}).get('r', 0) for n in nodes
+             for o in [n['iga_fields'].get('dst', {}), *n['iga_fields'].get('srcs', [])]
+             if o.get('reg', {}).get('rn') == 'r'}
+-    waits = [{'offset': n['byte_range'][0], 'raw_hex': n['raw_hex'],
++    waits = [{'offset': n['byte_range'][0], 'raw_hex': n['raw_hex'], 'platform': ir['platform'],
++              'scope': 'Explicit IGA fields only; Gen11 lacks Gen12 SWSB. Absence is not SBID0 or completion',
+               'sbid': n['iga_fields'].get('sbid'), 'regDist': n['iga_fields'].get('regDist')}
+              for n in nodes if 'sbid' in n['iga_fields'] or 'regDist' in n['iga_fields']]
++    sends = [{'offset': n['byte_range'][0], 'platform': ir['platform'], 'raw_hex': n['raw_hex'],
++              'sbid': n['iga_fields'].get('sbid'), 'regDist': n['iga_fields'].get('regDist'),
++              'sbid_present': 'sbid' in n['iga_fields'], 'regDist_present': 'regDist' in n['iga_fields']}
++             for n in nodes if n['message_effects']['is_send']]
+     return {'instructions': len(nodes), 'explicit_grf_max': max(regs) if regs else None,
++            'send_wait_and_token_carriers': sends,
++            'grf_default_scope': 'IGA omits r=0; max explicit index is a decoded projection, not raw resource allocation',
+             'explicit_grf_indices': sorted(regs), 'wait_and_token_carriers': waits,
+             'send_offsets': [n['byte_range'][0] for n in nodes if n['message_effects']['is_send']],
+             'NF_offsets': [n['byte_range'][0] for n in nodes if n['numeric_semantics'].get('nf')],
+@@ -41,6 +48,11 @@
+         report = load(research / f'{shader}/report.json')
+         if hashlib.sha256(raw_source).hexdigest() != source['program_sha256'] or hashlib.sha256(raw_target).hexdigest() != target['program_sha256']:
+             raise ValueError('Raw identity mismatch')
++        if (report.get('research_candidate_sha256') != target['program_sha256']
++                or report.get('candidate_sha256') != target['program_sha256']
++                or report.get('accepted_program') is not False
++                or report.get('status') != 'UNKNOWN_REJECTED' or report.get('research_program_generated') is not True):
++            raise ValueError('Report identity or disposition differs from raw research candidate')
+         rows.append({'shader_id': shader, 'source_sha256': source['program_sha256'],
+                      'target_sha256': target['program_sha256'], 'source_bytes': len(raw_source),
+                      'target_bytes': len(raw_target), 'expansion_ratio': len(raw_target) / len(raw_source),

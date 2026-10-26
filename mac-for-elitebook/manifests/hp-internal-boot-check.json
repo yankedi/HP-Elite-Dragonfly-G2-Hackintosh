@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-17",
+  "status": "deployed_and_readback_verified_physical_boot_pending",
+  "private_report": ".local/install-prep/hp-internal-boot-20261017/delivery-report.json",
+  "private_report_sha256": "d4baeb831fe933200f9c4b694967e5e6543d3f4fd616571457392de2151252d6",
+  "authorization": ["你写", "你把原来的debian也删掉，注意备份"],
+  "source_tested_image_sha256": "77d39f2f6b218ee0988ea5bab3e466f7af7dbe8f1220f6360a56b8fda8562644",
+  "source_and_installed_config_sha256": "efc18fb4cbd93688295c8ceaa74a044698afa2b1b1219a1f82a14b1d27313a6e",
+  "opencore_version": "1.0.8",
+  "installed_readback_ocvalidate_exit": 0,
+  "first_esp_new_files": 42,
+  "first_esp_original_files_unchanged": 214,
+  "all_new_files_full_readback_verified": true,
+  "bootctl_menu": "macOS (OpenCore)",
+  "menu_file": "/boot/loader/entries/macos-opencore.conf",
+  "efi_loader": "/EFI/OC/OpenCore.efi",
+  "debian_removed": {
+    "boot_entry": "Boot0007",
+    "efi_partition": "nvme0n1p6",
+    "files": 10,
+    "scope": "Six EFI/debian files plus four byte-identical Debian fallback copies in secondESP EFI/BOOT; firstESP fallback preserved",
+    "data_partition_removed": false
+  },
+  "boot_order_before": [1, 7, 3, 6, 0, 2, 4, 5],
+  "boot_order_after": [1, 3, 6, 0, 2, 4, 5],
+  "other_boot_variables_and_default_unchanged": true,
+  "gpt_unchanged_and_verify_exit": 0,
+  "apfs_prefix_16mib_sha256_unchanged": "15f260abae714b2109fe807e2d09fb6d7689671bfaac9d33d1c40310025a44cb",
+  "complete_prewrite_backups": [
+    {"path": ".local/install-prep/hp-internal-boot-20261017/backup-stable/esp1-before.img", "sha256": "b2d152eb5c04512fba58b9e7b0b5c4db867de38504d3c3142d68af0f0c27f691", "bytes": 314572800},
+    {"path": ".local/install-prep/hp-internal-boot-20261017/backup-stable/esp6-before.img", "sha256": "440b851cecc5ef17887afac6f3a2e6ceac0dae1bc9cfebca04aabe89525955bc", "bytes": 1024458752}
+  ],
+  "physical_boot_tested": false,
+  "macos_installer_handoff_boot_tested": false,
+  "remote_reboot_executed": false,
+  "next_action": "User manually reboots, enters existing Linux Boot Manager/systemd-boot, selects macOS (OpenCore), then selects existing disk macOS Installer in OpenCore. Observe actual menu/boot before claiming success"
+}

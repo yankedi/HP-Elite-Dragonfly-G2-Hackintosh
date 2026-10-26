@@ -1,0 +1,71 @@
+panic(cpu 0 caller 0xffffff80004d50da): panic: corrupt list around element 0xffffff8b6d5b7c30 at 0xffffff80003bcc87, registers:
+CR0: 0x000000008001003b, CR2: 0x000000010ef27000, CR3: 0x00000004854c20e9, CR4: 0x00000000003626e0
+RAX: 0xffffff8b6d5b7c30, RBX: 0xffffff8b6d5b7c00, RCX: 0xffffff8b6d5b7c30, RDX: 0xffffff8b6c38d3b0
+RSP: 0xfffffff4cdb51e20, RBP: 0xfffffff4cdb51e40, RSI: 0xff8b6d339a880000, RDI: 0xffffff8b6c850608
+R8:  0x0000000000000000, R9:  0x0000000000074924, R10: 0x0000ffffffffff01, R11: 0x0000000000000003
+R12: 0xffffff80011680b0, R13: 0x0000000000000000, R14: 0xffffff8001168080, R15: 0x0000000000000001
+RFL: 0x0000000000010007, RIP: 0xffffff80003bcc87, CS:  0x0000000000000008, SS:  0x0000000000000000
+Fault CR2: 0x0000000000000000, Error code: 0x0000000000000000, Fault CPU: 0x0, PL: 2, VF: 0
+
+Panicked task 0xffffff903b34e9a0: 6 threads: pid 437: Activity Monitor
+Backtrace (CPU 0), panicked thread: 0xffffff869fe944d0, Frame : Return Address
+0xfffffff4cdb515c0 : 0xffffff8000358d31 mach_kernel : _handle_debugger_trap + 0x421
+0xfffffff4cdb51610 : 0xffffff80004e57d2 mach_kernel : _kdp_i386_trap + 0x122
+0xfffffff4cdb51650 : 0xffffff80004d4a88 mach_kernel : _kernel_trap + 0x778
+0xfffffff4cdb51710 : 0xffffff80002eb971 mach_kernel : _return_from_trap + 0xc1
+0xfffffff4cdb51730 : 0xffffff8000359107 mach_kernel : _DebuggerTrapWithState + 0x67
+0xfffffff4cdb51830 : 0xffffff8000358799 mach_kernel : _panic_trap_to_debugger + 0x269
+0xfffffff4cdb519a0 : 0xffffff8000ba0b5d mach_kernel : _panic + 0x81
+0xfffffff4cdb51a90 : 0xffffff80004d50da mach_kernel : _sync_iss_to_iks + 0x3fa
+0xfffffff4cdb51c50 : 0xffffff80004d4c94 mach_kernel : _kernel_trap + 0x984
+0xfffffff4cdb51d10 : 0xffffff80002eb971 mach_kernel : _return_from_trap + 0xc1
+0xfffffff4cdb51d30 : 0xffffff80003bcc87 mach_kernel : _thread_call_delayed_timer + 0xb97
+0xfffffff4cdb51e40 : 0xffffff80003bc19b mach_kernel : _thread_call_delayed_timer + 0xab
+0xfffffff4cdb51ea0 : 0xffffff80003c69b5 mach_kernel : _timer_queue_expire_with_options + 0x205
+0xfffffff4cdb51f10 : 0xffffff80004c12e3 mach_kernel : _timer_intr + 0x83
+0xfffffff4cdb51f50 : 0xffffff80004d373e mach_kernel : _rtclock_intr + 0x2e
+0xfffffff4cdb51f60 : 0xffffff80004de74a mach_kernel : _lapic_interrupt + 0x4a
+0xfffffff4cdb51f80 : 0xffffff80004d4031 mach_kernel : _interrupt + 0xc1
+0xfffffff4cdb51fe0 : 0xffffff80002eba9a mach_kernel : _hndl_allintrs + 0x9a
+
+Process name corresponding to current thread (0xffffff869fe944d0): Activity Monitor
+Boot args: -v keepsyms=1 debug=0x100 -ngreentglwithgfx ngreenSched=3 ngreen-dmc=tgl -ngreentgltahoe -ngreenfixbootmode IGLogLevel=3 amfi_get_out_of_my_way=1 -allow3d -disablegfxfirmware
+
+Mac OS version:
+25G83
+
+Kernel version:
+Darwin Kernel Version 25.6.0: Fri Jul 31 19:11:49 PDT 2026; root:xnu-12377.161.14~5/RELEASE_X86_64
+Kernel UUID: 39CC2C26-3F72-3565-89C4-94DFE36DFDF2
+roots installed: 0
+KernelCache slide: 0x0000000000000000
+KernelCache base:  0xffffff8000200000
+Kernel slide:      0x00000000000e8000
+Kernel text base:  0xffffff80002e8000
+__HIB  text base: 0xffffff8000100000
+System model name: MacBookPro16,2 (Mac-5F9802EFE386AA28)
+System shutdown begun: NO
+Panic diags file available: YES (0x0)
+Hibernation exit count: 0
+
+System uptime in nanoseconds: 334543137185
+Last Sleep:           absolute           base_tsc          base_nano
+  Uptime  : 0x0000004de4532e01
+  Sleep   : 0x0000000000000000 0x0000000000000000 0x0000000000000000
+  Wake    : 0x0000000000000000 0x000000064aabf889 0x0000000000000000
+Compressor Info: 0% of compressed pages limit (OK) and 0% of segments limit (OK) with 0 swapfiles and OK swap space
+Zone info:
+  Zone map: 0xffffff8038c16000 - 0xffffffa038c16000
+  . VM    : 0xffffff8038c16000 - 0xffffff85058e2000
+  . RO    : 0xffffff85058e2000 - 0xffffff869f286000
+  . GEN0  : 0xffffff869f286000 - 0xffffff8b6bf52000
+  . GEN1  : 0xffffff8b6bf52000 - 0xffffff9038c1e000
+  . GEN2  : 0xffffff9038c1e000 - 0xffffff95058ea000
+  . GEN3  : 0xffffff95058ea000 - 0xffffff99d25b6000
+  . DATA  : 0xffffff99d25b6000 - 0xffffffa038c16000
+  Metadata: 0xffffff8015c06000 - 0xffffff8035c06000
+  Bitmaps : 0xffffff8035c06000 - 0xffffff8038c06000
+  Extra   : 0 - 0
+
+
+

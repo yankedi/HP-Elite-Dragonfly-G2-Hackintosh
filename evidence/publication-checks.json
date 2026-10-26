@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "measurement_scope": "Staged tree measured before adding this generated check report; later issue/publication documentation commits do not change the audited source snapshot.",
+  "stage_files": 1323,
+  "stage_content_bytes": 11489495,
+  "index_matches_worktree": true,
+  "root_static_checks": "PASS: JSON58, Python382 AST, plist5, artifact boundaries, reviewed evidence hashes, graphics SHA256SUMS",
+  "mac_subtree_check": "PASS:46 Python,42JSON,28Markdown; optional private inputs absent, not reverified",
+  "shell_syntax": "PASS89 shell/command recipes; not executed",
+  "opencore_validation": "Both examples PASS ocvalidate1.0.8; three ACPI compile clean",
+  "identity_scan": "Exact private EFI serial/MLB/UUID/ROM encodings absent; root key/endpoint/artifact scanPASS",
+  "source_objects": "25NGreen source files equalf93dc244; cumulative diffs from95f81898 reproduce29NGreen/HookCase source files",
+  "whitespace": "git diff --cached --check PASS with documented .gitattributes preserving exact source snapshots/patch/license/panic whitespace",
+  "physical_retest": false,
+  "clean_rebuild": false
+}

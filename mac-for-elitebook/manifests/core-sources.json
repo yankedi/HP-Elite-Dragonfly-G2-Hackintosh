@@ -1,0 +1,224 @@
+{
+  "checked_at": "2026-10-16",
+  "target": {
+    "operating_system": "macOS Tahoe 26 / Darwin 25",
+    "hardware": "HP Elite Dragonfly G2",
+    "hardware_validation": "not_performed"
+  },
+  "selection_policy": "Selected the latest non-prerelease release returned by each upstream GitHub Releases API at check time. OpenCorePkg uses 1.0.8, the current release after the user's 1.0.7 reference.",
+  "asset_policy": "Only official RELEASE archives are listed. SHA-256 values are copied from the GitHub Releases API digest field. A null digest means the API supplied no digest; no archive was downloaded or hashed.",
+  "sources": [
+    {
+      "name": "OpenCorePkg",
+      "purpose": "UEFI bootloader and OpenCore configuration schema; ocvalidate checks config.plist against the matching OpenCore version.",
+      "upstream": "https://github.com/acidanthera/OpenCorePkg",
+      "tag": "1.0.8",
+      "commit": "6fe4d15cb66596d99d8cfedce69d8fc6dad71886",
+      "commit_url": "https://github.com/acidanthera/OpenCorePkg/commit/6fe4d15cb66596d99d8cfedce69d8fc6dad71886",
+      "release": {
+        "url": "https://github.com/acidanthera/OpenCorePkg/releases/tag/1.0.8",
+        "published_at": "2026-09-27T21:44:35Z",
+        "assets": [
+          {
+            "name": "OpenCore-1.0.8-RELEASE.zip",
+            "url": "https://github.com/acidanthera/OpenCorePkg/releases/download/1.0.8/OpenCore-1.0.8-RELEASE.zip",
+            "size_bytes": 10544084,
+            "official_digest": "sha256:2011e8b7216ecb2645d97ea710df965947edd406846e92050b9bc4190be6d27b"
+          }
+        ]
+      },
+      "license": {
+        "spdx": "BSD-3-Clause",
+        "evidence_url": "https://github.com/acidanthera/OpenCorePkg/blob/1.0.8/LICENSE.txt"
+      },
+      "darwin25_support": {
+        "upstream_claim": "The 1.0.8 release notes do not explicitly mention Darwin 25 or macOS Tahoe 26; the project is a general-purpose UEFI bootloader.",
+        "status": "not_explicitly_verified",
+        "evidence_url": "https://github.com/acidanthera/OpenCorePkg/releases/tag/1.0.8",
+        "elite_dragonfly_g2_tested": false
+      }
+    },
+    {
+      "name": "Lilu",
+      "purpose": "Kernel-extension, library, and process patching framework; dependency for several listed plugins.",
+      "upstream": "https://github.com/acidanthera/Lilu",
+      "tag": "1.7.2",
+      "commit": "e4748cc081bf060302c7d3c44a643ce1d11b7e1d",
+      "commit_url": "https://github.com/acidanthera/Lilu/commit/e4748cc081bf060302c7d3c44a643ce1d11b7e1d",
+      "release": {
+        "url": "https://github.com/acidanthera/Lilu/releases/tag/1.7.2",
+        "published_at": "2026-03-20T13:48:43Z",
+        "assets": [
+          {
+            "name": "Lilu-1.7.2-RELEASE.zip",
+            "url": "https://github.com/acidanthera/Lilu/releases/download/1.7.2/Lilu-1.7.2-RELEASE.zip",
+            "size_bytes": 781360,
+            "official_digest": "sha256:53967d7dcfaab01023a33df2e969a89522f13d6654a6a56ac4711b62dabf3ab8"
+          }
+        ]
+      },
+      "license": {
+        "spdx": "BSD-3-Clause",
+        "evidence_url": "https://github.com/acidanthera/Lilu/blob/1.7.2/LICENSE.txt"
+      },
+      "darwin25_support": {
+        "upstream_claim": "The README at tag 1.7.2 says macOS 26 and below are enabled by default (without -lilubeta). This includes the requested Tahoe 26 target; it is an upstream range statement, not an Elite Dragonfly G2 test.",
+        "status": "upstream_range_includes_target_hardware_unverified",
+        "evidence_url": "https://github.com/acidanthera/Lilu/blob/1.7.2/README.md",
+        "elite_dragonfly_g2_tested": false
+      }
+    },
+    {
+      "name": "VirtualSMC",
+      "purpose": "Kernel-level Apple SMC emulator; requires Lilu for full functionality.",
+      "upstream": "https://github.com/acidanthera/VirtualSMC",
+      "tag": "1.3.8",
+      "commit": "b15991dd87e36a102bf159ea56490e3126245590",
+      "commit_url": "https://github.com/acidanthera/VirtualSMC/commit/b15991dd87e36a102bf159ea56490e3126245590",
+      "release": {
+        "url": "https://github.com/acidanthera/VirtualSMC/releases/tag/1.3.8",
+        "published_at": "2026-09-27T21:41:21Z",
+        "assets": [
+          {
+            "name": "VirtualSMC-1.3.8-RELEASE.zip",
+            "url": "https://github.com/acidanthera/VirtualSMC/releases/download/1.3.8/VirtualSMC-1.3.8-RELEASE.zip",
+            "size_bytes": 1400933,
+            "official_digest": "sha256:2e29a8aaf91b4eb0bcdf5913ed17e70f5cf76531122acd4132eff7813a54de8b"
+          }
+        ]
+      },
+      "license": {
+        "spdx": "BSD-3-Clause",
+        "evidence_url": "https://github.com/acidanthera/VirtualSMC/blob/1.3.8/LICENSE.txt"
+      },
+      "darwin25_support": {
+        "upstream_claim": "The tag README says VirtualSMC supports macOS 10.4 and newer, recommends 10.9+, and says macOS 26 and below are enabled by default for its Lilu enhancements. This includes Tahoe 26; Elite Dragonfly G2 runtime behavior is not verified.",
+        "status": "upstream_range_includes_target_hardware_unverified",
+        "evidence_url": "https://github.com/acidanthera/VirtualSMC/blob/1.3.8/README.md",
+        "elite_dragonfly_g2_tested": false
+      }
+    },
+    {
+      "name": "VoodooPS2",
+      "purpose": "PS/2 keyboard, mouse, and trackpad controller/drivers; VoodooPS2Trackpad release bundles include VoodooInput in PlugIns.",
+      "upstream": "https://github.com/acidanthera/VoodooPS2",
+      "tag": "2.3.7",
+      "commit": "bdbf80639936701337f4574bae8c3ea25bb8dd3d",
+      "commit_url": "https://github.com/acidanthera/VoodooPS2/commit/bdbf80639936701337f4574bae8c3ea25bb8dd3d",
+      "release": {
+        "url": "https://github.com/acidanthera/VoodooPS2/releases/tag/2.3.7",
+        "published_at": "2024-12-03T15:07:19Z",
+        "assets": [
+          {
+            "name": "VoodooPS2Controller-2.3.7-RELEASE.zip",
+            "url": "https://github.com/acidanthera/VoodooPS2/releases/download/2.3.7/VoodooPS2Controller-2.3.7-RELEASE.zip",
+            "size_bytes": 632757,
+            "official_digest": null
+          }
+        ]
+      },
+      "license": {
+        "spdx": "APSL-2.0",
+        "github_api_license": "NOASSERTION",
+        "evidence_url": "https://github.com/acidanthera/VoodooPS2/blob/2.3.7/LICENSE.md"
+      },
+      "darwin25_support": {
+        "upstream_claim": "The release notes and README describe PS/2 input features but do not specify a Darwin 25/macOS 26 support range.",
+        "status": "not_explicitly_verified",
+        "evidence_url": "https://github.com/acidanthera/VoodooPS2/releases/tag/2.3.7",
+        "elite_dragonfly_g2_tested": false
+      }
+    },
+    {
+      "name": "VoodooI2C",
+      "purpose": "I2C controller and satellite kernel extensions for I2C-HID and related touch/input devices.",
+      "upstream": "https://github.com/VoodooI2C/VoodooI2C",
+      "tag": "v2.9.1",
+      "commit": "e3ac3ed207170c39db88d6a67a76cc9fd3a1895a",
+      "commit_url": "https://github.com/VoodooI2C/VoodooI2C/commit/e3ac3ed207170c39db88d6a67a76cc9fd3a1895a",
+      "release": {
+        "url": "https://github.com/VoodooI2C/VoodooI2C/releases/tag/v2.9.1",
+        "published_at": "2024-11-06T13:49:09Z",
+        "assets": [
+          {
+            "name": "VoodooI2C-2.9.1-RELEASE.zip",
+            "url": "https://github.com/VoodooI2C/VoodooI2C/releases/download/v2.9.1/VoodooI2C-2.9.1-RELEASE.zip",
+            "size_bytes": 1338392,
+            "official_digest": null
+          }
+        ]
+      },
+      "license": {
+        "spdx": "GPL-3.0",
+        "evidence_url": "https://github.com/VoodooI2C/VoodooI2C/blob/v2.9.1/LICENSE.txt"
+      },
+      "darwin25_support": {
+        "upstream_claim": "The README enumerates supported Intel I2C controller generations and device classes but does not specify Darwin 25/macOS 26 support. Its build guide describes Xcode/target-SDK prerequisites, not runtime Tahoe validation.",
+        "status": "not_explicitly_verified",
+        "evidence_url": "https://github.com/VoodooI2C/VoodooI2C/tree/v2.9.1",
+        "elite_dragonfly_g2_tested": false
+      }
+    },
+    {
+      "name": "IntelBluetoothFirmware",
+      "purpose": "Uploads Intel Bluetooth firmware so macOS can use the Bluetooth controller; this is not the Intel Wi-Fi driver.",
+      "upstream": "https://github.com/OpenIntelWireless/IntelBluetoothFirmware",
+      "tag": "v2.4.0",
+      "commit": "b9127f5e1ede477577470cc4d4f55134a2901f5b",
+      "commit_url": "https://github.com/OpenIntelWireless/IntelBluetoothFirmware/commit/b9127f5e1ede477577470cc4d4f55134a2901f5b",
+      "release": {
+        "url": "https://github.com/OpenIntelWireless/IntelBluetoothFirmware/releases/tag/v2.4.0",
+        "published_at": "2024-02-27T10:33:27Z",
+        "assets": [
+          {
+            "name": "IntelBluetooth-v2.4.0.zip",
+            "url": "https://github.com/OpenIntelWireless/IntelBluetoothFirmware/releases/download/v2.4.0/IntelBluetooth-v2.4.0.zip",
+            "size_bytes": 11440164,
+            "official_digest": null
+          }
+        ]
+      },
+      "license": {
+        "spdx": "GPL-3.0",
+        "evidence_url": "https://github.com/OpenIntelWireless/IntelBluetoothFirmware/blob/v2.4.0/LICENSE"
+      },
+      "darwin25_support": {
+        "upstream_claim": "The release notes link additional setup instructions for Monterey and newer, but do not explicitly list Tahoe 26/Darwin 25 as a tested version or give a support ceiling.",
+        "status": "not_explicitly_verified",
+        "evidence_url": "https://github.com/OpenIntelWireless/IntelBluetoothFirmware/releases/tag/v2.4.0",
+        "elite_dragonfly_g2_tested": false
+      }
+    },
+    {
+      "name": "NVMeFix",
+      "purpose": "Lilu plugin that patches Apple's NVMe driver for compatibility and power-management behavior with non-Apple NVMe SSDs.",
+      "upstream": "https://github.com/acidanthera/NVMeFix",
+      "tag": "1.1.3",
+      "commit": "6358326a01a051f888fc38ab80efea86d64574a5",
+      "commit_url": "https://github.com/acidanthera/NVMeFix/commit/6358326a01a051f888fc38ab80efea86d64574a5",
+      "release": {
+        "url": "https://github.com/acidanthera/NVMeFix/releases/tag/1.1.3",
+        "published_at": "2025-07-07T12:31:31Z",
+        "assets": [
+          {
+            "name": "NVMeFix-1.1.3-RELEASE.zip",
+            "url": "https://github.com/acidanthera/NVMeFix/releases/download/1.1.3/NVMeFix-1.1.3-RELEASE.zip",
+            "size_bytes": 108136,
+            "official_digest": "sha256:e1d5657ab7ac31f69771708f7b80bf218ab9aa0b8e4c4fe6ff943983037e3dfb"
+          }
+        ]
+      },
+      "license": {
+        "spdx": "BSD-3-Clause",
+        "github_api_license": "NOASSERTION",
+        "evidence_url": "https://github.com/acidanthera/NVMeFix/blob/1.1.3/LICENSE.txt"
+      },
+      "darwin25_support": {
+        "upstream_claim": "The README at tag 1.1.3 explicitly says NVMeFix supports up to macOS 26; release notes also add constants for macOS 26. Tahoe is in the stated range, but the Elite Dragonfly G2 and its SSD combination are untested here.",
+        "status": "upstream_range_includes_target_hardware_unverified",
+        "evidence_url": "https://github.com/acidanthera/NVMeFix/blob/1.1.3/README.md",
+        "elite_dragonfly_g2_tested": false
+      }
+    }
+  ]
+}

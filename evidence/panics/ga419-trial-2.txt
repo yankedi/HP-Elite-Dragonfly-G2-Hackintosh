@@ -1,0 +1,61 @@
+panic(cpu 6 caller 0xffffff800046709b): pmap_recycle_page: page 0x101304000 is referenced @pmap.c:1511
+Panicked task 0xffffff92fcdbb9a0: 9 threads: pid 473: iconservicesagent
+Backtrace (CPU 6), panicked thread: 0xffffffa163c4c548, Frame : Return Address
+0xffffff8b4c810810 : 0xffffff8000358d31 mach_kernel : _handle_debugger_trap + 0x421
+0xffffff8b4c810860 : 0xffffff80004e57d2 mach_kernel : _kdp_i386_trap + 0x122
+0xffffff8b4c8108a0 : 0xffffff80004d4a88 mach_kernel : _kernel_trap + 0x778
+0xffffff8b4c810960 : 0xffffff80002eb971 mach_kernel : _return_from_trap + 0xc1
+0xffffff8b4c810980 : 0xffffff8000359107 mach_kernel : _DebuggerTrapWithState + 0x67
+0xffffff8b4c810a80 : 0xffffff8000358799 mach_kernel : _panic_trap_to_debugger + 0x269
+0xffffff8b4c810bf0 : 0xffffff8000ba0b5d mach_kernel : _panic + 0x81
+0xffffff8b4c810ce0 : 0xffffff800046709b mach_kernel : _vm_page_free_list + 0x2cb
+0xffffff8b4c810d30 : 0xffffff8000440b72 mach_kernel : _vm_object_sleep + 0x1912
+0xffffff8b4c810da0 : 0xffffff800043f4c6 mach_kernel : _vm_object_sleep + 0x266
+0xffffff8b4c810de0 : 0xffffff80004408bf mach_kernel : _vm_object_sleep + 0x165f
+0xffffff8b4c810e10 : 0xffffff800043faa0 mach_kernel : _vm_object_sleep + 0x840
+0xffffff8b4c810e50 : 0xffffff800041cbb3 mach_kernel : _vm_map_set_lock_contention_debug + 0x563
+0xffffff8b4c810e90 : 0xffffff8000426ffc mach_kernel : _vm_map_copy_adjust_to_target + 0xbec
+0xffffff8b4c810ee0 : 0xffffff80004b90d4 mach_kernel : _mach_call_munger64 + 0x234
+0xffffff8b4c810fa0 : 0xffffff80002ebdd6 mach_kernel : _hndl_mach_scall64 + 0x16
+
+Process name corresponding to current thread (0xffffffa163c4c548): iconservicesagent
+Boot args: -v keepsyms=1 debug=0x100 -ngreentglwithgfx ngreenSched=3 ngreen-dmc=tgl -ngreentgltahoe -ngreenfixbootmode IGLogLevel=3 amfi_get_out_of_my_way=1 -allow3d -disablegfxfirmware
+
+Mac OS version:
+25G83
+
+Kernel version:
+Darwin Kernel Version 25.6.0: Fri Jul 31 19:11:49 PDT 2026; root:xnu-12377.161.14~5/RELEASE_X86_64
+Kernel UUID: 39CC2C26-3F72-3565-89C4-94DFE36DFDF2
+roots installed: 0
+KernelCache slide: 0x0000000000000000
+KernelCache base:  0xffffff8000200000
+Kernel slide:      0x00000000000e8000
+Kernel text base:  0xffffff80002e8000
+__HIB  text base: 0xffffff8000100000
+System model name: MacBookPro16,2 (Mac-5F9802EFE386AA28)
+System shutdown begun: NO
+Panic diags file available: YES (0x0)
+Hibernation exit count: 0
+
+System uptime in nanoseconds: 339564353513
+Last Sleep:           absolute           base_tsc          base_nano
+  Uptime  : 0x0000004f0f9cdb05
+  Sleep   : 0x0000000000000000 0x0000000000000000 0x0000000000000000
+  Wake    : 0x0000000000000000 0x0000000965c5cfe4 0x0000000000000000
+Compressor Info: 0% of compressed pages limit (OK) and 0% of segments limit (OK) with 0 swapfiles and OK swap space
+Zone info:
+  Zone map: 0xffffff8c9522a000 - 0xffffffac9522a000
+  . VM    : 0xffffff8c9522a000 - 0xffffff9161ef6000
+  . RO    : 0xffffff9161ef6000 - 0xffffff92fb89a000
+  . GEN0  : 0xffffff92fb89a000 - 0xffffff97c8566000
+  . GEN1  : 0xffffff97c8566000 - 0xffffff9c95232000
+  . GEN2  : 0xffffff9c95232000 - 0xffffffa161efe000
+  . GEN3  : 0xffffffa161efe000 - 0xffffffa62ebca000
+  . DATA  : 0xffffffa62ebca000 - 0xffffffac9522a000
+  Metadata: 0xffffffde3c395000 - 0xffffffde5c395000
+  Bitmaps : 0xffffffde5c395000 - 0xffffffde5f395000
+  Extra   : 0 - 0
+
+
+

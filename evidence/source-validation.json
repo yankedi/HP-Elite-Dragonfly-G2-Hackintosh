@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "recorded_source_commit": "f93dc2447631553d2dcc2f6d5a8a495acf57990c",
+  "source_files_byte_equal_to_commit": 25,
+  "tested_binary_sha256": "e44ef32745cad51bd13a2006557f8d2076f96759a0afce867547a8466ab6dbbb",
+  "checksum_entries_verified": 50,
+  "publication_recipe_changes": "Externalized dependency/SDK paths, corrected shell recipe root for graphics/build layout; recipes not newly executed.",
+  "fresh_binary_rebuild": false,
+  "license_notice": "graphics/NOTICE.md; unmodified upstream licenses retained.",
+  "upstream_base_commit": "95f81898be65cb9f7b3d370ca78054be4cc8a62d",
+  "cumulative_diffs_replayed_source_files_equal": 29,
+  "replay_inputs": "Read directly from pinned upstream commit objects, not from previously patched scratch trees."
+}

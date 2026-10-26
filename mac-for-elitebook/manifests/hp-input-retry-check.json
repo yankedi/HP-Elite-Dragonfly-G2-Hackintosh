@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "scope": "Recovery reached on HP; pinned I2C HID input candidate prepared, actual pointer operation untested",
+  "runner": "scripts/prepare_hp_input_retry.py",
+  "runner_sha256": "65c3ec7c8037cddfb3c54a7b86b59ce2c4e19c65995e8b6843cc1e858e897443",
+  "private_report": ".local/install-prep/hp-input-n49z3org/report.json",
+  "private_report_sha256": "5761341dbb2240ec461e9640412a13b466b31414c9fb7dbc7a5f82cd3f8793c3",
+  "physical_baseline": {
+    "captured_image_sha256": "db802b78c1ad33299ec9bbc6057411609acded524a06956c9e631e7651d0ff44",
+    "config_sha256": "6258d3b307ae2defb31b7733ace6486b6c8dfa56aea37eeb3c7ec7ff753d39d5",
+    "log_sha256": "f9c28c8f09e897f9fe109e77c93788a23eced02eeb2f35cb1da635c3dfdeee20",
+    "effective_slide_zero": true,
+    "kernel_collection_read_ok": true,
+    "exit_boot_services_start_observed": true,
+    "previous_mm_akm_error_absent": true,
+    "recovery_gui": "User-provided photographs show Recovery utilities",
+    "runtime_input_registry_available": false
+  },
+  "input_source": {
+    "repository": "https://github.com/VoodooI2C/VoodooI2C",
+    "tag": "v2.9.1",
+    "commit": "e3ac3ed207170c39db88d6a67a76cc9fd3a1895a",
+    "license": "GPL-3.0, repository LICENSE.txt",
+    "source_archive_sha256": "cbd11b09204723a4951636e19d7d675d26fa90982c542dd5fc26d33364c07641",
+    "asset_url": "https://github.com/VoodooI2C/VoodooI2C/releases/download/v2.9.1/VoodooI2C-2.9.1-RELEASE.zip",
+    "asset_sha256": "368e5eb60794583c340764813bd7e8244e94d3d3c06ea5b67034addd539487f4",
+    "hid_submodule_commit": "a478fd605043989269584a73e23a15cc78994f5b",
+    "gpio_submodule_commit": "733dc8063f5ef07288a7bc648fff5348df6d8f65",
+    "bundled_voodooinput_version": "1.1.6",
+    "binary_provenance": "Five selected binaries match official release asset bytes; not claimed as independently reproduced source builds"
+  },
+  "candidate": {
+    "image_sha256": "54f13d49772c5eb246efa00889d1afa5025e2bb3f0a407bdda2b7ead4fd8a47b",
+    "exact_controller_ids_added_to_pcilake": ["8086:a0e8", "8086:a0e9"],
+    "boot_arg_added": "-vi2c-force-polling",
+    "ordered_added_bundles": ["VoodooGPIO", "VoodooI2CServices", "VoodooInput", "VoodooI2C", "VoodooI2CHID"],
+    "other_efi_files_preserved": 20,
+    "private_identity_preserved": true,
+    "recovery_dmg_and_chunklist_unchanged": true,
+    "opencore_version": "1.0.8",
+    "ocvalidate_exit": 0,
+    "hp_runtime_tested": false
+  },
+  "native_link_check": {
+    "opencore_commit": "6fe4d15cb66596d99d8cfedce69d8fc6dad71886",
+    "audk_commit": "dfd5516702b4911f1fc1919a429d637b456df913",
+    "audk_archive_sha256": "325cb12753612538e449584d00fe5318faf160459685a420233d38a27989a6ce",
+    "test_only_patch": "patches/opencore-kextinject-link-only.patch",
+    "test_only_patch_sha256": "0924d582521870c03a7128dcb3c89d73545aa63f3c5bd3ee65952e864c4e6f6c",
+    "positive_exit": 0,
+    "positive_kexts_injected": 10,
+    "corrupted_import_negative_exit": 255,
+    "original_apple_kc_unchanged": true,
+    "generated_kc_deployed": false,
+    "vm_executed": false
+  },
+  "usb_delivery": {
+    "private_report": ".local/install-prep/usb-input-delivery-rrst50dq/report.json",
+    "private_report_sha256": "b0d9642833c3b94a2b0f6d98d03e079b9fe2acb5a6ac28029b89fc50c946665b",
+    "main_image": "/ISO/linux/HP-Tahoe-VESA-Recovery.img",
+    "baseline_image": "/ISO/linux/HP-Tahoe-VESA-MMIO-Baseline.img",
+    "complete_readback_verified": true,
+    "offline_image_sha256_unchanged": "75f6cab00020ad6c2124579bc4641ca0f9029ad0ff23cf3d8112d01211523c92",
+    "ventoy_configuration_and_partition_layout_preserved": true,
+    "unrelated_file_metadata_preserved": true,
+    "safely_unmounted": true,
+    "local_handoff_bundle": ".local/install-prep/hp-handoff-4d86t0fx"
+  },
+  "supporting_evidence": [
+    {
+      "path": ".local/install-prep/hp-input-n49z3org/integration-audit.json",
+      "sha256": "a9ed64460992ade2ba75171f591d7d261999784defaa6a62572ce3c3a914f619"
+    },
+    {
+      "path": ".local/install-prep/hp-input-of6idj4f/native-link-only/report.json",
+      "sha256": "3355d5b56d992677330d06d34bb0d7ee91714e886f21e2c4ac08bc4f6a213b87"
+    },
+    {
+      "path": ".local/install-prep/hp-recovery-input-6pg65q76/development-usb-interfaces.json",
+      "sha256": "2198fa3c49139d07977e0de527ee4ad400862004bb523dafff0d8c0a61aca7de"
+    }
+  ],
+  "limit": "I2C trial requests polling but source checks valid APIC interrupts first. External USB mouse failure cannot be diagnosed from Apple booter logs; no guessed GPIO pins, USB maps, USB driver personality or global OSI patch included."
+}

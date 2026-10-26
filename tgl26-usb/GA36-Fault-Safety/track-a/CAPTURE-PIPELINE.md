@@ -1,0 +1,13 @@
+# GA36捕获发布与Writer协议（实现契约）
+
+旧链是共享volatile hangCount/flags→ThreadCall→可变数组copy→O_TRUNC写盘→清writerflag，缺release/acquire发布、跨hang拥有者及卸载fence。CAS成功反向只是其中最直接的软件错误。
+
+GA36使用不可变append-only prefix：唯一producer try-CAS（冲突拒绝，不在Hook等待），在私有scratch完成记录后复制到从不复用的slot，再release发布count；writer acquire count，只复制已发布immutable prefix。底层scratch发布后可改变；published slots不能被外部写。容量沿用3记录，格式不变。
+
+Writerword是Running/Pending/Failed/Stopping。成功CAS取得Running才消费；loser返回Busy。publisher先发布count再置Pending；owner清Pending后取得prefix、写盘，然后仅在word恰为Running时CAS释放，否则继续处理新Pending。不会因简单busyflag重置吞掉正常发布。写失败/短写/后端返回超时记录首error并Failed终态，不重试；先前文件的保全依赖后端事务策略，不能由queue自身承诺。
+
+成功写允许后续hang提交新的、更长prefix；每个prefix watermark只增不减，同一prefix不重复写，无ABA复用。文件名的原子替换、fsync、关闭错误等属于后端契约；旧vnode O_TRUNC不是事务替换，候选adapter必须明确这个剩余限制。
+
+生命周期用closed+active-reference单字门控，close拒绝新entry但不抛弃正在执行的writer。对象只有close后active=0且worker释放才quiescent；除此之外，外部scheduler还必须取消/等待所有排队callback并撤销可能新入口。仅core quiescent不证明raw callback已fence。异步强杀/长跳转/不可返回的I/O无法由RAII安全回收；超时必须是backend返回的结果，不能边写边释放内存。
+
+实现无GPU/MMIO/文件API或真实ThreadCall；真实XNU适配与不可取消IO语义不能由模拟替代。候选原kext集成受独立硬件准入常量禁止，不把core通过当成可部署kext。

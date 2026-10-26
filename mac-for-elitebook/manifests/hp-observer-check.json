@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "scope": "Expanded Recovery observer, isolated native control-flow tests and USB delivery; not yet run in HP Recovery",
+  "runner": "scripts/collect_macos_handoff.sh",
+  "runner_sha256": "6b6b8a664dd75c5803e3682de7203371ef550cb15d0cad4f70ac665fbd37b9ce",
+  "private_report": ".local/install-prep/hp-observer-gl2yv42p/report.json",
+  "private_report_sha256": "262d62a50d588fa92afab403b98f8dd42b7cd0eeb6013507c92a5f1ab97dabd8",
+  "features": {
+    "per_query_timeout_seconds": 20,
+    "optional_timeout_range_seconds": [1, 120],
+    "registry_summary_includes_subclasses": true,
+    "exact_loaded_bundle_id_matching": true,
+    "disk_identifier_limit": 64,
+    "automatic_disk_target_selection": false,
+    "automatic_resource_size_observation": true,
+    "resource_content_hashing_at_runtime": false,
+    "usb_export": "Opt-in --save-usb; exactly one already mounted writable external physical exFAT delivery volume; unique destination and byte comparison",
+    "missing_tools_and_failed_queries_retained": true
+  },
+  "verification": {
+    "shell_syntax_passed": true,
+    "fixture_test_command": "python3 -m unittest discover -s tests -p test_macos_handoff.py -v",
+    "fixture_test_cases_passed": 11,
+    "fixture_test_source": "tests/test_macos_handoff.py",
+    "fixture_test_source_sha256": "b1c1528391e83a72dc5f1508d38d07f35716134369890fe1940207660dd835b3",
+    "runtime_scope": "Native Linux command fixtures; no macOS, VM or real hardware probes executed by the tests",
+    "coverage": [
+      "Presence including subclass, empty registry and query failure are distinct",
+      "Loaded HID satellite is not a false core-driver match",
+      "Missing Recovery tools and fallback kext listing",
+      "TERM-resistant query terminated after timeout, subsequent probes continue",
+      "Disk plist enumeration rejects non-disk identifiers and tolerates malformed plist",
+      "Successful USB save with spaces in volume name and preserved old captures",
+      "Internal, virtual, read-only, ambiguous and symlinked export paths rejected",
+      "Failed export retains original private archive",
+      "Linux refusal and invalid CLI arguments"
+    ]
+  },
+  "refreshed_image": {
+    "sha256": "12cd17fc42333762a2363f02adbea34a278b2c52f82713eee0a438885a8290ca",
+    "previous_input_image_sha256": "54f13d49772c5eb246efa00889d1afa5025e2bb3f0a407bdda2b7ead4fd8a47b",
+    "change": "Only root collect_macos_handoff.sh replaced",
+    "all_efi_files_identical": 35,
+    "recovery_dmg_and_chunklist_unchanged": true,
+    "private_identity_preserved": true,
+    "opencore_version": "1.0.8",
+    "ocvalidate_exit": 0,
+    "hp_tested": false
+  },
+  "usb_delivery": {
+    "private_report": ".local/install-prep/hp-observer-gl2yv42p/usb-delivery.json",
+    "private_report_sha256": "34277e387188c324c7a9b9578c33c44e1db5b6430af5f921703367a769e95b0d",
+    "observer_standalone_and_inside_img_updated": true,
+    "handoff_and_checksums_updated": true,
+    "complete_readback_verified": true,
+    "baseline_image_and_offline_image_hashes_unchanged": true,
+    "ventoy_configuration_and_partition_layout_preserved": true,
+    "unrelated_file_metadata_preserved": 213,
+    "safely_unmounted": true
+  },
+  "hp_observer_runtime_tested": false,
+  "vm_executed": false
+}

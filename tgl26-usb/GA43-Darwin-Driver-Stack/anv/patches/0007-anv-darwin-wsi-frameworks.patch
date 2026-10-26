@@ -1,0 +1,11 @@
+--- a/src/vulkan/meson.build
++++ b/src/vulkan/meson.build
+@@ -73,7 +73,7 @@
+   vulkan_wsi_list += '-DVK_USE_PLATFORM_METAL_EXT'
+   vulkan_wsi_deps += dependency(
+     'appleframeworks',
+-    modules : ['QuartzCore', 'Metal']
++    modules : ['QuartzCore', 'Metal', 'Foundation', 'CoreGraphics']
+   )
+ endif
+ 

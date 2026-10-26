@@ -1,0 +1,5 @@
+--- a/src/NootedGreen/kern_gen11.cpp
++++ b/src/NootedGreen/kern_gen11.cpp
+@@ -1605 +1605 @@
+-		//		{activeKext, f13b, r13b, arrsize(f13b),	1},
++				{activeKext, f13b, r13b, arrsize(f13b),	1},

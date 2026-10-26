@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "scope": "Actual Log diagnostic boot: bootarg present, buffer request ineffective, USB unchanged",
+  "report": {
+    "path": ".local/install-prep/hp-log-live-cdn9zhee/report.json",
+    "sha256": "a1b3db8cfae6110448324597881d80e437b3eb91dfa86d8f17a627d8c82bfd0b"
+  },
+  "analysis": {
+    "path": ".local/install-prep/hp-log-live-cdn9zhee/analysis.json",
+    "sha256": "e899a07d88bff10758b161cdf576ba466e4949ee5f6328c0e0d6a4add929aef8"
+  },
+  "delivered_image_sha256_before_boot": "68f81304283e606d7e1215f7cdaf3ab8ff6b5fe76d7a4cd41125e8285663527e",
+  "post_boot_usb_img_recovered": true,
+  "post_boot_capture": {
+    "path": ".local/install-prep/hp-log-capture-0oeph39o/report.json",
+    "sha256": "edd805c3462505969521fe7346bbda48f784e6c2ad1e8e821eb3dd644baacbe3",
+    "image_sha256": "09b2897260a31d51711bfe0c506d44ef9aa34e272cf6208c7940f106f0eeba28",
+    "original_files_identical": 48,
+    "all_files_saved": 50,
+    "added_exitbs_logs": 2,
+    "filename_clock_is_reliable_actual_time": false
+  },
+  "archive_sha256": "af4707fa5ce9b01fd4d0d8493841cd3f999bf3652fa9bb25d65af5354bdde0b4",
+  "two_independent_ssh_cat_readbacks_identical": true,
+  "collector_commands": 67,
+  "captured_files": 141,
+  "failed_or_missing_commands": 10,
+  "timeouts": 0,
+  "new_boot_observed": true,
+  "actual_bootarg": "msgbuf=1048576",
+  "actual_kern_msgbuf_bytes": 131072,
+  "requested_kern_msgbuf_bytes": 1048576,
+  "buffer_enlargement_effective": false,
+  "early_saved_dmesg_kernel_uptime_seconds": 68.04129,
+  "earliest_saved_rotated_syslog_kernel_uptime_seconds": 10.053838,
+  "rotated_logs_archive_sha256": "31a59d28b8365b7fe2e8593754e98150605be358be67b57fd6f921b22323b7b3",
+  "actual_early_usb_failure_message_recovered": false,
+  "a0ed_spt_class_probe900_retained": true,
+  "txhc_generic_class_retained": true,
+  "both_controllers_power_zero_io_zero_children_zero": true,
+  "usb_host_device_count": 0,
+  "physical_lexar_present": false,
+  "touchpad_interrupt_mode": "Polling",
+  "touchscreen_interrupt_mode": "APIC",
+  "wifi_publickey_ssh_working": true,
+  "source_review_correction": {
+    "pinned_xnu_commit": "f6217f891ac0bb64f3d375211650a4c1ff8ca1ea",
+    "subr_log_sha256": "b8ad19abae8eba4ae428c428226163a61d22730372fbecb54b7108e63682039c",
+    "guard_line": 799,
+    "bootarg_parser_line": 841,
+    "finding": "Parser is conditional on CONFIG_XNUPOST; previous preparation overlooked this enclosing guard. KC-wide string presence did not establish release-kernel support",
+    "runtime_kernel": "xnu-12377.161.14~5/RELEASE_X86_64",
+    "exact_runtime_source_match": false,
+    "live_sysctl_write_executed": false
+  },
+  "next_action": "Stock DebugEnhancer candidate delivered/readback-verified; user physical boot pending. Preserve this failed msgbuf trial separately",
+  "remote_driver_unload_or_kernel_setting_firmware_nvram_partition_writes": false
+}

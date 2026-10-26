@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-10-16",
+  "recipe": "configs/vesa-prototype.json",
+  "build_command": "make prototype",
+  "private_report": "build/vesa-prototype/report.json",
+  "opencore_version": "1.0.8",
+  "ocvalidate_exit_code": 0,
+  "config_sha256": "04e0f170468c1aac8bd5e3460122aef1ea0f5f50565ba7f2460a9231511f2c69",
+  "compiled_ssdt_sha256": "24956a41669b37fce98f09b9b6d28475a099693bb3522391d35609415e0ffed2",
+  "enabled_file_references_checked": 13,
+  "amd64_efi_images_checked": 4,
+  "x86_64_macho_kexts_checked": 5,
+  "third_party_dependencies_ordered": true,
+  "ssdt_checksum_valid": true,
+  "vesa_graphics_isolation_checked": true,
+  "official_asset_digests_verified": ["OpenCorePkg", "Lilu", "VirtualSMC", "WhateverGreen"],
+  "locally_hashed_asset_without_upstream_digest": {
+    "name": "VoodooPS2Controller-2.3.7-RELEASE.zip",
+    "sha256": "d5483298736ba4b3b82c7203d9a46968c668fb7af732b8b22c2096deb0acf83f"
+  },
+  "machine_identity": "blank/zero placeholders; not usable for deployment",
+  "hp_boot_tested": false,
+  "metal_acceleration_tested": false,
+  "deployed_to_usb_or_internal_efi": false,
+  "status": "offline prototype only; deployment prerequisites remain in recipe"
+}

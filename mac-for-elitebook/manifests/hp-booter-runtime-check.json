@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "scope": "HP physical slide-zero failure and EFI runtime MMIO evidence; subsequent MMIO quirk trial reached Recovery GUI",
+  "runner": "scripts/analyze_hp_runtime_map.py",
+  "runner_sha256": "c4ebaf5d11963db32accab0f9e696d31bf04f8e65778b923fd323442e277d0ed",
+  "private_report": ".local/install-prep/hp-slide0-failure-20261016T092510Z/runtime-analysis.json",
+  "private_report_sha256": "0c54ed60fbf8b77b19349cffbaf731d0a8512bcf1cbbfe4e6caa93b0da949d8a",
+  "physical_observations": {
+    "slide_zero_effective": true,
+    "kernel_collection_read_ok": true,
+    "same_failure_after_slide_zero": true,
+    "failure": "EB.MM.AKM Err(0xE) from EB.MM.MKP; EB.BST.FBS RT; STOP 0x16",
+    "runtime_request_bytes": 285941760,
+    "mmio_total_bytes": 285212672,
+    "runtime_code_and_data_bytes": 684032,
+    "remaining_request_bytes": 45056,
+    "linux_runtime_mmio_ranges_match_booter_mmio_ranges": true,
+    "linux_mmio_attributes_include_efi_memory_runtime": true
+  },
+  "evidence": [
+    {
+      "path": ".local/install-prep/hp-slide0-failure-20261016T092510Z/opencore.txt",
+      "sha256": "9204edd580bc76dfc63c88c314064f09471531754da692586d146faaaf41cc02"
+    },
+    {
+      "path": ".local/install-prep/hp-slide0-failure-20261016T092510Z/linux-efi-runtime-map.txt",
+      "sha256": "24def5886b5c7fd940f52b0a2cb1e1e8e60dc73de31992daf54e656e6be70a0f"
+    }
+  ],
+  "upstream": {
+    "repository": "https://github.com/acidanthera/OpenCorePkg",
+    "commit": "6fe4d15cb66596d99d8cfedce69d8fc6dad71886",
+    "version": "1.0.8",
+    "source": "Library/OcAfterBootCompatLib/ServiceOverrides.c:DevirtualiseMmio",
+    "documentation": "Docs/Configuration.tex:DevirtualiseMmio"
+  },
+  "next_trial": {
+    "only_setting_change": "Booter.Quirks.DevirtualiseMmio: false -> true",
+    "slide_zero_retained": true,
+    "other_efi_files_identical": 20,
+    "private_identity_preserved": true,
+    "matching_ocvalidate_exit": 0,
+    "image_sha256": "ffe4093a37bb54f19dc522e5817f5934c35717dd21c19baae61ddc8bc8371e67",
+    "hp_tested": true,
+    "observed_result": "User photos show Recovery GUI; new booter log reaches EXITBS without prior MM.AKM failure",
+    "successful_log_sha256": "f9c28c8f09e897f9fe109e77c93788a23eced02eeb2f35cb1da635c3dfdeee20"
+  },
+  "limit": "Separate Linux boot confirms firmware runtime MMIO flags; post-failure booter map and size correspondence do not prove allocation algorithm details or trial success. No VM executed."
+}

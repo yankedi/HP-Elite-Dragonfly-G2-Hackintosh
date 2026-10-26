@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "scope": "Actual stock DebugEnhancer Recovery boot; enlarged buffer effective, USB still absent",
+  "report": {
+    "path": ".local/install-prep/hp-dbgenh-live-_dqq3b3g/report.json",
+    "sha256": "1311dbcb8ac914d54b90011b34a1808b31f2666dda7d95129e0b7e0652ae5514"
+  },
+  "early_capture_receipt": {
+    "path": ".local/install-prep/hp-dbgenh-live-_dqq3b3g/early.json",
+    "sha256": "d6031ec50b3e5826e5187c54a2eea420d4be1b847bd6e00d4e25472c33094e79"
+  },
+  "collection_receipts": {
+    "path": ".local/install-prep/hp-dbgenh-live-_dqq3b3g/commands.json",
+    "sha256": "2ba86ed1e1167095f7644068075acd460654d2eb5980af055faf843f8343cdde"
+  },
+  "delivered_image_sha256_before_boot": "c94f6010c804365c0730474fbfa18391223a43723549b30c4c3139b6932b4f19",
+  "post_boot_usb_img_recovered": true,
+  "post_boot_capture": {
+    "path": ".local/install-prep/hp-dbgenh-capture-zz9i0csq/report.json",
+    "sha256": "535bfde343e69c9a3350658bccdee4e8de3a7a2ca29284a68fdf6719e2de006e",
+    "image_sha256": "5bc2db7a606aaf3aeb509ea8ea1fa7f7ad261d21a09f51418ac8c426244519c8",
+    "original_files_identical": 51,
+    "all_files_saved": 52,
+    "added_exitbs_log_sha256": "89110509da3275dc864e9feb96d25bc78874db00883decde66bd3b51c4967cc9",
+    "filename_clock_is_reliable_actual_time": false
+  },
+  "archive_sha256": "068e94ce84362d6f02b7433dc8e45ff77e87cfd3a2507b724719aed49bbfc1b1",
+  "two_independent_ssh_cat_readbacks_identical": true,
+  "extracted_archive_files_compared_to_tar": true,
+  "collector_commands": 67,
+  "captured_files": 141,
+  "failed_or_missing_commands": 10,
+  "timeouts": 0,
+  "new_boot_observed": true,
+  "actual_kern_msgbuf_bytes": 10485760,
+  "buffer_enlargement_effective": true,
+  "debugenhancer_1_1_1_listed_loaded": true,
+  "ineffective_msgbuf_bootarg_absent": true,
+  "first_saved_kernel_uptime_seconds": 0.000175,
+  "early_dmesg_bytes_with_sysctl_prefix": 2342203,
+  "early_dmesg_sha256": "495fcd5569bec22f1cb48d6b8d779eac65511dc789d1eb50cf9f7c0f6f326229",
+  "rotated_log_files": 37,
+  "rotated_logs_archive_sha256": "e0d0484052d629d51ed6741f708d5db75305b196575b5bd4b11c37a87fc33c8c",
+  "actual_early_observations": {
+    "0_947269_seconds": "ACPI namespace lookup failure for _SB.PC00.XHCI.RHUB.HS09",
+    "0_947313_seconds": "SSDT HP_XHC_P load failure AE_NOT_FOUND; 1 failed table,25 successful",
+    "later_registry": "HS09@9 exists under PCH RHUB in the later ACPI plane; catalog-time missing name does not establish a missing physical port",
+    "1_144627_seconds": "EmbeddedControl handler AE_BAD_PARAMETER,EC0.ITLB/ECRI/_REG execution errors",
+    "1_244030_seconds": "DebugEnhancer patcher.routeMultiple for _kdb_printf is failed with error 0; buffer allocation still actually succeeds",
+    "6_996430_to_7_069347_seconds": "TXHC createPorts logs unsupported speed mantissas 1248,2496,4992,1457,2915,5830 exponent2",
+    "7_083678_to_7_151099_seconds": "XHCI createPorts logs same six unsupported speed mantissas exponent2"
+  },
+  "actual_kc_speed_warning_audit": {
+    "path": ".local/install-prep/hp-dbgenh-live-_dqq3b3g/createPorts-function.json",
+    "sha256": "13aeec136933e45a77d682fcec3dc630c3742195eccf4a2f98ebd087c3b98109",
+    "kc_sha256": "c80161fa3065883753fc285339281361a8469cbb6fb27653c88e2a22eb4807a4",
+    "exact_function_symbol": "__ZN12AppleUSBXHCI11createPortsEv",
+    "finding": "Both unsupported-speed logging branches rejoin the PSI iteration at 0xffffff8002f20649/655; warning alone is not an immediate fatal return or proof of the USB root cause",
+    "earlier_substring_based_working_disassembly_overwritten": true,
+    "corrected_exact_function_artifacts_used": true,
+    "patch_applied": false
+  },
+  "a0ed_spt_class_probe900_retained": true,
+  "txhc_generic_class_retained": true,
+  "both_controllers_power_zero_io_zero_children_zero": true,
+  "both_controllers_on_time_in_this_snapshot_ms": 169,
+  "usb_host_device_count": 0,
+  "physical_lexar_present": false,
+  "touchpad_interrupt_mode": "Polling",
+  "touchscreen_interrupt_mode": "APIC",
+  "wifi_publickey_ssh_working": true,
+  "result": "Diagnostic objective achieved: earliest boot messages retained. USB remains unfunctional; OEM ACPI port-description table failure is now observed but causal role is unproven",
+  "next_action": "Tested DBGENH IMG/newlog preserved. PCH-only RHUB candidate delivered/readback verified and safelyunmounted;user physical boot pending. Do not patch speed warnings just because they are visible",
+  "remote_driver_unload_or_kernel_setting_firmware_nvram_partition_writes": false
+}

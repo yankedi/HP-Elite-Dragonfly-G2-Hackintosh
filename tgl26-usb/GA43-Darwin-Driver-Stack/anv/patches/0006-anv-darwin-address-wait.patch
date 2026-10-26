@@ -1,0 +1,74 @@
+--- a/src/util/futex.h
++++ b/src/util/futex.h
+@@ -30,4 +30,6 @@
+ #if defined(HAVE_LINUX_FUTEX_H) && defined(__linux__)
+ #define UTIL_FUTEX_SUPPORTED 1
++#elif defined(__APPLE__) && defined(MESA_INTEL_DARWIN)
++#define UTIL_FUTEX_SUPPORTED 1
+ #elif defined(__FreeBSD__)
+ #define UTIL_FUTEX_SUPPORTED 1
+--- a/src/util/futex.c
++++ b/src/util/futex.c
+@@ -59,3 +59,62 @@
++#elif defined(__APPLE__) && defined(MESA_INTEL_DARWIN)
++
++/* Public macOS 14.4+ atomic compare-and-wait; target deployment is Tahoe.
++ * Host synchronization only, never a GPU completion/fence implementation.
++ * ANV allocator and simple_mtx callers recheck their atomic state on wake. */
++#include <os/os_sync_wait_on_address.h>
++#include <errno.h>
++#include <limits.h>
++#include <time.h>
++
++int futex_wake(uint32_t *addr, int32_t count)
++{
++   if (count == 0)
++      return 0;
++   if (count != 1 && count != INT32_MAX) {
++      errno = EINVAL;
++      return -1;
++   }
++   int ret = count == 1
++      ? os_sync_wake_by_address_any(addr, sizeof(*addr), OS_SYNC_WAKE_BY_ADDRESS_NONE)
++      : os_sync_wake_by_address_all(addr, sizeof(*addr), OS_SYNC_WAKE_BY_ADDRESS_NONE);
++   /* Unlike Linux, Darwin reports no waiters as ENOENT. */
++   return ret < 0 && errno == ENOENT ? 0 : ret;
++}
++
++int futex_wait(uint32_t *addr, int32_t value, const struct timespec *timeout)
++{
++   if (!timeout) {
++      int ret = os_sync_wait_on_address(addr, (uint32_t)value, sizeof(*addr),
++                                        OS_SYNC_WAIT_ON_ADDRESS_NONE);
++      return ret < 0 ? ret : 0;
++   }
++   if (timeout->tv_sec < 0 || timeout->tv_nsec < 0 || timeout->tv_nsec >= 1000000000) {
++      errno = EINVAL;
++      return -1;
++   }
++   struct timespec now;
++   if (clock_gettime(CLOCK_MONOTONIC, &now))
++      return -1;
++   if (__atomic_load_n(addr, __ATOMIC_RELAXED) != (uint32_t)value)
++      return 0;
++   if (timeout->tv_sec < now.tv_sec ||
++       (timeout->tv_sec == now.tv_sec && timeout->tv_nsec <= now.tv_nsec)) {
++      errno = ETIMEDOUT;
++      return -1;
++   }
++   uint64_t sec = (uint64_t)timeout->tv_sec - (uint64_t)now.tv_sec;
++   int64_t nsec = timeout->tv_nsec - now.tv_nsec;
++   if (nsec < 0) {
++      sec--;
++      nsec += 1000000000;
++   }
++   uint64_t ns = sec > (UINT64_MAX - (uint64_t)nsec) / 1000000000
++      ? UINT64_MAX : sec * 1000000000 + (uint64_t)nsec;
++   int ret = os_sync_wait_on_address_with_timeout(addr, (uint32_t)value, sizeof(*addr),
++      OS_SYNC_WAIT_ON_ADDRESS_NONE, OS_CLOCK_MACH_ABSOLUTE_TIME, ns);
++   return ret < 0 ? ret : 0;
++}
++
+ #elif defined(__FreeBSD__)
+ 
+ #include <assert.h>

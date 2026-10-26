@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "scope": "PCH-only Darwin RHUB fallback trial delivered/readback verified and HP-tested: PCH USB restored (Lexar mounted, external USB mouse works); TXHC control unchanged",
+  "basis": "manifests/hp-dbgenh-runtime-check.json",
+  "runner": "scripts/prepare_hp_rhub_retry.py",
+  "runner_sha256": "3f579332ed48a9c6d331e94b4ca6cb88e71524482fe33f37dd1e104d082d97b2",
+  "report": {
+    "path": ".local/install-prep/hp-rhub-ed0sechl/report.json",
+    "sha256": "58d622282ceba5f0ceaeff345b2c9f9750253fbbc517909a3fbb629077e00c0b"
+  },
+  "integration_audit": {
+    "path": ".local/install-prep/hp-rhub-ed0sechl/integration-audit.json",
+    "sha256": "2d5af55f4768414a398a267be487caf7486f7d8a49a14c5b67f6ca92d6ebd9dc"
+  },
+  "upstream_technique_reference": {
+    "repository": "https://github.com/dortania/Getting-Started-With-ACPI",
+    "commit": "a954252fe45c4b92e84a7ea927ed30a69bd84497",
+    "file": "extra-files/decompiled/SSDT-RHUB.dsl",
+    "sha256": "732d6acc8f298de65a2ad86b52e6a3d0844c0d02016e5bb002974329a2225be7",
+    "provenance": {
+      "path": ".local/install-prep/hp-rhub-source-aazpfoze/provenance.json",
+      "sha256": "4ddfd5da567a2c3d00cad96d59add98790788b3c9230bc282a2d5b05b963d994"
+    },
+    "boundary": "Upstream Ice Lake/OEM ACPI fallback technique, not proof of same-model Tiger Lake compatibility"
+  },
+  "actual_machine_basis": {
+    "observed_early_error": "HP_XHC_P table load fails during HS09 name lookup",
+    "later_live_HS09_node_exists": true,
+    "do_not_infer_missing_physical_port_from_early_lookup_failure": true,
+    "DSDT_RHUB_block_no_existing_STA_declaration": true,
+    "target": "_SB.PC00.XHCI.RHUB,PCI00:14.0,8086:a0ed",
+    "control": "TXHC/PCI00:0d.0,8086:9a13 kept unchanged",
+    "hypothesis": "Hiding the PCH OEM ACPI hub from Darwin may allow driver fallback port creation; a controlled experiment,not established causation",
+    "does_not_directly_repair_catalog_time_HP_XHC_P_load_failure": true,
+    "speed_warning_branch_not_patched": true
+  },
+  "source_image_sha256": "c94f6010c804365c0730474fbfa18391223a43723549b30c4c3139b6932b4f19",
+  "result_image": ".local/install-prep/hp-rhub-ed0sechl/HP-Tahoe-VESA-XHCI-RHUB.img",
+  "result_image_sha256": "563b6a8cdaa2468c127b6440d5274441e76f864ddc4ad1984bcdce129cfc320b",
+  "source_asl": "acpi/SSDT-RHUB-HP.dsl",
+  "source_asl_sha256": "2d441f3d40dfac5e91586fd4bc89ecd68c13b525ab143e25a555ed7a6799cf48",
+  "compiled_aml_bytes": 108,
+  "compiled_aml_sha256": "4cf78eacb8f2529a3a93a3bb9406ad4cc5446fe19828c49241130ab0503daec9",
+  "only_change": "Append one AML and ACPI.Add entry; PCH RHUB _STA returns0 for Darwin and15 otherwise",
+  "other_config_fields_and_identity_preserved": true,
+  "other_image_files_identical": 50,
+  "all_original_kexts_and_DebugEnhancer_preserved": true,
+  "new_port_map_or_power_or_device_id_patch": false,
+  "local_checks": {
+    "iasl_compile_exit": 0,
+    "iasl_errors_warnings_remarks": [0, 0, 0],
+    "compiled_AML_length_checksum_and_exact_readback_passed": true,
+    "disassembly_has_exact_PCH_scope_and_no_TXHC": true,
+    "acpiexec_namespace_fixture_exit": 0,
+    "fixture_STA_nonDarwin_Darwin_nonDarwin": [15, 0, 15],
+    "acpiexec_host_shutdown_diagnostic": "ACPICA20260930 reports4 outstanding cache allocations on interpreter shutdown; linked tables and all3 evaluations pass without AE_ namespace/execution exception. This host-tool diagnostic is preserved in the log,not an HP runtime observation",
+    "opencore_version": "1.0.8",
+    "matching_ocvalidate_exit": 0,
+    "native_KC_injection_repeated": false,
+    "native_KC_reason": "All binaries and Kernel settings unchanged from physically booted DBGENH image; new variable is AML only",
+    "vm_executed": false
+  },
+  "final_audit": {
+    "path": ".local/install-prep/hp-rhub-ed0sechl/final-audit.json",
+    "sha256": "0e438aacb917a114e6d8c1912e1ee21b14faa5c8458000b297d9cb15443f5842",
+    "history_events": 37,
+    "unique_history_runtime_and_candidate_refs_verified": 63,
+    "repository_checks": "make check46Python/40JSON/25Markdown passes;git diff --check passes"
+  },
+  "tested_dbgenh_capture": {
+    "path": ".local/install-prep/hp-dbgenh-capture-zz9i0csq/report.json",
+    "sha256": "535bfde343e69c9a3350658bccdee4e8de3a7a2ca29284a68fdf6719e2de006e",
+    "image_sha256": "5bc2db7a606aaf3aeb509ea8ea1fa7f7ad261d21a09f51418ac8c426244519c8",
+    "original_files_identical": 51,
+    "all_files_saved": 52,
+    "added_exitbs_log_sha256": "89110509da3275dc864e9feb96d25bc78874db00883decde66bd3b51c4967cc9"
+  },
+  "usb_delivery": {
+    "path": ".local/install-prep/hp-rhub-delivery-vzqco_76/report.json",
+    "sha256": "2302a377b31079491b24d910d77ec1ae4344957049c21647ed1ec73b4cb41b52",
+    "new_files": 3,
+    "candidate": "/ISO/linux/HP-Tahoe-VESA-XHCI-RHUB.img",
+    "readback_after_unmount_and_readonly_remount": true,
+    "original_file_size_mtime_preserved": 232,
+    "seven_original_image_hashes_verified": true,
+    "ventoy_efi_file_hashes_preserved": 995,
+    "ventoy_config_and_partition_geometry_preserved": true,
+    "offline_hfs_full_hash_before_copy_matches_original": true,
+    "offline_hfs_not_written_and_metadata_preserved": true,
+    "both_partitions_safely_unmounted": true
+  },
+  "final_delivery_audit": {
+    "path": ".local/install-prep/hp-rhub-delivery-vzqco_76/final-audit.json",
+    "sha256": "56558b3dead511604c6c13793e8c1b1f23b5b87754fde3ee9e069d80f38605f2",
+    "history_events": 39,
+    "unique_history_runtime_candidate_refs_verified": 66,
+    "repository_checks": "make check46Python/40JSON/25Markdown passes;git diff --check passes"
+  },
+  "physical_media_written": true,
+  "hp_tested": true,
+  "runtime_evidence": {
+    "path": "manifests/hp-rhub-runtime-check.json",
+    "scope": "PCH builds ports, Lexar mounted read, external USB mouse works, TXHC unchanged"
+  },
+  "next_action": "When USB returns: preserve the complete tested RHUB IMG with new booter logs, then plan macOS installation on the existing free space or continued validation"
+}

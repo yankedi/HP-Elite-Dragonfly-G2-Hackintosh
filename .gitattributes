@@ -1,0 +1,9 @@
+# Preserve exact whitespace of imported source snapshots, patch context,
+# original license texts and hash-verified panic text. No EOL conversion.
+graphics/src/** -whitespace
+*.patch -whitespace
+*.diff -whitespace
+**/licenses/** -whitespace
+evidence/panics/*.txt -whitespace
+tgl26-usb/GA34-Offline-Lab/track-b/diagnostic-src/** -whitespace
+tgl26-usb/GA32-ISA-Lab/tools/mesa-eu/adapter/a1_3src_helpers.h -whitespace

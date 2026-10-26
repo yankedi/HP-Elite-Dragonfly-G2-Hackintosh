@@ -1,0 +1,50 @@
+--- before/drm/mock/i915_model.py
++++ after/drm/mock/i915_model.py
+@@ -79,7 +79,10 @@
+         layout = self.fields(name)
+         if not isinstance(data,(bytes,bytearray)) or len(data)!=layout['size']:
+             fail(errno.EFAULT, 'ioctl structure size mismatch')
+-        return {k:int.from_bytes(data[f['offset']:f['offset']+f['size']],'little') for k,f in layout['fields'].items()}
++        # drm.h declares timeout_nsec __s64, unlike handles/pointers and flags.
++        return {k:int.from_bytes(data[f['offset']:f['offset']+f['size']],'little',
++                                signed=(name=='SYNCOBJ_WAIT' and k=='timeout_nsec'))
++                for k,f in layout['fields'].items()}
+ 
+ 
+ class MockI915:
+@@ -141,8 +144,9 @@
+                 values.update(version_major=0,version_minor=0,version_patchlevel=0)
+                 for key,text in [('name',self.driver_name),('date',b'20261020'),('desc',b'CPU-only explicit ABI simulation')]:
+                     count = min(values[key+'_len'],len(text))
+-                    if values[key] and count:
+-                        if arena is None: fail(errno.EFAULT,'no synthetic user memory')
++                    if count:
++                        if not values[key] or arena is None:
++                            fail(errno.EFAULT,'null or absent synthetic user memory for copyout')
+                         arena.write(values[key],text[:count])
+                     values[key+'_len'] = len(text)
+             elif name=='GET_CAP':
+--- before/drm/tests/test_model.py
++++ after/drm/tests/test_model.py
+@@ -55,6 +55,21 @@
+         self.error(errno.ENOENT,self.call,'GEM_CLOSE',handle=h)
+         self.assertEqual(self.dev.bytes_allocated,0)
+         self.assertNotEqual(h,self.call('I915_GEM_CREATE',size=1)['handle'])
++
++    def test_version_nonzero_copy_requires_each_pointer(self):
++        for field in ['name','date','desc']:
++            with self.subTest(field=field):
++                self.error(errno.EFAULT,self.call,'VERSION',**{field:0,field+'_len':8})
++                out=self.call('VERSION',**{field:0,field+'_len':0})
++                self.assertGreater(out[field+'_len'],0) # size-only query is supported
++                pointer=self.arena.allocate(64)
++                out=self.call('VERSION',**{field:pointer,field+'_len':64})
++                self.assertGreater(out[field+'_len'],0)
++                self.assertTrue(any(self.arena.read(pointer,out[field+'_len'])))
++
++    def test_signed_sync_wait_timeout_abi(self):
++        raw=self.abi.pack('SYNCOBJ_WAIT',timeout_nsec=-1)
++        self.assertEqual(self.abi.unpack('SYNCOBJ_WAIT',raw)['timeout_nsec'],-1)
+ 
+     def test_invalid_flags_padding_extensions(self):
+         self.error(errno.EINVAL,self.call,'I915_GEM_CREATE',size=0)

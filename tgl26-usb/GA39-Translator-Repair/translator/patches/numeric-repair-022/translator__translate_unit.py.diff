@@ -1,0 +1,20 @@
+--- before/translator/translate_unit.py
++++ after/translator/translate_unit.py
+@@ -112,10 +112,15 @@
+         report.update(status=policy.PROVEN, target_sha256=sha(code), source_bytes=data.hex(), target_bytes=code.hex(),
+                       source_fields=ins, target_fields=nodes,
+                       source_target_mapping=[{'source_offset': 0, 'target_byte_range': [0, len(code)]}],
+-                      proof={'rule': 'INTEGER_MOV_CONTIGUOUS_BITCOPY', 'forall': 'all 2^256 source register bit patterns',
++                       proof={'rule': 'INTEGER_MOV_CONTIGUOUS_BITCOPY',
++                              'conditional_claim': 'all 2^256 source register bit patterns under the listed ISA premises',
++                              'machine_checked': ['finite rule eligibility', 'decoded architectural field projection',
++                                                  'exact target byte roundtrip', 'optional sync.nop encoding shape'],
++                              'isa_semantics_machine_proved': False,
+                              'lane_equations': [f'target.dst[{i}*32 +: 32] = source.src[{i}*32 +: 32]' for i in range(8)],
+                              'assumptions': ['ICL/TGL same integer MOV bit-copy architectural semantics',
+-                                             'isolated instruction, all channels execute, no preexisting asynchronous operation',
++                                              'isolated instruction, all channels execute, no preexisting asynchronous operation',
++                                              'auto sync.nop @1 preserves the isolated GRF value projection; not a general SEND completion theorem',
+                                              'unmodified pinned IGA faithfully encodes/decodes declared platforms'],
+                              'temporary_grf': None, 'NF_numeric_model': 'NOT_APPLICABLE',
+                              'resource_ABI': 'NOT_APPLICABLE_TO_ISOLATED_REGISTER_FUNCTION',

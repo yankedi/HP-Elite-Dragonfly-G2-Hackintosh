@@ -1,0 +1,198 @@
+--- ga32/kern_tglhang.hpp	2026-10-18 02:20:15.524692288 +0800
++++ ga33/kern_tglhang.hpp	2026-10-18 04:31:33.953696460 +0800
+@@ -45,6 +45,42 @@
+ constexpr uint64_t MaxPhysical = 1ULL << 44;     // 16 TiB: ppnum_t is 32-bit, (addr >> 12) must fit
+ 
+ /**
++ *  GA3.3: record version, capture stages and per-attempt diagnostics. The diagnostics only observe
++ *  what the existing gates decided; no gate is relaxed.
++ */
++constexpr uint32_t RecordVersion = 3; // GA3.3
++
++constexpr uint32_t StageNone       = 0;
++constexpr uint32_t StageClassifier = 1; // classifier gates (ready + probe)
++constexpr uint32_t StageExclusions = 2; // stolen/TOLUD/TSEG exclusion gate
++constexpr uint32_t StageRegisters  = 3; // BB_ADDR/PDP0 sanity
++constexpr uint32_t StageBatch      = 4; // batch page translation/reads
++constexpr uint32_t StageScan       = 5; // batch command scan
++constexpr uint32_t StageKernel     = 6; // shader kernel translation/reads
++constexpr uint32_t StageDone       = 7; // complete record
++
++struct Diag {
++	uint32_t version {RecordVersion};
++	uint32_t size {0};            // sizeof(HangRecord) as built
++	uint32_t stage {StageNone};   // last stage entered
++	uint32_t failReason {0};      // Reason at the first refusal
++	uint32_t failLevel {0xFF};    // page-table level of the first refusal (3..0, 0xFF none)
++	uint32_t pmapChecked {0};     // pmap_valid_page() calls
++	uint32_t pmapAccepted {0};    //   ... returning true
++	uint32_t pmapRejected {0};    //   ... returning false
++	uint32_t fenceRejected {0};   // ranges refused by the extra fences
++	uint32_t readAttempts {0};    // physical reads attempted after all gates
++	uint32_t readSuccesses {0};   //   ... that returned data
++	uint32_t batchBytes {0};      // captured payload bytes
++	uint32_t vsBytes {0};
++	uint32_t psBytes {0};
++	uint32_t bridgeDiag {0};      // bit0 read ok, bit1..4 which regs validated, bits8..15 bridgeState
++	uint64_t failGpuVA {0};       // GPU VA being translated at the first refusal
++	uint64_t failPhys {0};        // physical address involved in the first refusal
++	uint64_t failTable {0};       // page table that contained the refused entry (0 if n/a)
++};
++
++/**
+  *  GA3.2: classification-resolution diagnostics, packed into HangRecord::resolveDiag (the field
+  *  was padding and stayed zero in GA3.1). The kernel log is not readable for a previous boot on
+  *  this machine, so the record itself must carry the outcome of the symbol resolution.
+@@ -179,12 +215,41 @@
+ 	uint32_t tableReads {0};
+ 	uint64_t bytes {0};
+ 	bool tableEntry {false}; // set by translate() for page-table entries
++	// GA3.3 diagnostics
++	uint32_t stage {StageNone};
++	uint32_t level {0xFF};
++	uint64_t gpuVA {0};
++	uint64_t lastPhys {0};
++	uint64_t lastTable {0};
++	uint32_t readAttempts {0};
++	uint32_t readSuccesses {0};
++	bool failSeen {false};
++	uint32_t failStage {StageNone};
++	uint32_t failReason {0};
++	uint32_t failLevel {0xFF};
++	uint64_t failGpuVA {0};
++	uint64_t failPhys {0};
++	uint64_t failTable {0};
++
++	/** Record the first refusal with its context; later refusals cannot happen (capture stops). */
++	void markFail(Reason why, uint64_t phys, uint64_t table) {
++		if (!failSeen) {
++			failSeen = true;
++			failStage = stage;
++			failReason = static_cast<uint32_t>(why);
++			failLevel = level;
++			failGpuVA = gpuVA;
++			failPhys = phys;
++			failTable = table;
++		}
++	}
+ 
+ 	/**
+ 	 *  Bounded, classifier-verified physical read. This is the only way bytes enter a
+ 	 *  capture: there is no path that reads without calling allow() first.
+ 	 */
+ 	bool fetch(uint64_t physical, void *dst, uint64_t length) {
++		lastPhys = physical;
+ 		if (!read || !allow)
+ 			return fail(MemoryMapUnverified);
+ 		if (length == 0 || length > PageSize)
+@@ -204,8 +269,10 @@
+ 				return fail(LimitHit);
+ 			pageReads++;
+ 		}
++		readAttempts++;
+ 		if (!read(context, physical, dst, length))
+ 			return fail(ReadFailed);
++		readSuccesses++;
+ 		bytes += length;
+ 		return true;
+ 	}
+@@ -216,11 +283,15 @@
+ 	bool allowed(uint64_t physical, uint64_t length) {
+ 		if (!allow)
+ 			return false;
+-		return allow(allowContext, physical, length);
++		bool ok = allow(allowContext, physical, length);
++		if (!ok)
++			markFail(UnsafePhysicalRange, physical, lastTable);
++		return ok;
+ 	}
+ 
+ private:
+ 	bool fail(Reason why) {
++		markFail(why, lastPhys, lastTable);
+ 		reason = why;
+ 		return false;
+ 	}
+@@ -320,6 +391,9 @@
+ 	for (int level = 3; level >= 0; level--) {
+ 		uint64_t entry = 0;
+ 		reader.tableEntry = true;
++		reader.level = static_cast<uint32_t>(level);
++		reader.gpuVA = address;
++		reader.lastTable = table; // GA3.3: page that contains the entry being read
+ 		bool ok = reader.fetch(table + ((address >> (12 + 9 * level)) & 0x1FF) * 8, &entry, sizeof(entry));
+ 		reader.tableEntry = false;
+ 		if (!ok)
+@@ -331,6 +405,7 @@
+ 		if (level > 0 && level < 3 && (entry & 0x80)) {
+ 			uint64_t mask = (1ULL << (12 + 9 * level)) - 1;
+ 			uint64_t page = (entry & AddrMask & ~mask) | (address & mask & ~0xFFFULL);
++			reader.lastPhys = page;
+ 			if (!reader.allowed(page, PageSize)) {
+ 				reader.reason = UnsafePhysicalRange;
+ 				return 0;
+@@ -339,6 +414,8 @@
+ 		}
+ 		table = entry & AddrMask;
+ 	}
++	reader.level = 0;
++	reader.lastPhys = table;
+ 	if (!reader.allowed(table, PageSize)) {
+ 		reader.reason = UnsafePhysicalRange;
+ 		return 0;
+@@ -459,6 +536,7 @@
+  *  always consults the classifier first.
+  */
+ inline void capture(Reader &reader, const CaptureInput &in, CaptureOutput &out) {
++	reader.stage = StageClassifier;
+ 	// 0. The platform classifier must be present and self-consistent; without it no
+ 	//    physical read is allowed at all (requirement: MemoryMapUnverified).
+ 	out.classifierReady = in.classifierReady ? 1 : 0;
+@@ -468,6 +546,7 @@
+ 		out.result = MemoryMapUnverified;
+ 		return;
+ 	}
++	reader.stage = StageExclusions;
+ 	out.exclusionStolen = in.fences.haveStolen ? 1 : 0;
+ 	out.exclusionLowTop = in.fences.haveLowTop ? 1 : 0;
+ 	out.exclusionTseg = in.fences.haveTseg ? 1 : 0;
+@@ -478,6 +557,7 @@
+ 		return;
+ 	}
+ 
++	reader.stage = StageRegisters;
+ 	// 1. Registers: BB_ADDR (0x2140/0x2168) and RCS PDP0 (0x2270/0x2274).
+ 	uint32_t bbLo = in.regs[0], bbHi = in.regs[1], pdLo = in.regs[2], pdHi = in.regs[3];
+ 	if (bbLo == 0xFFFFFFFFU || bbHi == 0xFFFFFFFFU || pdLo == 0xFFFFFFFFU || pdHi == 0xFFFFFFFFU) {
+@@ -501,6 +581,7 @@
+ 	if (in.haveMaxMem)
+ 		out.ramTop = in.maxMem;
+ 
++	reader.stage = StageBatch;
+ 	// 3. Batch pages: slot 7 holds the page BB_ADDR points into.
+ 	out.batchStart = (out.bbAddr & ~(PageSize - 1)) - (MaxBatchPages - 1) * PageSize;
+ 	for (uint32_t i = 0; i < MaxBatchPages; i++) {
+@@ -525,6 +606,7 @@
+ 		return;
+ 	}
+ 
++	reader.stage = StageScan;
+ 	// 4. Decode the state commands from the captured pages.
+ 	auto words = reinterpret_cast<const uint32_t *>(out.batch);
+ 	scanBatch(words, MaxBatchPages * (PageSize / 4), out.batchStart, out.bbAddr, out.scan);
+@@ -533,6 +615,7 @@
+ 		return;
+ 	}
+ 
++	reader.stage = StageKernel;
+ 	// 5. Shader kernels: two pages each, translated separately.
+ 	for (uint32_t k = 0; k < KernelCount; k++) {
+ 		uint64_t first = out.scan.kernelAt[k];
+@@ -556,6 +639,7 @@
+ 		}
+ 	}
+ 
++	reader.stage = StageDone;
+ 	out.result = Ok;
+ }
+ 

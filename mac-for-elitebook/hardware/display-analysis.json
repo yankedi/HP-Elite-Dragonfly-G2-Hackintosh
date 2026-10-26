@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "capture_id": "20261015T174049.365004Z",
+  "status": "sanitized read-only display evidence; no macOS bootability claim",
+  "source_evidence": {
+    "vbt": {
+      "path": "raw/sys/kernel/debug/dri/0000:00:02.0/i915_vbt",
+      "bytes": 8704,
+      "sha256": "715772cebbc951aef00ddec4bc76fe571c5f4f5dc5c0c26b8171a53f6333241d",
+      "declared_size_bytes": 8571,
+      "captured_size_bytes": 8704,
+      "trailing_bytes": 133,
+      "trailing_bytes_are_zero": true,
+      "bdb_version": 237
+    },
+    "edid": {
+      "path": "raw/sys/class/drm/card1-eDP-1/edid",
+      "bytes": 128,
+      "sha256": "229597c3c0f0577d85202c7928c8ad4718a7624558e41afde1f8b7dce15adba5",
+      "preferred_dtd_resolution": "1920x1080"
+    },
+    "i915_graphics": {
+      "path": "text/graphics.txt",
+      "sha256": "c7d60c98f4292d329a186b21bc282b24e115bb12ac1125a6490146a6d47941e9"
+    }
+  },
+  "decoder": {
+    "name": "intel_vbt_decode",
+    "package": "intel-gpu-tools",
+    "version": "2.3",
+    "version_source": "Nix package output path",
+    "exit_code": 0,
+    "output_sha256": "42c9f8c6640cd70ded81f1aab6e0fcf0c6547705da706ae8f8419ee8074681a6",
+    "warning_sha256": "140281e2cde6a56386c74e01fd0bd294ed4b590f383530a650a2069cd7f2263c",
+    "warnings": [
+      "Block 10 min size 1 less than block size 203",
+      "Block 20 min size 2 less than block size 170",
+      "Generating LFP data table pointers",
+      "Generating LFP data table pointers",
+      "Generating LFP data table pointers",
+      "Generating LFP data table pointers",
+      "Block 57 min size 2 less than block size 2642",
+      "Block 253 min size 2 less than block size 66"
+    ],
+    "nixpkgs": {
+      "source_type": "path",
+      "last_modified": 0,
+      "narHash": "sha256-jBYGPi4udQ9uo4KQp9m2J0546nJVQitG15gvZSaVVAs=",
+      "git_revision": null,
+      "revision_note": "path pin; no Git revision recorded"
+    },
+    "confidence": "limited: decoder reports block-size diagnostics and generated LFP data-table pointers; treat decoded table details as tentative and cross-check against raw evidence and observed EDID/i915 state"
+  },
+  "decoded_vbt": {
+    "bdb_version": 237,
+    "internal_lfp1_route": {
+      "dvo_port": "DP-A",
+      "aux_channel": "AUX-A"
+    },
+    "logical_dp_child_records": [
+      {
+        "device_handle": "LFP1",
+        "logical_dvo_port": "DP-A",
+        "aux_channel": "AUX-A (0x40)",
+        "thunderbolt_flag": false,
+        "usb_type_c_flag": false
+      },
+      {
+        "device_handle": "EFP1",
+        "logical_dvo_port": "DP-B",
+        "aux_channel": "none (0x00)",
+        "thunderbolt_flag": false,
+        "usb_type_c_flag": false
+      },
+      {
+        "device_handle": "EFP3",
+        "logical_dvo_port": "DP-D",
+        "aux_channel": "AUX-D (0x30)",
+        "thunderbolt_flag": true,
+        "usb_type_c_flag": true
+      },
+      {
+        "device_handle": "EFP4",
+        "logical_dvo_port": "DP-E",
+        "aux_channel": "AUX-E (0x50)",
+        "thunderbolt_flag": true,
+        "usb_type_c_flag": true
+      },
+      {
+        "device_handle": "EFP5",
+        "logical_dvo_port": "DP-F",
+        "aux_channel": "AUX-F (0x60)",
+        "thunderbolt_flag": true,
+        "usb_type_c_flag": true
+      },
+      {
+        "device_handle": "EFP6",
+        "logical_dvo_port": "DP-G",
+        "aux_channel": "AUX-G (0x70)",
+        "thunderbolt_flag": true,
+        "usb_type_c_flag": true
+      }
+    ],
+    "thunderbolt_usb_c_logical_records": [
+      "DP-D",
+      "DP-E",
+      "DP-F",
+      "DP-G"
+    ],
+    "panel_types": {
+      "panel_type": 2,
+      "panel_type_2": 3
+    },
+    "panel_profiles": [
+      {
+        "panel_number": 2,
+        "panel_name": "LFP1",
+        "decoded_dtd_resolution": "1024x768",
+        "vbt_backlight_profile": {
+          "pwm_frequency_hz": 1000,
+          "minimum_brightness_code": 6
+        }
+      },
+      {
+        "panel_number": 3,
+        "panel_name": "LFP2",
+        "decoded_dtd_resolution": "1280x1024",
+        "vbt_backlight_profile": {
+          "pwm_frequency_hz": 200,
+          "minimum_brightness_code": 6
+        }
+      }
+    ],
+    "physical_external_port_count": null,
+    "port_mapping_note": "VBT DVO/Thunderbolt/USB-C child entries describe logical routes, not a one-to-one count or mapping of physical connectors."
+  },
+  "observed_display": {
+    "edid_preferred_resolution": "1920x1080",
+    "i915": {
+      "pipe": "A",
+      "active": true,
+      "mode": "1920x1080",
+      "route": "DDI A/PHY A",
+      "connector": "eDP-1",
+      "lane_count": 2,
+      "link_rate_mbps_per_lane": 2700,
+      "source": "captured i915 display state (text/graphics.txt)"
+    },
+    "interpretation": "Prefer captured EDID and active i915 pipe/link state for the observed panel. A mismatch with VBT default profiles alone does not establish corruption."
+  },
+  "backlight_caution": "VBT PWM frequency/minimum-brightness profile values are firmware-table metadata, not verified live MMIO PWM settings."
+}

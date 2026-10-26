@@ -1,0 +1,490 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-15T17:40:49.365004+00:00",
+  "capture_directory": ".local/hardware/20261015T174049.365004Z",
+  "status": "read-only hardware evidence; macOS not boot-tested",
+  "system": {
+    "values": {
+      "sys_vendor": "HP",
+      "product_name": "HP Elite Dragonfly G2 Notebook PC",
+      "product_version": "SBKPFV3",
+      "board_name": "8716",
+      "bios_version": "T90 Ver. 01.25.00",
+      "bios_date": "06/05/2026"
+    },
+    "evidence": [
+      {
+        "path": "text/dmi.txt",
+        "bytes": 153,
+        "sha256": "b9b5ae1b197910f933e1938af75c8e8d7d7a3a1e8079ca88c97c35cf44f3d343"
+      }
+    ]
+  },
+  "cpu": {
+    "model_name": "11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz",
+    "family": 6,
+    "model": 140,
+    "stepping": 1,
+    "logical_processors": 8,
+    "evidence": [
+      {
+        "path": "text/system.txt",
+        "bytes": 4621,
+        "sha256": "f8f7fe1ac5fdd0938df6eacc9c82b0aa2803bcfb48c035f3c59ee60be2375de0"
+      }
+    ]
+  },
+  "memory": {
+    "total_mib": 16384,
+    "devices": [
+      {
+        "location": "Bottom-OnBoard 1-1",
+        "bank": "Controller0ChannelADimm0",
+        "size_mib": 2048,
+        "form_factor_code": 11,
+        "type_code": 30,
+        "speed_mts": 4267,
+        "manufacturer": "Samsung",
+        "part_number": "K4UBE3D4AA-MGCR"
+      },
+      {
+        "location": "Bottom-OnBoard 1-2",
+        "bank": "Controller0ChannelBDimm0",
+        "size_mib": 2048,
+        "form_factor_code": 11,
+        "type_code": 30,
+        "speed_mts": 4267,
+        "manufacturer": "Samsung",
+        "part_number": "K4UBE3D4AA-MGCR"
+      },
+      {
+        "location": "Bottom-OnBoard 2-1",
+        "bank": "Controller0ChannelCDimm0",
+        "size_mib": 2048,
+        "form_factor_code": 11,
+        "type_code": 30,
+        "speed_mts": 4267,
+        "manufacturer": "Samsung",
+        "part_number": "K4UBE3D4AA-MGCR"
+      },
+      {
+        "location": "Bottom-OnBoard 2-2",
+        "bank": "Controller0ChannelDDimm0",
+        "size_mib": 2048,
+        "form_factor_code": 11,
+        "type_code": 30,
+        "speed_mts": 4267,
+        "manufacturer": "Samsung",
+        "part_number": "K4UBE3D4AA-MGCR"
+      },
+      {
+        "location": "Bottom-OnBoard 3-1",
+        "bank": "Controller1ChannelADimm0",
+        "size_mib": 2048,
+        "form_factor_code": 11,
+        "type_code": 30,
+        "speed_mts": 4267,
+        "manufacturer": "Samsung",
+        "part_number": "K4UBE3D4AA-MGCR"
+      },
+      {
+        "location": "Bottom-OnBoard 3-2",
+        "bank": "Controller1ChannelBDimm0",
+        "size_mib": 2048,
+        "form_factor_code": 11,
+        "type_code": 30,
+        "speed_mts": 4267,
+        "manufacturer": "Samsung",
+        "part_number": "K4UBE3D4AA-MGCR"
+      },
+      {
+        "location": "Bottom-OnBoard 4-1",
+        "bank": "Controller1ChannelCDimm0",
+        "size_mib": 2048,
+        "form_factor_code": 11,
+        "type_code": 30,
+        "speed_mts": 4267,
+        "manufacturer": "Samsung",
+        "part_number": "K4UBE3D4AA-MGCR"
+      },
+      {
+        "location": "Bottom-OnBoard 4-2",
+        "bank": "Controller1ChannelDDimm0",
+        "size_mib": 2048,
+        "form_factor_code": 11,
+        "type_code": 30,
+        "speed_mts": 4267,
+        "manufacturer": "Samsung",
+        "part_number": "K4UBE3D4AA-MGCR"
+      }
+    ],
+    "note": "SMBIOS reports LPDDR4 (type 30), 4267 MT/s, onboard. LPDDR4X voltage subtype is user-reported, not independently measured.",
+    "evidence": [
+      {
+        "path": "raw/sys/firmware/dmi/tables/DMI",
+        "bytes": 3884,
+        "sha256": "3cd61aa9dbebe34cbadf4d00ab3b628f419819c7cb6a9ad821458ec546ab082f"
+      }
+    ]
+  },
+  "gpu": {
+    "pci_id": "8086:9a49",
+    "pci_address": "0000:00:02.0",
+    "subsystem_id": "103c:8716",
+    "revision": "01",
+    "linux_driver": "i915",
+    "graphics_stepping": "B0",
+    "available_eus": 80,
+    "available_subslices": 5,
+    "available_subslices_scope": "Linux i915 inventory from the 2026-10-15 capture; the later runtime observation is 10 subslices (see configs/install-preparation.json). Do not treat this older value as the runtime count.",
+    "evidence": [
+      {
+        "path": "text/pci.txt",
+        "bytes": 10498,
+        "sha256": "bc73d7f1deeebb0689deca97f3e46b18053a8f0bb0ded0534a9459c27834a2be"
+      },
+      {
+        "path": "text/graphics.txt",
+        "bytes": 11660,
+        "sha256": "c7d60c98f4292d329a186b21bc282b24e115bb12ac1125a6490146a6d47941e9"
+      }
+    ]
+  },
+  "display": {
+    "edid_id": "IVO8596",
+    "model_string": "X133NVFF R0",
+    "native_pixels": [
+      1920,
+      1080
+    ],
+    "pixel_clock_hz": 138800000,
+    "route": "pipe A / DDI A / PHY A / eDP-1",
+    "active_lanes": 2,
+    "active_link_rate_mbps_per_lane": 2700,
+    "brightness_sysfs_max": 19200,
+    "note": "Route/rate are the observed Linux configuration. sysfs brightness is not a verified MMIO PWM ceiling. Sure View/1000-nit SKU is user-reported.",
+    "evidence": [
+      {
+        "path": "raw/sys/class/drm/card1-eDP-1/edid",
+        "bytes": 128,
+        "sha256": "229597c3c0f0577d85202c7928c8ad4718a7624558e41afde1f8b7dce15adba5"
+      },
+      {
+        "path": "text/graphics.txt",
+        "bytes": 11660,
+        "sha256": "c7d60c98f4292d329a186b21bc282b24e115bb12ac1125a6490146a6d47941e9"
+      },
+      {
+        "path": "raw/sys/kernel/debug/dri/0000:00:02.0/i915_vbt",
+        "bytes": 8704,
+        "sha256": "715772cebbc951aef00ddec4bc76fe571c5f4f5dc5c0c26b8171a53f6333241d"
+      }
+    ]
+  },
+  "audio": {
+    "codec": "Realtek ALC285",
+    "vendor_id": "0x10ec0285",
+    "subsystem_id": "0x103c8716",
+    "controller_id": "8086:a0c8",
+    "linux_driver": "sof-audio-pci-intel-tgl",
+    "note": "Codec enumeration does not establish digital microphone/DSP compatibility in macOS.",
+    "evidence": [
+      {
+        "path": "text/audio.txt",
+        "bytes": 16248,
+        "sha256": "5d31efa8b6da8ab2caf542cf9334adb0c66b752da3020535f20f88e56f7dc048"
+      },
+      {
+        "path": "text/pci.txt",
+        "bytes": 10498,
+        "sha256": "bc73d7f1deeebb0689deca97f3e46b18053a8f0bb0ded0534a9459c27834a2be"
+      },
+      {
+        "path": "raw/sys/firmware/acpi/tables/NHLT",
+        "bytes": 6951,
+        "sha256": "a5778dc31aa1a8788ce91f0dd78dc112cb0135a1251fc818db3f77d11b76c096"
+      }
+    ]
+  },
+  "input": {
+    "keyboard_transport": "i8042/PS2",
+    "keyboard_layout": "JIS (user-reported; keys not tested)",
+    "touchpad": {
+      "acpi_hid": "SYNA30B6",
+      "hid_id": "06cb:cd74",
+      "acpi_path": "\\_SB.PC00.I2C0.TPD0",
+      "linux_driver": "hid-multitouch"
+    },
+    "touchscreen_and_pen": {
+      "acpi_hid": "WACF4233",
+      "hid_id": "056a:4924",
+      "acpi_path": "\\_SB.PC00.I2C1.TPL0",
+      "linux_driver": "wacom"
+    },
+    "evidence": [
+      {
+        "path": "text/inputs.txt",
+        "bytes": 5484,
+        "sha256": "a97b501384dafc390feb3175c6b38784d5aaaf443bece2a31d16981bc6a18ba1"
+      },
+      {
+        "path": "text/acpi-devices.txt",
+        "bytes": 11850,
+        "sha256": "bf2381e36b88c9d8177ac8905a9f5340748e3ee131b1d475fab73e73767bb790"
+      },
+      {
+        "path": "text/i2c.txt",
+        "bytes": 1174,
+        "sha256": "30f38f24cf24d5a5ab55e9af4a6a0ad260a48c5ef136b50136a053eeb5aa29f1"
+      }
+    ]
+  },
+  "network_usb": {
+    "wifi": "Intel AX201 8086:a0f0",
+    "bluetooth": "8087:0026 / XHCI HS10",
+    "camera_rgb_ir": "0408:5349 / XHCI HS02 / four USB interfaces",
+    "fingerprint": "06cb:00f0 / XHCI HS07",
+    "note": "Populated internal ports only; physical USB-A/C port mapping and external monitor routes are incomplete.",
+    "evidence": [
+      {
+        "path": "text/pci.txt",
+        "bytes": 10498,
+        "sha256": "bc73d7f1deeebb0689deca97f3e46b18053a8f0bb0ded0534a9459c27834a2be"
+      },
+      {
+        "path": "text/usb.txt",
+        "bytes": 1211,
+        "sha256": "39857b234db948e22e94b904110d1596d5a3f742c077c7b63b84e2e399d633b0"
+      }
+    ]
+  },
+  "storage": {
+    "model": "MTFDHBA512QFD-1AX1AABHA",
+    "firmware": "HPS1022",
+    "pci_id": "1344:5404",
+    "linux_pci_route": "0000:00:1d.0 -> 0000:55:00.0; direct NVMe, not VMD remapped",
+    "layout": [
+      {
+        "name": "zram0",
+        "model": null,
+        "size": 16023289856,
+        "type": "disk",
+        "fstype": "swap",
+        "mountpoints": [
+          "[SWAP]"
+        ],
+        "tran": null
+      },
+      {
+        "name": "nvme0n1",
+        "model": "MTFDHBA512QFD-1AX1AABHA",
+        "size": 512110190592,
+        "type": "disk",
+        "fstype": null,
+        "mountpoints": [],
+        "tran": "nvme",
+        "children": [
+          {
+            "name": "nvme0n1p1",
+            "model": null,
+            "size": 314572800,
+            "type": "part",
+            "fstype": "vfat",
+            "mountpoints": [
+              "/boot"
+            ],
+            "tran": "nvme"
+          },
+          {
+            "name": "nvme0n1p2",
+            "model": null,
+            "size": 134217728,
+            "type": "part",
+            "fstype": null,
+            "mountpoints": [],
+            "tran": "nvme"
+          },
+          {
+            "name": "nvme0n1p3",
+            "model": null,
+            "size": 252815867904,
+            "type": "part",
+            "fstype": "ntfs",
+            "mountpoints": [],
+            "tran": "nvme"
+          },
+          {
+            "name": "nvme0n1p4",
+            "model": null,
+            "size": 1145044992,
+            "type": "part",
+            "fstype": "ntfs",
+            "mountpoints": [],
+            "tran": "nvme"
+          },
+          {
+            "name": "nvme0n1p5",
+            "model": null,
+            "size": 198427279360,
+            "type": "part",
+            "fstype": "btrfs",
+            "mountpoints": [
+              "/home",
+              "/nix/store",
+              "/nix",
+              "/"
+            ],
+            "tran": "nvme"
+          },
+          {
+            "name": "nvme0n1p6",
+            "model": null,
+            "size": 1024458752,
+            "type": "part",
+            "fstype": "vfat",
+            "mountpoints": [],
+            "tran": "nvme"
+          },
+          {
+            "name": "nvme0n1p7",
+            "model": null,
+            "size": 55182360576,
+            "type": "part",
+            "fstype": "ext4",
+            "mountpoints": [],
+            "tran": "nvme"
+          },
+          {
+            "name": "nvme0n1p8",
+            "model": null,
+            "size": 3063939072,
+            "type": "part",
+            "fstype": "swap",
+            "mountpoints": [
+              "[SWAP]"
+            ],
+            "tran": "nvme"
+          }
+        ]
+      }
+    ],
+    "health": {
+      "critical_warning": 0,
+      "percent_used": 13,
+      "media_errors": 0,
+      "power_on_hours": 7070
+    },
+    "note": "Existing NixOS, NTFS and other partitions are occupied; NTFS presence alone does not prove the Windows install boots or its encryption state.",
+    "evidence": [
+      {
+        "path": "text/storage.json",
+        "bytes": 2642,
+        "sha256": "94e20fbfbbe347112e72d05aea840a5fdc99e29918fc67cbd4747ea671a6788e"
+      },
+      {
+        "path": "text/pci.txt",
+        "bytes": 10498,
+        "sha256": "bc73d7f1deeebb0689deca97f3e46b18053a8f0bb0ded0534a9459c27834a2be"
+      },
+      {
+        "path": "text/nvme-controller.json",
+        "bytes": 4432,
+        "sha256": "27e97d1d5d1f0e47a8b55a73c3821fc108a5c615e0acdf366f7801e04e57ea2e"
+      },
+      {
+        "path": "text/nvme-health.json",
+        "bytes": 636,
+        "sha256": "9a0e13e868f4f8baed7ae245a49dfcc80bee06dea9d75d57f347b610668d9b0d"
+      }
+    ]
+  },
+  "firmware_settings": {
+    "values": {
+      "Secure Boot": "Enable",
+      "Fast Boot": "Enable",
+      "Configure Storage Controller for VMD": "Disable",
+      "Video Memory Size": "512 MB",
+      "Virtualization Technology for Directed I!O (VTd)": "Enable",
+      "Virtualization Technology (VTx)": "Enable",
+      "Thunderbolt Mode": "Enable",
+      "Thunderbolt Type-C Ports": "Enable",
+      "USB Storage Boot": "Enable",
+      "USB Type-C Connector System Software Interface (UCSI)": "Enable",
+      "Force enable HP Sure View": "Disable",
+      "Video BIOS Version": "Intel(R) GOP Driver [17.0.1055]",
+      "Sure Start BIOS Settings Protection": "Disable",
+      "GGC_00_00_0_50w": "10c1"
+    },
+    "evidence": [
+      {
+        "path": "text/firmware.txt",
+        "bytes": 629,
+        "sha256": "5152508f6636e840be064abc73860933b3d4538e00aa2702662ee2f64d9f1a99"
+      }
+    ]
+  },
+  "power_sensors": {
+    "linux_mem_sleep": "[s2idle] deep",
+    "battery": {
+      "manufacturer": "Hewlett-Packard",
+      "model_name": "Primary",
+      "technology": "Li-ion",
+      "charge_full_design": "7300000",
+      "charge_full": "6864000",
+      "charge_now": "6864000",
+      "voltage_min_design": "7700000",
+      "voltage_now": "8738000",
+      "cycle_count": "64",
+      "status": "Full"
+    },
+    "iio_devices": [
+      "iio:device0 incli_3d",
+      "iio:device1 dev_rotation",
+      "iio:device2 magn_3d",
+      "iio:device3 als",
+      "iio:device4 accel_3d",
+      "iio:device5 gyro_3d",
+      "iio:device6 geomagnetic_orientation",
+      "iio:device7 gravity",
+      "iio:device8 relative_orientation",
+      "iio:device9 hinge"
+    ],
+    "note": "Physical ST chip models, rotation behavior, sleep/resume and measured brightness are not verified.",
+    "evidence": [
+      {
+        "path": "text/power.txt",
+        "bytes": 220,
+        "sha256": "1bb18e3493af76a51bf50e0fb060c3beab302a83fdcc9e8df1b155d33dd96a7b"
+      },
+      {
+        "path": "text/sensors.txt",
+        "bytes": 230,
+        "sha256": "510125293e7c9694cf8b7d223c48c8c915d07c81b460f229b453ab16dae978ba"
+      }
+    ]
+  },
+  "acpi": {
+    "static_ssdt_count": 23,
+    "dynamic_ssdt_count": 8,
+    "evidence": [
+      {
+        "path": "raw/sys/firmware/acpi/tables/DSDT",
+        "bytes": 261046,
+        "sha256": "7afb4e662e79265a1a7c42c1af7ad448c003e8dbfa735b354e77dbb82f1ab343"
+      },
+      {
+        "path": "raw/sys/firmware/acpi/tables/DMAR",
+        "bytes": 184,
+        "sha256": "2ca3fa2c612c438a8bd5a9f2583596f7c680202a4fc2212933c20db63963aa9b"
+      }
+    ]
+  },
+  "unverified": [
+    "macOS bootability and system volume build",
+    "Metal/OpenGL/video acceleration",
+    "Complete USB mapping, hotplug, Type-C orientations and Thunderbolt",
+    "Windows boot health and BitLocker status",
+    "GPIO runtime routing and complete ACPI namespace resolution",
+    "macOS audio, microphone and input behavior"
+  ]
+}

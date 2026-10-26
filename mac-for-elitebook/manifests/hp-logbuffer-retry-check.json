@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "scope": "Log boot physically tested: msgbuf argument present but buffer remains128KiB; historical build/delivery evidence preserved",
+  "runner": "scripts/prepare_hp_log_retry.py",
+  "runner_sha256": "5920ee78d91bc1fa641279ff4175ebabf12d6945362f03c9f102b4fb1dbaaebe",
+  "private_report": ".local/install-prep/hp-logbuffer-p7a9ql9a/report.json",
+  "private_report_sha256": "1c9b450d8a03dac5d8322181bdbef7a0b2ad8b5e922a7ff80338c4a946d1c4e2",
+  "basis": "manifests/hp-xhci-runtime-check.json",
+  "source_evidence": {
+    "path": ".local/install-prep/hp-xhci-live-w3guz183/msgbuf-source-final.json",
+    "sha256": "2e479983adb88c5574bce39c70e270a5f037eed4d662d4c385357260318929a9",
+    "repository": "https://github.com/apple-oss-distributions/xnu",
+    "commit": "f6217f891ac0bb64f3d375211650a4c1ff8ca1ea",
+    "public_source_version": "xnu-12377.1.9",
+    "actual_runtime_version": "xnu-12377.161.14~5",
+    "exact_runtime_source_match": false,
+    "subr_log_sha256": "b8ad19abae8eba4ae428c428226163a61d22730372fbecb54b7108e63682039c",
+    "msgbuf_header_sha256": "7d16e6f4a2837c18ade5fa12a5d145c56f771330100fad9de6d9d1cf68ef0a3d",
+    "public_source_boot_argument": "msgbuf",
+    "public_source_maximum_bytes": 1048576,
+    "actual_kc_contains_argument_string": true,
+    "actual_current_buffer_bytes_readonly_sysctl": 131072
+  },
+  "candidate": {
+    "private_image": ".local/install-prep/hp-logbuffer-p7a9ql9a/HP-Tahoe-VESA-XHCI-Log.img",
+    "sha256": "68f81304283e606d7e1215f7cdaf3ab8ff6b5fe76d7a4cd41125e8285663527e",
+    "source_image_sha256": "e55eb607858afda49cda89fe8a9f023143ff49ce20a937424cd9ba704a66ae72",
+    "config_sha256": "d7a5dcab83fbb2f0659842e5dbe9a7d67e45d8e6e971976ecc31f4cf2c2ecb69",
+    "only_change": "Append msgbuf=1048576",
+    "other_image_files_identical": 47,
+    "all_other_configuration_and_identity_preserved": true,
+    "kexts_drivers_acpi_and_usb_hardware_settings_preserved": true,
+    "matching_opencore_version": "1.0.8",
+    "ocvalidate_exit": 0,
+    "physical_media_written": true,
+    "hp_tested": true
+  },
+  "limit": "Not a USB fix. Buffer argument acceptance and retained early logs require another physical boot; no additional hardware-match/power changes or new executable kexts",
+  "tested_xhci_capture": {
+    "path": ".local/install-prep/hp-xhci-capture-vy977qe3/report.json",
+    "sha256": "4b29cd082180b3953db9cced0457247361413e4b3d77b1257d15ccc27c334e26",
+    "tested_image_sha256": "4c3b249ee34a71317e05fe75875b92d549c36abfe1643a908cf30f1d6264082e",
+    "original_image_files_identical": 48,
+    "all_files_saved": 49,
+    "new_log_sha256": "b69d6db26075733efaae9ef0173e662cfa9209cd0debc079b6aa70447ff499b1",
+    "new_log_exitbs_observed": true,
+    "log_filename_clock_is_reliable_actual_time": false
+  },
+  "dmesg_utility_source_followup": {
+    "path": ".local/install-prep/hp-log-delivery-ony5tnu8/dmesg-source.json",
+    "sha256": "972e718471a6a95dbb30f823c8cc63ebc8ed80b7469659b75392a5f24d80b210",
+    "repository": "https://github.com/apple-oss-distributions/system_cmds",
+    "commit": "5cb2001ba53d80ec3e3606c66cb03ec57eb4e661",
+    "source_sha256": "7daafb5dd9b69c64d6a709224e71e3319f9d3df7c35016092878f4337d134181",
+    "upstream_reads_kern_msgbuf_then_allocates_that_size": true,
+    "exact_recovery_binary_source_match": false
+  },
+  "usb_delivery": {
+    "path": ".local/install-prep/hp-log-delivery-ony5tnu8/report.json",
+    "sha256": "11dcabe3d541fe58dd2ec2ecacfdfd42cf6e757d04bec2db5423b62b5ca39240",
+    "candidate": "/ISO/linux/HP-Tahoe-VESA-XHCI-Log.img",
+    "new_files": 3,
+    "readback_after_unmount_and_readonly_remount": true,
+    "original_file_size_mtime_preserved": 226,
+    "five_original_img_hashes_verified": true,
+    "ventoy_efi_file_hashes_preserved": 995,
+    "ventoy_config_and_partition_geometry_preserved": true,
+    "offline_hfs_full_hash_before_copy_matches_original": true,
+    "offline_hfs_not_written_and_metadata_preserved": true,
+    "both_partitions_safely_unmounted": true
+  },
+  "final_delivery_audit": {
+    "path": ".local/install-prep/hp-log-delivery-ony5tnu8/final-audit.json",
+    "sha256": "2ab6cbdcc0b376e4126112bd852229fe038b15ba8eabda53d7bc29ad0d0f2ed0",
+    "history_events": 31,
+    "unique_history_logbuffer_refs_verified": 45,
+    "repository_checks": "make check passes44Python/36JSON/25Markdown;git diff --check passes"
+  },
+  "physical_outcome": {
+    "evidence": "manifests/hp-logbuffer-runtime-check.json",
+    "boot_argument_present": true,
+    "actual_kern_msgbuf_bytes": 131072,
+    "buffer_enlargement_effective": false,
+    "physical_usb_restored": false,
+    "source_review_correction": "Earlier source review overlooked CONFIG_XNUPOST guard around msgbuf bootarg parser; KC string presence alone was insufficient. Keep original source/report as historical evidence"
+  },
+  "next_action": "Keep live Recovery available. Stock DebugEnhancer buffer-allocation candidate now local; no repeat of ineffective msgbuf-only boot",
+  "vm_executed": false
+}

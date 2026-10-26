@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "scope": "Static matching declarations for HP USB/NVMe/PS2 and available utilities in verified Apple Recovery; no HP XNU runtime proof",
+  "runner": "scripts/audit_hp_recovery_paths.py",
+  "runner_sha256": "af377b3f956686a791f2aacae3776ac8555c6ca8f3d4e2dd2dd61a2e51074b5d",
+  "private_report": ".local/install-prep/recovery-path-audit-i0i4nhbm/report.json",
+  "private_report_sha256": "d8377a9c3336636664e64dddb1c2960153b2ec38949cb779be2fdfd12fa2436d",
+  "apple_input": {
+    "version": "26.6.2",
+    "build": "25G83",
+    "kernel_collection_sha256": "c80161fa3065883753fc285339281361a8469cbb6fb27653c88e2a22eb4807a4",
+    "base_system_sha256": "edddd0d5869caaa12e29e6996a04f11590280580976a119dbd42c24fa62fe18e"
+  },
+  "declaration_checks": {
+    "xhci_8086_9a13_generic_class_match": true,
+    "xhci_8086_a0ed_generic_class_match": true,
+    "nvme_1344_5404_generic_class_match": true,
+    "ps2k_pnp0303_controller_name_match": true,
+    "ps2_controller_and_keyboard_enabled_in_order": true,
+    "recovery_contains_hdiutil_diskutil_plistbuddy": true,
+    "recovery_contains_exfat_kext_metadata": true,
+    "kc_contains_hfs_and_usb_mass_storage": true
+  },
+  "evidence": [
+    {
+      "path": ".local/install-prep/hp-slide0-failure-20261016T092510Z/linux-pci-classes.txt",
+      "sha256": "7548e23eafef7d1bf22f4dc7ea26ae3ab9e4aea49ebd5312971295a7eb859763"
+    },
+    {
+      "path": ".local/install-prep/recovery-path-audit-i0i4nhbm/dmg-listing.txt",
+      "sha256": "13555d3a49ab3ec713277231852b6f5a92a30f3dd65b99449bb9908f712567f3"
+    }
+  ],
+  "hp_runtime_tested": false,
+  "limit": "Matching metadata does not prove driver attachment, physical port access, NVMe I/O, keyboard input or offline installation."
+}

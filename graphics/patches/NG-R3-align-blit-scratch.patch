@@ -1,0 +1,27 @@
+--- a/src/NootedGreen/kern_gen11.cpp
++++ b/src/NootedGreen/kern_gen11.cpp
+@@ -7569,0 +7570,17 @@
++	// HP-R3: 25G83 + the 16.0.2 TGL accelerator faults at scratch+0xd000
++	// while copying 0x44 bytes; its static Blit3D params request 0xd240 bytes.
++	// Pass a page-rounded size to the existing allocator, retaining Apple's
++	// complete scratch shader/state initialization and its normal return value.
++	// Both initWithOptions bodies consume (and do not retain) this 0x38-byte
++	// params record; use a per-call copy so concurrent contexts share no edits.
++	uint64_t hpR3BlitParams[7];
++	const bool hpR3Align = NGreen::callback->isRealTGL &&
++		getKernelVersion() == KernelVersion::Tahoe && param_2 &&
++		reinterpret_cast<mach_vm_address_t>(param_2) == callback->Blit3DExtendedCtxParams &&
++		p2f10 == 0xd240;
++	if (hpR3Align) {
++		memcpy(hpR3BlitParams, param_2, sizeof(hpR3BlitParams));
++		hpR3BlitParams[2] = 0xe000;
++		param_2 = hpR3BlitParams;
++		SYSLOG("ngreen", "HP-R3: Blit3D scratch allocation 0xd240 -> 0xe000 ctx=%p", that);
++	}
+@@ -7570,0 +7588,6 @@
++	if (hpR3Align) {
++		void *scratch = getMember<void *>(that, 0xd8);
++		SYSLOG("ngreen", "HP-R3: Blit3D init returned %llu scratch=%p size=0x%llx",
++			(unsigned long long)ret, scratch,
++			(unsigned long long)(scratch ? getMember<uint64_t>(scratch, 0x20) : 0));
++	}

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "record_type": "sanitized_public_evidence_index",
+  "as_of": "2026-10-27",
+  "scope": "Concise milestones and evidence boundaries; not a transcript or complete event log.",
+  "source_orchestration_history_copied": false,
+  "private_raw_evidence_included": false,
+  "milestones": [
+    {
+      "date": "2026-10-15",
+      "topic": "hardware baseline and offline analysis",
+      "summary": "Read-only hardware inventory and offline ACPI/display/component analysis were recorded. Raw captures remain private and are not part of this copy.",
+      "public_docs": ["../docs/hardware.md", "../docs/verification.md", "../hardware/elite-dragonfly-g2.json"],
+      "limitation": "The historical verification document describes its own earlier stage; it is not a current system-status report."
+    },
+    {
+      "date": "2026-10-17",
+      "topic": "Tahoe installation and Recovery preparation",
+      "summary": "Tahoe 26.6.2 / 25G83 was installed and reached the desktop. Earlier Recovery/USB troubleshooting notes are retained as historical documentation.",
+      "public_docs": ["../docs/install-handoff.md", "../docs/input-recovery.md", "../docs/offline-installer-inputs.md"],
+      "limitation": "The original private runtime captures and orchestration timeline were deliberately excluded."
+    },
+    {
+      "date": "2026-10-26",
+      "topic": "accelerated-graphics stability observations",
+      "summary": "Four accelerated Tiger Lake boots panicked after approximately 252–340 seconds. Exact first corrupter and causal component remain unknown.",
+      "public_docs": ["../README.md", "../docs/continuation.md"],
+      "limitation": "Detailed panic captures are private and were not copied; this public index does not independently verify them."
+    },
+    {
+      "date": "2026-10-27",
+      "topic": "software-display control",
+      "summary": "One software-display control preserved basic display and ran for approximately 62 minutes 35 seconds without a user-reported freeze; a shutdown sequence appeared in the capture.",
+      "public_docs": ["../README.md", "../docs/continuation.md", "../configs/install-preparation.json"],
+      "limitation": "One non-matched run does not establish causation, component attribution, or long-term stability; final physical power-off was not independently observed."
+    }
+  ],
+  "privacy_note": "Personal paths, network endpoints, serial/SMBIOS identities, credentials, private keys, and raw logs are intentionally not included. A missing private artifact is not a verified result."
+}

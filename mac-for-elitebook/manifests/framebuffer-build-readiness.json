@@ -1,0 +1,196 @@
+{
+  "schema": "mac-for-elitebook/framebuffer-build-readiness-v1",
+  "generated_at_utc": "2026-10-15T18:10:20Z",
+  "record_type": "initial_readiness_snapshot",
+  "subsequent_build_evidence": "manifests/framebuffer-link-check.json",
+  "subsequent_build_status": "Linux resource generation, 23-object compilation and genuine kext link succeeded; HP/macOS runtime untested",
+  "purpose": "Assess the exact pinned Latitude CLI build script and the actual patched WhateverGreen build prerequisites without claiming a successful kext build.",
+  "subject": {
+    "whatevergreen": {
+      "repository": "https://github.com/acidanthera/WhateverGreen",
+      "commit_sha": "0762cecc2a70054cd4dc3cf4d08979aca6acd9bb",
+      "source_archive_sha256": "27a9104256963da0a19b8f2f59fa580aa7f48f3c31929a96317fcccac96048ec",
+      "working_copy": ".local/source-check/runs/20261015T175630.058799Z-wjbbjzjd/source",
+      "patch_evidence": "manifests/framebuffer-patch-check.json",
+      "patches_applied_in_order": [
+        "0001-tigerlake-icllp-mmio-tracer.patch",
+        "0002-tgl-function-tracer.patch",
+        "0003-tgl-register-map.patch"
+      ]
+    },
+    "latitude_build_script": {
+      "repository": "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh",
+      "commit_sha": "1010490d3421628c9d6fd0bd518b6c4b6f8ee33c",
+      "path": "WhateverGreen-patches/build-weg-clt.sh",
+      "url": "https://raw.githubusercontent.com/holdmysocks/latitude-7320-detachable-hackintosh/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/WhateverGreen-patches/build-weg-clt.sh",
+      "private_copy": ".local/build-readiness/inputs/build-weg-clt.sh",
+      "bytes": 3604,
+      "sha256": "9f039658bd8afdc363be88adacf38690c4a038ee8276b34fe803109d2af2300a",
+      "shell_syntax_check": "passed",
+      "calls_xcodebuild_or_xcrun": false,
+      "declares_macos_target": "x86_64-apple-macos10.6",
+      "compile_inputs": [
+        "$SRC/MacKernelSDK/Headers",
+        "$SRC/Lilu.kext/Contents/Resources",
+        "$SRC/Lilu.kext/Contents/Resources/Headers",
+        "$SRC/Lilu.kext/Contents/Resources/Library/plugin_start.cpp",
+        "$SRC/WhateverGreen/*.cpp",
+        "$SRC/WhateverGreen/*.S"
+      ],
+      "link_arguments": [
+        "-L$SRC/MacKernelSDK/Library/x86_64",
+        "-lkmodc++",
+        "-lkmod",
+        "-lcc_kext",
+        "-lkmod",
+        "-Xlinker -dead_strip",
+        "-static",
+        "-Xlinker -kext",
+        "-Xlinker -no_adhoc_codesign"
+      ],
+      "post_link_steps": [
+        "strip -x -T with strip -x fallback",
+        "sed substitution into Info.plist",
+        "plutil -lint",
+        "best-effort final bundle codesign (failure ignored)",
+        "shasum output digest"
+      ]
+    }
+  },
+  "external_inputs": {
+    "lilu_resources": {
+      "repository": "https://github.com/acidanthera/Lilu",
+      "tag": "1.7.2",
+      "resolved_commit": "e4748cc081bf060302c7d3c44a643ce1d11b7e1d",
+      "asset": "Lilu-1.7.2-DEBUG.zip",
+      "url": "https://github.com/acidanthera/Lilu/releases/download/1.7.2/Lilu-1.7.2-DEBUG.zip",
+      "bytes": 376843,
+      "sha256": "e95df95d82e8b151047abf359ecd9c853755c59293e19dfcc3907da8fbd8cf89",
+      "private_copy": ".local/build-readiness/inputs/Lilu-1.7.2-DEBUG.zip",
+      "verified_contains": [
+        "Lilu.kext/Contents/Resources/Headers/",
+        "Lilu.kext/Contents/Resources/Library/plugin_start.cpp"
+      ],
+      "status": "fetched_and_staged_in_isolated_research_copy"
+    },
+    "mackernelsdk_candidate": {
+      "repository": "https://github.com/acidanthera/MacKernelSDK",
+      "branch_observed": "master",
+      "resolved_commit": "3f750085caa17ec3a7880f11c11bf4f48cd6a164",
+      "commit_date_utc": "2026-09-23T19:13:31Z",
+      "archive_url": "https://codeload.github.com/acidanthera/MacKernelSDK/tar.gz/3f750085caa17ec3a7880f11c11bf4f48cd6a164",
+      "archive_bytes": 2679518,
+      "archive_sha256": "8931e622b6d16a7052cb2c2dabe16be06963a34b747f19e6cda2bbe8bc7e2557",
+      "private_copy": ".local/build-readiness/inputs/MacKernelSDK-3f750085caa17ec3a7880f11c11bf4f48cd6a164.tar.gz",
+      "verified_paths": [
+        "Headers/Availability.h",
+        "Headers/mach/mach_types.h",
+        "Library/x86_64/libkmod.a",
+        "Library/universal/libkmodc++.a"
+      ],
+      "x86_64_libkmod_a_sha256": "7a751671bbe96c9c7b5416078df600b768c00c0dc5178d8acd8f52539c7ccd4e",
+      "universal_libkmodcxx_a_sha256": "30f61831b7d0cb523b865de7cec09ab4771693a317ed1a165e69b91fa13e4650",
+      "script_pin_status": "not_pinned_by_build_script",
+      "compatibility_status": "candidate_only_not_established",
+      "observed_link_gap": "This candidate has no Library/x86_64/libkmodc++.a and no libcc_kext.a; the script searches Library/x86_64 and requests both -lkmodc++ and -lcc_kext."
+    },
+    "resource_converter": {
+      "source": "WhateverGreen/ResourceConverter/main.mm",
+      "generates": [
+        "WhateverGreen/kern_resources.cpp",
+        "WhateverGreen/kern_resources.hpp"
+      ],
+      "data_input": "Resources/Patches.plist",
+      "source_headers": [
+        "Foundation/Foundation.h",
+        "Cocoa/Cocoa.h"
+      ],
+      "generation_script": "ResourceConverter/generate.sh",
+      "project_phase": "The Xcode project builds the ResourceConverter target dependency and runs Generate Resources before the WEG target; the Latitude CLI script does not implement this phase.",
+      "required_from_source": "A macOS Foundation/Cocoa SDK and a host that can execute the generated ResourceConverter, or trusted pre-generated C++ outputs.",
+      "macos_sdk_image_obtained": false
+    }
+  },
+  "local_environment": {
+    "platform": "Linux x86_64 (Nix-wrapped compiler)",
+    "clang": "21.1.8",
+    "cmake": "4.4.3",
+    "ninja": "1.13.2",
+    "make": "GNU Make 4.4.1",
+    "python": "3.13.15",
+    "git": "2.55.0",
+    "linker": "GNU ld.bfd from GNU Binutils 2.46",
+    "strip": "GNU strip from GNU Binutils 2.46",
+    "missing_tools": [
+      "ld64.lld",
+      "ld.lld",
+      "llvm-ar",
+      "llvm-ranlib",
+      "llvm-strip",
+      "xcodebuild",
+      "xcrun",
+      "plutil",
+      "codesign"
+    ],
+    "apple_macos_sdk_found": false,
+    "python_plistlib_available": true
+  },
+  "probes": {
+    "trivial_cross_target_object": {
+      "command_summary": "clang -x c++ -std=c++17 -fno-rtti -fno-exceptions -fapple-kext -fcheck-new -target x86_64-apple-macos10.6 -O3 -nostdinc -mkernel -c",
+      "exit_code": 0,
+      "result": "Mach-O 64-bit x86_64 object",
+      "evidence": ".local/build-readiness/probes/target-probe-cpp.o",
+      "scope": "Compiler target/object-format smoke test only."
+    },
+    "patched_source_cpp_syntax": {
+      "environment": "Isolated copy with MacKernelSDK 3f750085caa17ec3a7880f11c11bf4f48cd6a164 and Lilu 1.7.2 DEBUG resources; script-equivalent C++ flags; -fsyntax-only.",
+      "translation_units_passed": 19,
+      "translation_units_failed": 1,
+      "failure": "kern_shiki.cpp: generated kern_resources.hpp is absent.",
+      "evidence": ".local/build-readiness/probes/actual-weg-syntax.log",
+      "scope": "No object generation or link; not proof of full compilation."
+    },
+    "resource_converter_without_apple_sdk": {
+      "command_summary": "clang -x objective-c++ -fsyntax-only -target x86_64-apple-macos10.6 ResourceConverter/main.mm",
+      "exit_code": 1,
+      "failure": "Foundation/Foundation.h file not found",
+      "evidence": ".local/build-readiness/probes/resource-converter.stderr"
+    },
+    "darwin_link_probe": {
+      "command_summary": "clang++ -target x86_64-apple-macos10.6 -nostdlib -Xlinker -dead_strip -static -Xlinker -kext -Xlinker -no_adhoc_codesign on a trivial Mach-O object",
+      "exit_code": 1,
+      "failure": "GNU ld.bfd: unrecognised emulation mode: llvm",
+      "evidence": ".local/build-readiness/probes/link.stderr"
+    },
+    "gnu_strip_probe": {
+      "command_summary": "GNU strip -x -T then -x on a trivial Mach-O object",
+      "exit_codes": [
+        1,
+        1
+      ],
+      "result": "-T is unsupported and fallback reports file format not recognized; this is post-link processing, not a link prerequisite.",
+      "evidence": ".local/build-readiness/probes/strip.stderr"
+    }
+  },
+  "assessment": {
+    "xcodebuild_absence_alone_blocks_build": false,
+    "full_build_ready": false,
+    "patched_kext_built": false,
+    "apple_sdk_role": "Not required by the script's explicitly -nostdinc WEG compile include path if MacKernelSDK is supplied; required for the upstream-from-source Cocoa/Foundation resource-generator route unless its generated C++ outputs are supplied.",
+    "cross_target_without_apple_sdk": "Partial feasibility demonstrated for ordinary WEG C++ translation units; end-to-end build remains unproven because generated resources, compatible static-library resolution, and a Mach-O linker are missing.",
+    "precompiled_community_libkmod_allowed": true,
+    "remote_machine_or_usb_accessed": false,
+    "full_build_script_executed": false
+  },
+  "next_step": {
+    "preconditions": [
+      "Generate or verify kern_resources.cpp and kern_resources.hpp in the isolated source copy.",
+      "Pin a MacKernelSDK revision whose library paths satisfy the requested link inputs, or explicitly resolve the script's library flags.",
+      "Provide a Mach-O linker (Apple ld or ld64.lld) and a compatible Mach-O strip or consciously replace post-link processing.",
+      "Keep output under .local/build-readiness/isolated/out."
+    ],
+    "command_after_preconditions": "bash .local/build-readiness/inputs/build-weg-clt.sh \"$PWD/.local/build-readiness/isolated/WhateverGreen\" \"$PWD/.local/build-readiness/isolated/out\""
+  },
+  "private_research_root": ".local/build-readiness/"
+}

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "scope": "Ordinary internal-data-volume observer package prepared locally; target deployment and Recovery execution pending",
+  "runner": "scripts/run_hp_recovery_observer.sh",
+  "runner_sha256": "a7ade9861ce829bd55f04627f60db094ee76733fb2fd09b19bf20f9665540ba3",
+  "private_report": ".local/install-prep/hp-internal-observer-0dow3ki5/report.json",
+  "private_report_sha256": "43cc9fd4fcb42c83025a2c52334bdde88ee29c343f859ca3671581559e6e0168",
+  "archive_sha256": "5f7afb9a1157dad6f973cea19a9db1da42591379a68855e3834b22a388c070c2",
+  "launch_command_after_deployment": "sh /Volumes/*/hp/h",
+  "verification": {
+    "shell_syntax_passed": true,
+    "linux_refusal_exit": 2,
+    "native_fixture_summary_and_interrupt_mode_exit": 0,
+    "native_fixture_collector_failure_preserved_exit": 7,
+    "native_fixture_missing_adjacent_collector_exit": 1,
+    "vm_executed": false,
+    "hp_runtime_tested": false
+  },
+  "usb_research": {
+    "repository": "https://github.com/daliansky/OS-X-USB-Inject-All",
+    "commit": "ce55e00966ac90c5e2504fb39b4ecf3fcebab51a",
+    "path": "XHCI-unsupported.kext/Contents/Info.plist",
+    "plist_sha256": "9b66b803577d7dea089bc5dc6352f25fb2f2de9c3333cb899c9a838ad7106571",
+    "explicit_a0ed_class": "AppleUSBXHCISPT",
+    "class_present_in_actual_25G83_kc": true,
+    "source_covers_9a13": false,
+    "injector_deployed": false,
+    "hp_tested": false,
+    "private_evidence": {
+      "path": ".local/install-prep/hp-usb-research-8hpvgjut/report.json",
+      "sha256": "5b71442e5e3497af637465747991d84626b554efdb529e28b742936254ef7ef5"
+    }
+  },
+  "internal_files_written": false,
+  "blocker": "Recovery has no established transfer channel; original NixOS SSH timed out. User has been asked to manually boot NixOS and connect network. Ordinary data-volume staging must not be confused with EFI writes."
+}

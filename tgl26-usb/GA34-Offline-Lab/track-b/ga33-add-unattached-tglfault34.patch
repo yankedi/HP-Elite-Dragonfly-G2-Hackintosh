@@ -1,0 +1,410 @@
+diff --git a/kern_tglfault34.hpp b/kern_tglfault34.hpp
+new file mode 100644
+--- /dev/null
++++ b/kern_tglfault34.hpp
+@@ -0,0 +1,405 @@
++// SPDX-License-Identifier: MIT
++// GA3.4 OFFLINE mock core. Deliberately NOT included/attached by kern_igfx.*.
++// No platform backend, locks, MMIO writes, reset, clear, allocation or I/O.
++#ifndef KERN_TGLFAULT34_HPP
++#define KERN_TGLFAULT34_HPP
++
++#include <stddef.h>
++#include <stdint.h>
++
++namespace TglFault34 {
++
++constexpr char BootArgument[] = "-igfxtglfault34";
++constexpr uint32_t FaultRegister = 0xcec4;
++constexpr uint32_t Data0Register = 0xceb8;
++constexpr uint32_t Data1Register = 0xcebc;
++// Linux v6.18 intel_gt_regs.h. These are extraction masks, not engine enums.
++constexpr uint32_t FaultValidMask = 0x1;
++constexpr uint32_t FaultTypeMask = 0x6;
++constexpr uint32_t FaultSourceMask = 0x7f8;
++constexpr uint32_t FaultEngineMaskV618 = 0x1f000;
++constexpr uint32_t FaultEngineMaskV515 = 0x7000;
++constexpr uint32_t VaHighMask = 0xf;
++constexpr uint32_t GttSelectMask = 0x10;
++// Intel 703046, TGL registers A-L, printed p906: bits 5..8 are NOT reserved.
++constexpr uint32_t EntryValidMask = 0x20;
++constexpr uint32_t EntryPresentMask = 0x40;
++constexpr uint32_t EntryPageSizeMask = 0x180;
++constexpr uint32_t Data1KnownMask = 0x1ff;
++constexpr uint32_t Data1MbzMask = 0xfffffe00;
++constexpr uint32_t Capacity = 8;
++
++// Local domain labels, NOT Apple's or Linux's numeric FORCEWAKE constants.
++constexpr uint32_t DomainGT = 1;
++constexpr uint32_t DomainRender = 2;
++constexpr uint32_t DomainMedia = 4;
++constexpr uint32_t DomainAll = DomainGT | DomainRender | DomainMedia;
++constexpr uint32_t ClaimEnabled = 1;
++constexpr uint32_t ClaimTgl = 2;
++constexpr uint32_t ClaimActivePower = 4;
++constexpr uint32_t ClaimNotResetting = 8;
++constexpr uint32_t ClaimExclusion = 16;
++constexpr uint32_t ClaimIdentity = 32;
++constexpr uint32_t ClaimTimestamp = 64;
++constexpr uint32_t RequiredClaims = 127;
++constexpr uint32_t HasFault = 1;
++constexpr uint32_t HasData0 = 2;
++constexpr uint32_t HasData1 = 4;
++constexpr uint32_t StableEpoch = 8;
++constexpr uint32_t HasMetadata = 16;
++constexpr uint32_t CompleteValidity = 31;
++
++enum class Status : uint32_t {
++    Complete = 0, Disabled, UnsupportedTgl, PowerUnknown, GtForcewakeMissing,
++    GtAckMissing, Resetting, ExclusionUnknown, BadIdentity, IdentityChanged,
++    BadTimestamp, MissingCallbacks, EpochUnavailable, ResetRace,
++    FaultReadFailed, Data0ReadFailed, Data1ReadFailed, BufferFull,
++    SequenceOverflow, Reentrant
++};
++enum class EngineLayout : uint32_t { LinuxV618FiveBit = 1 };
++enum class AddressSpace : uint32_t { Unavailable = 0, Ppgtt = 1, Ggtt = 2 };
++enum class PageSize : uint32_t { KiB4 = 0, KiB64 = 1, MiB2 = 2, GiB1 = 3 };
++enum class State : uint32_t { Ready, Capturing, Full, SequenceExhausted };
++
++struct Request {
++    // Default disabled; the core does not parse/consult global boot arguments.
++    bool enabled = false;
++    bool supportedTgl = false;
++    bool knownActivePower = false;
++    bool notResetting = false;
++    bool exclusionKnown = false;
++    bool stableIdentityKnown = false;
++    bool monotonicTimestampKnown = false;
++    uint32_t forcewakeHeldDomains = 0;
++    uint32_t forcewakeAckDomains = 0;
++    uint64_t bootId = 0;
++    uint64_t hangId = 0;
++    uint64_t callerId = 0;
++    uint64_t monotonicNs = 0;
++    uint64_t resetEpoch = 0;
++    uint64_t exclusionToken = 0;
++};
++
++struct EpochObservation {
++    uint64_t epoch = 0;
++    uint64_t exclusionToken = 0;
++    bool resetting = true;
++    bool knownActivePower = false;
++    uint32_t forcewakeHeldDomains = 0;
++    uint32_t forcewakeAckDomains = 0;
++};
++
++// Caller must serialize this collector AND supply a synchronized epoch observer.
++// The observer's fields must be one coherent observation under the claimed reset
++// exclusion. Flags/tokens are caller claims: they do NOT establish a live lock.
++// Callbacks must be bounded, nonthrowing, nonblocking MOCKS in this offline lab.
++// Request and callback DESCRIPTORS are snapshotted at entry, before callbacks.
++// Caller keeps inputs readable during that copy and serializes their access.
++// The context is borrowed, not cloned/owned: it and the collector must stay alive
++// throughout capture. Descriptor snapshots establish no lock or context lifetime.
++using MockRead = bool (*)(void *, uint32_t, uint32_t &) noexcept;
++using ObserveEpoch = bool (*)(void *, EpochObservation &) noexcept;
++struct Callbacks {
++    void *context = nullptr;
++    MockRead read = nullptr;
++    ObserveEpoch observe = nullptr;
++};
++
++struct FaultRecord {
++    uint32_t validity = 0;
++    uint32_t callerClaims = 0;
++    Status status = Status::Complete;
++    uint32_t readAttempts = 0;
++    EngineLayout engineLayout = EngineLayout::LinuxV618FiveBit;
++    uint32_t forcewakeHeldDomains = 0;
++    uint32_t forcewakeAckDomains = 0;
++    uint64_t sequence = 0;
++    uint64_t monotonicNs = 0;
++    uint64_t bootId = 0;
++    uint64_t hangId = 0;
++    uint64_t callerId = 0;
++    uint64_t resetEpoch = 0;
++    uint64_t exclusionToken = 0;
++    // Raw words are always retained verbatim, including invalid fault snapshots
++    // and the untrusted word returned by a failing callback (its bit stays clear).
++    uint32_t rawFault = 0;
++    uint32_t rawData0 = 0;
++    uint32_t rawData1 = 0;
++};
++
++struct Counters {
++    uint64_t attempts = 0;
++    uint64_t refusals = 0;
++    uint64_t captureFailures = 0;
++    uint64_t full = 0;
++    uint64_t sequenceOverflow = 0;
++};
++inline void saturateIncrement(uint64_t &value) noexcept {
++    if (value != UINT64_MAX) ++value;
++}
++
++inline uint32_t claims(const Request &q) noexcept {
++    return (q.enabled ? ClaimEnabled : 0U) |
++           (q.supportedTgl ? ClaimTgl : 0U) |
++           (q.knownActivePower ? ClaimActivePower : 0U) |
++           (q.notResetting ? ClaimNotResetting : 0U) |
++           (q.exclusionKnown ? ClaimExclusion : 0U) |
++           (q.stableIdentityKnown ? ClaimIdentity : 0U) |
++           (q.monotonicTimestampKnown ? ClaimTimestamp : 0U);
++}
++
++class Collector {
++public:
++    // Seed is for offline sequence-boundary/checkpoint tests. Zero is exhausted.
++    explicit Collector(uint64_t firstSequence = 1) noexcept
++        : nextSequence_(firstSequence), exhausted_(firstSequence == 0) {}
++
++    uint32_t size() const noexcept { return count_; }
++    const FaultRecord *record(uint32_t index) const noexcept {
++        return index < count_ ? &records_[index] : nullptr;
++    }
++    const Counters &counters() const noexcept { return counters_; }
++    State state() const noexcept {
++        if (busy_) return State::Capturing;
++        if (count_ == Capacity) return State::Full;
++        return exhausted_ ? State::SequenceExhausted : State::Ready;
++    }
++
++    Status capture(const Request &request, const Callbacks &callbacks) noexcept {
++        // Freeze accepted metadata/guard targets and the complete dispatch tuple.
++        // A bounded callback may mutate caller-owned descriptors through aliases;
++        // those mutations cannot retarget this capture's checks or dispatch.
++        const Request q = request;
++        const Callbacks cb = callbacks;
++        saturateIncrement(counters_.attempts);
++        if (busy_) return refuse(Status::Reentrant);
++        if (!q.enabled) return refuse(Status::Disabled);
++        if (!q.supportedTgl) return refuse(Status::UnsupportedTgl);
++        if (!q.knownActivePower) return refuse(Status::PowerUnknown);
++        if (!(q.forcewakeHeldDomains & DomainGT))
++            return refuse(Status::GtForcewakeMissing);
++        if (!(q.forcewakeAckDomains & DomainGT)) return refuse(Status::GtAckMissing);
++        if (!q.notResetting) return refuse(Status::Resetting);
++        if (!q.exclusionKnown || !q.exclusionToken || !q.resetEpoch)
++            return refuse(Status::ExclusionUnknown);
++        if (!q.stableIdentityKnown || !q.bootId || !q.hangId || !q.callerId)
++            return refuse(Status::BadIdentity);
++        if (count_ && (q.bootId != records_[0].bootId ||
++                       q.callerId != records_[0].callerId ||
++                       q.hangId <= records_[count_ - 1].hangId))
++            return refuse(Status::IdentityChanged);
++        if (!q.monotonicTimestampKnown || !q.monotonicNs ||
++            (count_ && q.monotonicNs <= records_[count_ - 1].monotonicNs))
++            return refuse(Status::BadTimestamp);
++        if (!cb.read || !cb.observe) return refuse(Status::MissingCallbacks);
++        if (count_ == Capacity) {
++            saturateIncrement(counters_.full);
++            return refuse(Status::BufferFull);
++        }
++        if (exhausted_) {
++            saturateIncrement(counters_.sequenceOverflow);
++            return refuse(Status::SequenceOverflow);
++        }
++
++        busy_ = true;
++        FaultRecord r {};
++        r.validity = HasMetadata;
++        r.callerClaims = claims(q);
++        r.sequence = nextSequence_;
++        if (nextSequence_ == UINT64_MAX) exhausted_ = true;
++        else ++nextSequence_;
++        r.monotonicNs = q.monotonicNs;
++        r.bootId = q.bootId;
++        r.hangId = q.hangId;
++        r.callerId = q.callerId;
++        r.resetEpoch = q.resetEpoch;
++        r.exclusionToken = q.exclusionToken;
++        r.forcewakeHeldDomains = q.forcewakeHeldDomains;
++        r.forcewakeAckDomains = q.forcewakeAckDomains;
++
++        constexpr uint32_t offsets[3] = {FaultRegister, Data0Register, Data1Register};
++        constexpr Status failed[3] = {Status::FaultReadFailed,
++                                     Status::Data0ReadFailed, Status::Data1ReadFailed};
++        uint32_t *raw[3] = {&r.rawFault, &r.rawData0, &r.rawData1};
++        for (uint32_t i = 0; i < 3; ++i) {
++            r.status = checkEpoch(q, cb);
++            if (r.status != Status::Complete) break;
++            ++r.readAttempts;
++            if (!cb.read(cb.context, offsets[i], *raw[i])) {
++                r.status = failed[i];
++                break; // absolutely no later callbacks/reads after read failure
++            }
++            r.validity |= 1U << i;
++            r.status = checkEpoch(q, cb);
++            if (r.status != Status::Complete) break;
++        }
++        if (r.status == Status::Complete) r.validity |= StableEpoch;
++        else saturateIncrement(counters_.captureFailures);
++        records_[count_++] = r; // append only; record zero is never overwritten
++        busy_ = false;
++        return r.status;
++    }
++
++private:
++    static Status checkEpoch(const Request &q, const Callbacks &cb) noexcept {
++        EpochObservation e {};
++        if (!cb.observe(cb.context, e)) return Status::EpochUnavailable;
++        if (e.resetting || e.epoch != q.resetEpoch ||
++            e.exclusionToken != q.exclusionToken) return Status::ResetRace;
++        if (!e.knownActivePower) return Status::PowerUnknown;
++        if (!(e.forcewakeHeldDomains & DomainGT)) return Status::GtForcewakeMissing;
++        if (!(e.forcewakeAckDomains & DomainGT)) return Status::GtAckMissing;
++        return Status::Complete;
++    }
++    Status refuse(Status status) noexcept {
++        saturateIncrement(counters_.refusals);
++        return status;
++    }
++    FaultRecord records_[Capacity] {};
++    Counters counters_ {};
++    uint64_t nextSequence_ = 1;
++    uint32_t count_ = 0;
++    bool exhausted_ = false;
++    bool busy_ = false;
++};
++
++// Strict structural validation is shared by the codec and derived decoder.
++inline bool validRecord(const FaultRecord &r) noexcept {
++    if (r.callerClaims != RequiredClaims ||
++        r.engineLayout != EngineLayout::LinuxV618FiveBit ||
++        !(r.forcewakeHeldDomains & DomainGT) ||
++        !(r.forcewakeAckDomains & DomainGT) ||
++        !r.sequence || !r.monotonicNs || !r.bootId || !r.hangId || !r.callerId ||
++        !r.resetEpoch || !r.exclusionToken || r.readAttempts > 3 ||
++        (r.validity & ~CompleteValidity) || !(r.validity & HasMetadata)) return false;
++    if (r.status == Status::Complete)
++        return r.readAttempts == 3 && r.validity == CompleteValidity;
++    if (r.validity & StableEpoch) return false;
++    uint32_t completedReads = r.readAttempts;
++    switch (r.status) {
++        case Status::FaultReadFailed:
++            if (r.readAttempts != 1) return false;
++            --completedReads;
++            break;
++        case Status::Data0ReadFailed:
++            if (r.readAttempts != 2) return false;
++            --completedReads;
++            break;
++        case Status::Data1ReadFailed:
++            if (r.readAttempts != 3) return false;
++            --completedReads;
++            break;
++        case Status::EpochUnavailable: case Status::ResetRace:
++        case Status::PowerUnknown: case Status::GtForcewakeMissing:
++        case Status::GtAckMissing: break;
++        default: return false; // includes refusal-only and unknown enum values
++    }
++    if ((r.validity & 7U) != ((1U << completedReads) - 1U)) return false;
++    if (r.readAttempts == 0 && r.rawFault != 0) return false;
++    if (r.readAttempts < 2 && r.rawData0 != 0) return false;
++    if (r.readAttempts < 3 && r.rawData1 != 0) return false;
++    return true;
++}
++
++struct DerivedFault {
++    bool available = false;
++    bool faultPresent = false;
++    uint32_t data1MbzBits = 0;
++    uint64_t virtualAddress = 0;
++    AddressSpace addressSpace = AddressSpace::Unavailable;
++    uint32_t engineIdV618 = 0;
++    uint32_t engineIdV515 = 0;
++    uint32_t sourceId = 0;
++    uint32_t faultType = 0;
++    bool entryValid = false;
++    bool entryPresent = false;
++    PageSize pageSize = PageSize::KiB4;
++};
++
++// 36-bit page number -> 48-bit byte VA. Reject, never truncate oversized input.
++// A masked hardware DATA0/DATA1 pair cannot overflow; helper tests wider input.
++inline bool checkedFaultPageToVa(uint64_t page, uint64_t &out) noexcept {
++    if (page > UINT64_C(0xfffffffff)) return false;
++    out = page << 12;
++    return true;
++}
++
++inline DerivedFault derive(const FaultRecord &r) noexcept {
++    DerivedFault d {};
++    if (!validRecord(r) || r.status != Status::Complete) return d;
++    d.faultPresent = (r.rawFault & FaultValidMask) != 0;
++    d.data1MbzBits = r.rawData1 & Data1MbzMask;
++    if (!d.faultPresent || d.data1MbzBits) return d;
++    // Exactly Linux intel_gt.c: ((u64)(data1 & 0xf) << 44) | ((u64)data0 << 12).
++    const uint64_t page = (uint64_t(r.rawData1 & VaHighMask) << 32) | r.rawData0;
++    if (!checkedFaultPageToVa(page, d.virtualAddress)) return d;
++    d.addressSpace = (r.rawData1 & GttSelectMask) ? AddressSpace::Ggtt : AddressSpace::Ppgtt;
++    d.engineIdV618 = (r.rawFault & FaultEngineMaskV618) >> 12;
++    d.engineIdV515 = (r.rawFault & FaultEngineMaskV515) >> 12;
++    d.sourceId = (r.rawFault & FaultSourceMask) >> 3;
++    d.faultType = (r.rawFault & FaultTypeMask) >> 1;
++    d.entryValid = (r.rawData1 & EntryValidMask) != 0;
++    d.entryPresent = (r.rawData1 & EntryPresentMask) != 0;
++    d.pageSize = static_cast<PageSize>((r.rawData1 & EntryPageSizeMask) >> 7);
++    d.available = true;
++    return d;
++}
++
++constexpr uint16_t WireVersion = 1;
++constexpr size_t WireSize = 108;
++constexpr uint32_t WireMagic = 0x34464754; // bytes "TGF4"
++
++namespace CodecDetail {
++inline void put(uint8_t *p, uint64_t value, size_t n) noexcept {
++    for (size_t i = 0; i < n; ++i) p[i] = uint8_t(value >> (8 * i));
++}
++inline uint64_t get(const uint8_t *p, size_t n) noexcept {
++    uint64_t value = 0;
++    for (size_t i = 0; i < n; ++i) value |= uint64_t(p[i]) << (8 * i);
++    return value;
++}
++} // namespace CodecDetail
++
++// Both operations commit only after complete validation. No ABI struct dumps.
++inline bool encode(const FaultRecord &r, uint8_t *out, size_t length) noexcept {
++    if (!out || length != WireSize || !validRecord(r)) return false;
++    uint8_t b[WireSize] {};
++    using CodecDetail::put;
++    put(b + 0, WireMagic, 4); put(b + 4, WireVersion, 2); put(b + 6, WireSize, 2);
++    put(b + 8, r.validity, 4); put(b + 12, r.callerClaims, 4);
++    put(b + 16, uint32_t(r.status), 4); put(b + 20, r.readAttempts, 4);
++    put(b + 24, uint32_t(r.engineLayout), 4);
++    put(b + 28, r.forcewakeHeldDomains, 4); put(b + 32, r.forcewakeAckDomains, 4);
++    put(b + 36, r.sequence, 8); put(b + 44, r.monotonicNs, 8);
++    put(b + 52, r.bootId, 8); put(b + 60, r.hangId, 8); put(b + 68, r.callerId, 8);
++    put(b + 76, r.resetEpoch, 8); put(b + 84, r.exclusionToken, 8);
++    put(b + 92, r.rawFault, 4); put(b + 96, r.rawData0, 4); put(b + 100, r.rawData1, 4);
++    // b[104..107] reserved zero, checked on decode.
++    for (size_t i = 0; i < WireSize; ++i) out[i] = b[i];
++    return true;
++}
++
++inline bool decode(const uint8_t *b, size_t length, FaultRecord &out) noexcept {
++    if (!b || length != WireSize) return false;
++    using CodecDetail::get;
++    if (get(b, 4) != WireMagic || get(b + 4, 2) != WireVersion ||
++        get(b + 6, 2) != WireSize || get(b + 104, 4) != 0) return false;
++    FaultRecord r {};
++    r.validity = uint32_t(get(b + 8, 4)); r.callerClaims = uint32_t(get(b + 12, 4));
++    r.status = static_cast<Status>(get(b + 16, 4));
++    r.readAttempts = uint32_t(get(b + 20, 4));
++    r.engineLayout = static_cast<EngineLayout>(get(b + 24, 4));
++    r.forcewakeHeldDomains = uint32_t(get(b + 28, 4));
++    r.forcewakeAckDomains = uint32_t(get(b + 32, 4));
++    r.sequence = get(b + 36, 8); r.monotonicNs = get(b + 44, 8);
++    r.bootId = get(b + 52, 8); r.hangId = get(b + 60, 8); r.callerId = get(b + 68, 8);
++    r.resetEpoch = get(b + 76, 8); r.exclusionToken = get(b + 84, 8);
++    r.rawFault = uint32_t(get(b + 92, 4)); r.rawData0 = uint32_t(get(b + 96, 4));
++    r.rawData1 = uint32_t(get(b + 100, 4));
++    if (!validRecord(r)) return false;
++    out = r;
++    return true;
++}
++
++} // namespace TglFault34
++#endif

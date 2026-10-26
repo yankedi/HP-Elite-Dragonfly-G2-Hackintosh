@@ -1,0 +1,11 @@
+# GA36 CAS Writer 保留与本轮工程增量
+
+GA36 `candidate/kern_igfx.cpp`原样副本在`../reference/ga36/`，精确SHA `62e3abf2a303a5c27910c35c363d5b286ede88353da38b91773de218855d4ab9`。其OSCompareAndSwap分支仍是成功者独占写盘、loser返回；先记录错误再发布不可重试的hangWriting=2，缺uioFree时在open/O_TRUNC前拒绝；hangDump强制0。这个候选没有在真实kext中部署，不能推断当前运行binary具有或已修复源码缺陷。
+
+`legacy-regression/`将实际baseline/candidate函数体原样提取，保留原mock VFS/UIO与源级返回语义，记录baseline首次成功CAS不写/两个loser同写的反例及candidate单owner/失败终态。最终结论需绑定该目录真实运行结果。
+
+原legacy O_TRUNC、volatile共享producer、rawcallback卸载没有在旧Hook里偷偷替换。本轮直接复用GA36不可变prefix核心：release发布count、acquire读取slots、唯一snapshot writer、Pending握手、水位单调、失败终态；在其外增加有主Ticket/Control，持久化使用独立用户态事务backend。由此保留原wire与Pipeline全量prefix契约，不宣称完整内核集成。
+
+全量prefix意味着第N次成功可以再次包含0..N-2旧records；至多一次的是相同watermark/相同字节的提交，不是“文件系统中每条record永远只出现一次”。事务revision保留旧snapshot用于证据，因此同一record可见于多个版本，不能当新增事件重复计数。
+
+CAS成功语义的宿主mock、XNU公开reference、目标binary/livelifetime、系统断电持久性是四种不同证据，最终状态按其作用域分开。

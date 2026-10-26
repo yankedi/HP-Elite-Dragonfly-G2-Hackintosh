@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "scope": "Actual Recovery network-backed read-only app/SharedSupport attachment and complete payload readback; installation untested",
+  "runner": "scripts/serve_hp_offline_image.py",
+  "runner_sha256": "7d1bf7dee437cefe60cd52aa2c1b7800ea67e646d50cded9e2cd835d5a11bfe9",
+  "private_report": ".local/install-prep/hp-network-app-u0vd1zbd/report.json",
+  "private_report_sha256": "d8a64a41ca3db87ff7073dcd29874e694c78242e853d34d371d1b168d076f7e0",
+  "source_image": {
+    "bytes": 19922944000,
+    "sha256": "75f6cab00020ad6c2124579bc4641ca0f9029ad0ff23cf3d8112d01211523c92",
+    "same_verified_local_and_usb_installer_input": true,
+    "new_image_built": false
+  },
+  "transport": {
+    "direct_lan_http": "Timed out, curl exit28; no firewall changes",
+    "verified_route": "Existing dedicated-key SSH reverse tunnel bound to Recovery loopback, HTTP byte ranges, native DiskImages",
+    "server": "Read-only single pinned image endpoint, random route, no listing/upload, bounded lifetime",
+    "native_http_controls_passed": 13,
+    "server_requests": 17576,
+    "server_bytes_sent": 18413532672,
+    "physical_usb_used": false
+  },
+  "actual_recovery_results": {
+    "outer_raw_hfs_attach_exit": 0,
+    "nested_udif_shared_support_attach_exit": 0,
+    "both_volumes_mounted_readonly": true,
+    "automatic_fsck_disabled": true,
+    "nested_udif_whole_image_checksum_skipped": true,
+    "checksum_boundary": "Source HFS SHA256 verified before serving; selected complete inner payload SHA256 verified below. Native UDIF full checksum not separately run",
+    "app_layout_readable": true,
+    "startosinstall_usage_exit": 0,
+    "actual_installation_started": false,
+    "full_payload": {
+      "path": ".local/install-prep/hp-network-app-u0vd1zbd/full-payload.json",
+      "sha256": "fe57757c7a682ad285209ab588c1bcd724676fa850c9f6a754188b2a6fd25884",
+      "bytes": 18356020461,
+      "payload_sha256": "0b44a71bd6a721f5ddfb46f8dba39b09ee46bf9678a1c3100b978f512acfc07c",
+      "matches_verified_apple_catalog": true,
+      "elapsed_seconds": 1041.7080113269913,
+      "average_mib_per_second": 16.804771658406974,
+      "method": "Stream actual Recovery nested-mounted payload over SSH cat into local SHA256; no full payload copy on HP"
+    },
+    "runtime_catalog": {
+      "path": ".local/install-prep/hp-network-app-u0vd1zbd/runtime-catalog.json",
+      "sha256": "a41128312fc3ed38f55899d3183b804f112804294609777e9a43681375d95fb3",
+      "catalog_sha256": "6942d65fc7fdfa2eb55dd44a9479d1358cbc1f91d7b7b031d5692c56e209fa9f",
+      "matches_original_locally_verified_catalog": true,
+      "selected_version": "26.6.2",
+      "selected_build": "25G83"
+    },
+    "internet_tls": "curl to https://swcdn.apple.com/ negotiated HTTP2 and returned root-path404 with default certificate verification; specific endpoint only, installer network services untested"
+  },
+  "native_signature_boundary": {
+    "path": ".local/install-prep/hp-network-app-u0vd1zbd/signature-boundaries.json",
+    "sha256": "123eae80574529d8c76a806ecf462e0c4799a6128b7c19baf10510b9d72fd723",
+    "startosinstall_macho_verify_exit": 0,
+    "installassistant_macho_verify_exit": 0,
+    "app_default_and_strict_verify_exit": 1,
+    "app_error": "resource envelope is obsolete (custom omit rules)",
+    "pkgutil_available": false,
+    "source_byte_comparison": {
+      "path": ".local/install-prep/hp-network-app-u0vd1zbd/runtime-source-comparison.json",
+      "sha256": "837d46b0eac5ed2020dfa61960358bf45918f34b51de5698cb5a9dc64f1adc31",
+      "three_executables_and_resource_rules_match_unmodified_verified_payload": true
+    },
+    "signature_or_resource_rules_modified": false,
+    "limit": "Usage success and readable payload do not establish GUI/installer acceptance; no whole-app codesign success claim"
+  },
+  "target_geometry_reobserved": {
+    "start_sector": 765624320,
+    "sector_count": 226369536,
+    "end_sector_exclusive": 991993856,
+    "sector_size_bytes": 512,
+    "gib": 107.94140625,
+    "still_unallocated": true,
+    "adjacent_p6_and_p8_match": true
+  },
+  "cleanup": {
+    "path": ".local/install-prep/hp-network-app-u0vd1zbd/cleanup.json",
+    "sha256": "19b71ddb5dc8815cd7e7b607eb21950c04054b6bb3408a0665ad9582c76a7b0f",
+    "only_created_images_detached_without_force": true,
+    "local_experiment_server_and_reverse_tunnel_stopped": true,
+    "existing_recovery_ssh_listener_preserved": true
+  },
+  "hp_internal_partitions_efi_nvram_written": false,
+  "integration_audit": {
+    "path": ".local/install-prep/hp-network-app-u0vd1zbd/integration-audit.json",
+    "sha256": "fff6b65b541c99289c0975e51a5eb659fc33e3721e92b76121217cbb054e5835",
+    "raw_experiment_files_verified": 50,
+    "unique_history_and_network_references_verified": 36,
+    "history_events": 25,
+    "original_ssh_still_responds_darwin": true
+  },
+  "repository_checks": "make check passes 43 Python/34 JSON/25 Markdown; git diff --check passes",
+  "remote_reboot_or_driver_unload": false,
+  "vm_executed": false,
+  "next_action": "Network resource access is reproducible without USB. Keep installation unstarted under existing remote-write/reboot restrictions. Physical media opportunity needed for separate XHCI candidate delivery and user-performed boot; installer acceptance/APFS/installed-system boot still require their own stage"
+}

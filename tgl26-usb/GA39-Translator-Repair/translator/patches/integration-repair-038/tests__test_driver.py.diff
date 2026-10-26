@@ -1,0 +1,14 @@
+--- before/tests/test_driver.py
++++ after/tests/test_driver.py
+@@ -29,7 +29,10 @@
+             self.assertEqual(len(result['obligations']), count)
+             self.assertFalse(result['accepted_program'])
+             self.assertFalse(result['full_shader_emitted'])
+-            self.assertEqual(sorted(p.name for p in out.iterdir()), ['report.json', 'source.bin'])
++            self.assertEqual(sorted(p.name for p in out.iterdir()), ['report.json', 'semantic-bundle.json', 'source.bin'])
++            bundle = json.loads((out / 'semantic-bundle.json').read_text())
++            self.assertFalse(bundle['accepted_program'])
++            self.assertEqual(len(bundle['debug_switch']['records']), 1)
+ 
+     def test_bad_mode_and_existing_destination_refused(self):
+         for mode in ['STRICT', '', None, 'skip-validation']:

@@ -1,0 +1,2493 @@
+===== I915-UAPI-MATRIX.md.orig -> drm/I915-UAPI-MATRIX.md =====
+--- reference/i915-abi/repairs-001/I915-UAPI-MATRIX.md.orig	2026-10-21 00:07:59.654647056 +0800
++++ drm/I915-UAPI-MATRIX.md	2026-10-21 07:34:47.215750005 +0800
+@@ -87,7 +87,7 @@
+ 
+ 1. **`ENOTTY` 是 Darwin `cdevsw.d_ioctl` 的正 errno 返回值**（`nmdrm.cpp:142-143`）。用户态 `ioctl()` 看到 `-1`、`errno=25`。Linux 内核返回 `-ENOTTY`，用户态看到的 errno 同样是 25；可见 errno 一致，但**内核返回约定不同**（Darwin 正 errno，Linux 负 errno）。
+ 2. **不是“所有 i915 ioctl 都返回 0”**。VERSION/GET_UNIQUE/GET_CAP/GET_PCIINFO 有 case；所有 i915 专用命令（GETPARAM、QUERY、GEM_*、CONTEXT_*、VM_*、EXECBUFFER2、SYNCOBJ_*、tiling、cache、perf）都落到 `default`，即 `ENOTTY`。
+-3. `GET_CAP(0x5)` 虽然返回 0，但代码是 `c->value = 0`，把 `value` 这个**用户指针字段**改成了 0，而不是 `copyout` 到它指向的 u64。用户输出变量不会被写。`GET_CAP(0x14)` 直接 `EINVAL`，所以 timeline syncobj 能力不可用。
++3. `GET_CAP` 的 `nm_drm_get_cap` 两个字段都是标量；`_IOWR` 返回后 XNU 自动把 16 字节结构 copyout。`GET_CAP(0x5)` 的 `c->value = 0` 是**合法的标量否定回答**（不支持 PRIME），不是指针写；`GET_CAP(0x14)` 返回 `EINVAL`（不支持 timeline syncobj）。没有“用户输出变量未写”的缺陷。
+ 4. 若设备槽位无效或已 `gone`，`nmdrm_ioctl` 在进入 switch 之前就返回 `ENXIO(6)`（`nmdrm.cpp:112,118`）；这与 `default` 的 `ENOTTY(25)` 是两条不同路径。
+ 5. `d_mmap = eno_mmap`（`nmdrm.cpp:157`）。`eno_mmap` 的具体返回值不在 NullMoth 树内，**不能断言**；它没有被验证为 GEM mmap。
+ 
+@@ -147,6 +147,8 @@
+ | 7 | `CONTEXT_GETPARAM(GTT_SIZE=3)` 的**逻辑门**（值在设备信息阶段读取） | `0xc0186474` | 0 → `GTT size too small` | `intel_device_info.c:615`; `anv_physical_device.c:2935-2941` |
+ | 8 | `GET_CAP(DRM_CAP_SYNCOBJ_TIMELINE=0x14)` + `SYNCOBJ_CREATE`/`WAIT`/`DESTROY` | `0xc010640c` / `0xc00864bf` / `0xc02864c3` / `0xc00864c0` | timeline/CPU_WAIT 缺失 → `assert` 失败（assert 构建） | `util/u_sync_provider.c:141-146`; `vk_drm_syncobj.c:659-705`; `anv_physical_device.c:2996-2998` |
+ 
++> 本表请求号默认是 **Linux `__linux__`** 值；`GEM_CLOSE`、`GET_APERTURE`、`EXECBUFFER2`、dma-buf import、`PERF_*` 等的 Darwin 值不同，见 §7.1。mock 必须按目标平台分派。
++
+ 其中 **第 4 条特别重要**：`has_get_tiling()` 在 GEM_CREATE 失败时不是简单返回 false，而是先 `UNREACHABLE`：
+ 
+ ```c
+@@ -200,15 +202,19 @@
+ | 25 | `QUERY(ENGINE_INFO)` ×2 + 可能的 `QUERY(GUC_SUBMISSION_VERSION)` | `0xc0106479` | 软 | 失败则 legacy 单队列；compute 关闭 |
+ | 26 | perf init（`GETPARAM(PERF_REVISION)`、`CONTEXT_GETPARAM(SSEU)`、可选 `PERF_*`） | 多个 | 软 | Darwin 无 `/proc/sys/dev/i915/perf_stream_paranoid`，OA 配置通常跳过 |
+ 
++> 同上，本表请求号默认 Linux；完整 Darwin 值在 JSON 的 `darwin_request_hex`，差异汇总见 §7.1。
++
+ 完整的 26 步机读版本在 JSON 的 `earliest_physical_device_sequence`。
+ 
+ ---
+ 
+ ## 5. 实际 ioctl 矩阵（按 9A49 是否会走到）
+ 
++> 下表的“Linux 请求”是 `drm.h` 在 `__linux__` 下的值。Darwin/BSD 分支对 `_IOW`/`_IOR` 使用不同的方向位；非 `_IOWR` 命令的 Darwin 值见 §7.1 的差异表，完整逐条见 JSON 的 `linux_request_hex` / `darwin_request_hex`。**不要把 Linux 号直接用于 Darwin mock。**
++
+ ### 5.1 物理设备创建阶段
+ 
+-| ID | 请求 | struct 大小 | 作用 | NMDRM |
++| ID | Linux 请求 | struct 大小 | 作用 | NMDRM |
+ |---|---|---:|---|---|
+ | `version` | `0xc0406400` | 64 | 驱动名/版本；决定 i915 vs xe | 返回 `nmdrm`（0）→ **第一阻塞** |
+ | `get_cap` | `0xc010640c` | 16 | `DRM_CAP_SYNCOBJ_TIMELINE` | 0x14 → `EINVAL(22)` |
+@@ -237,7 +243,7 @@
+ 
+ ### 5.2 逻辑设备创建 / 首次提交 / 后续
+ 
+-| ID | 请求 | struct 大小 | 作用 | NMDRM |
++| ID | Linux 请求 | struct 大小 | 作用 | NMDRM |
+ |---|---|---:|---|---|
+ | `gem_create_ext` | `0xc018647c` | 24 | 正常 BO（MEMORY_REGIONS/PAT/protected） | `ENOTTY` |
+ | `mmap_offset` | `0xc0206464` | 32 | 取 fake offset，再 `mmap(2)` | `ENOTTY`；且无 `d_mmap` |
+@@ -288,7 +294,7 @@
+ | struct | size | align | 关键偏移 |
+ |---|---:|---:|---|
+ | `drm_version` | 64 | 8 | major 0, minor 4, patch 8, name_len 16, name 24, date_len 32, date 40, desc_len 48, desc 56 |
+-| `drm_get_cap` | 16 | 8 | capability 0, **value 8 (用户指针)** |
++| `drm_get_cap` | 16 | 8 | capability 0, **value 8 (标量)** |
+ | `drm_i915_getparam` | 16 | 8 | param 0, **value 8 (用户指针)** |
+ | `drm_i915_query` | 16 | 8 | num_items 0, flags 4, **items_ptr 8** |
+ | `drm_i915_query_item` | 24 | 8 | query_id 0, length 8, flags 12, **data_ptr 16** |
+@@ -337,7 +343,7 @@
+ - `drm_i915_query_topology_info` 的 `align` 是 **2**，不是 8；`data` 是柔性数组，offset 16。
+ - `drm_i915_gem_execbuffer2` 的 `rsvd1` 在 i915 中是 **ctx_id**；`cliprects_ptr` 在 `I915_EXEC_FENCE_ARRAY` 时是 fence 数组，在 `I915_EXEC_USE_EXTENSIONS` 时是扩展链。
+ - `drm_i915_gem_context_param.value` 对 GTT_SIZE/VM/PRIORITY 等是**标量**；对 SSEU 是**用户指针**（`size=32`）。
+-- `drm_get_cap.value` 和 `drm_i915_getparam.value` **始终是用户指针**，不是标量。
++- `drm_get_cap.value` 是**标量**；`drm_i915_getparam.value` 才是**用户指针**。不要把两者混为一谈。
+ 
+ ---
+ 
+@@ -345,27 +351,59 @@
+ 
+ ### 7.1 数字编码
+ 
+-Linux 与 XNU 的 `_IOC` 都是 4.3BSD 风格：
++Linux 与 XNU 都使用 4.3BSD 风格的 32-bit 编码，但**方向位语义相反**：
+ 
+-| 项 | Linux | XNU/Darwin |
++| 项 | Linux (`asm-generic/ioctl.h`) | XNU (`sys/ioccom.h`) |
+ |---|---|---|
+-| 方向位 | `_IOC_WRITE=1`, `_IOC_READ=2`, `_IOWR=3` | `IOC_IN=0x80000000`, `IOC_OUT=0x40000000`, `IOC_INOUT=0xc0000000` |
++| write 方向 | `_IOW` = `_IOC_WRITE(1) << 30` = **`0x40000000`** | `_IOW` = `IOC_IN` = **`0x80000000`** |
++| read 方向 | `_IOR` = `_IOC_READ(2) << 30` = **`0x80000000`** | `_IOR` = `IOC_OUT` = **`0x40000000`** |
++| read+write | `_IOWR` = `3 << 30` = **`0xc0000000`** | `_IOWR` = `IOC_INOUT` = **`0xc0000000`** |
++| no args | `_IO` = **`0`** | `_IO` = `IOC_VOID` = **`0x20000000`** |
+ | 参数长度位 | 14 bits（`_IOC_SIZEBITS`） | **13 bits（`IOCPARM_MASK=0x1fff`）** |
+ | 位移 | type 8, nr 0, size 16, dir 30 | 相同 |
+ | `cmd` 类型 | `unsigned int` | `u_long`（64-bit） |
+ | 内核返回 | 负 errno | **正 errno** |
+ 
+-**对本矩阵的全部请求，结构体大小都 < 8192**，所以 13-bit/14-bit 长度字段没有差异，Darwin 计算出的请求号与 Linux **完全相同**。例如：
++Mesa 的 `drm.h` 在编译期二选一：
++
++```c
++#if defined(__linux__)
++#include <asm/ioctl.h>
++#else
++#include <sys/ioccom.h>
++#endif
++```
++
++所以**只有 `_IOWR` 命令在两个平台数值相同**；`_IOW`/`_IOR`/`_IO` 都不同。本矩阵所有结构体大小都 < 8192，13-bit/14-bit 长度字段本身一致，但这**不能**推出整个请求号一致。
+ 
+-| 请求 | Linux | Darwin（13-bit 重算） |
++| 请求 | Linux | Darwin | 相同? |
++|---|---|---|---|
++| `VERSION` (`_IOWR`) | `0xc0406400` | `0xc0406400` | 是 |
++| `GETPARAM` (`_IOWR`) | `0xc0106446` | `0xc0106446` | 是 |
++| `MMAP_OFFSET` (`_IOWR`) | `0xc0206464` | `0xc0206464` | 是 |
++| `SYNCOBJ_WAIT` (`_IOWR`) | `0xc02864c3` | `0xc02864c3` | 是 |
++| `GEM_CLOSE` (`_IOW`) | `0x40086409` | **`0x80086409`** | 否 |
++| `EXECBUFFER2` (`_IOW`) | `0x40406469` | **`0x80406469`** | 否 |
++| `EXECBUFFER2_WR` (`_IOWR`) | `0xc0406469` | `0xc0406469` | 是 |
++| `GET_APERTURE` (`_IOR`) | `0x80106463` | **`0x40106463`** | 否 |
++| `DMA_BUF_IMPORT_SYNC_FILE` (`_IOW`) | `0x40086203` | **`0x80086203`** | 否 |
++
++本库存中 Darwin ≠ Linux 的全部请求：
++
++| 宏 | Linux | Darwin |
+ |---|---|---|
+-| `VERSION` | `0xc0406400` | `0xc0406400` |
+-| `GETPARAM` | `0xc0106446` | `0xc0106446` |
+-| `MMAP_OFFSET` | `0xc0206464` | `0xc0206464` |
+-| `EXECBUFFER2` | `0x40406469` | `0x40406469` |
+-| `SYNCOBJ_WAIT` | `0xc02864c3` | `0xc02864c3` |
++| `DRM_IOCTL_GEM_CLOSE` | `0x40086409` | `0x80086409` |
++| `DRM_IOCTL_I915_GEM_CONTEXT_DESTROY` | `0x4008646e` | `0x8008646e` |
++| `DRM_IOCTL_I915_GEM_VM_DESTROY` | `0x4010647b` | `0x8010647b` |
++| `DRM_IOCTL_I915_GEM_EXECBUFFER2` | `0x40406469` | `0x80406469` |
++| `DRM_IOCTL_I915_GEM_SET_CACHING` | `0x4008646f` | `0x8008646f` |
++| `DRM_IOCTL_I915_GEM_GET_APERTURE` | `0x80106463` | `0x40106463` |
++| `DMA_BUF_IOCTL_IMPORT_SYNC_FILE` | `0x40086203` | `0x80086203` |
++| `DRM_IOCTL_I915_PERF_OPEN` | `0x40106476` | `0x80106476` |
++| `DRM_IOCTL_I915_PERF_ADD_CONFIG` | `0x40486477` | `0x80486477` |
++| `DRM_IOCTL_I915_PERF_REMOVE_CONFIG` | `0x40086478` | `0x80086478` |
+ 
+-但如果将来引入 **≥8192 字节**的结构体，Darwin 的 13-bit 长度会截断/碰撞，不能直接复用 Linux 请求号。`drm_i915_query_memory_regions` 的 payload 虽然可能大于 8192，但 **ioctl 顶层结构只有 16 字节**，payload 通过 `data_ptr` 传递，所以请求号仍一致。
++其余请求均为 `_IOWR`，数值相同；完整逐条见 `i915-uapi-matrix.json` 的 `linux_request_hex` / `darwin_request_hex`。**不要用单一 `request_hex` 代表两个平台。**
+ 
+ **同 nr、不同结构大小的陷阱：**
+ 
+@@ -375,8 +413,8 @@
+ | `CONTEXT_CREATE_EXT` | `0x2d` | `drm_i915_gem_context_create_ext` (16) | `0xc010646d` |
+ | `MMAP_GTT` | `0x24` | `drm_i915_gem_mmap_gtt` (16) | `0xc0106464` |
+ | `MMAP_OFFSET` | `0x24` | `drm_i915_gem_mmap_offset` (32) | `0xc0206464` |
+-| `EXECBUFFER2` | `0x29` | `drm_i915_gem_execbuffer2` (64), `_IOW` | `0x40406469` |
+-| `EXECBUFFER2_WR` | `0x29` | `drm_i915_gem_execbuffer2` (64), `_IOWR` | `0xc0406469` |
++| `EXECBUFFER2` | `0x29` | `drm_i915_gem_execbuffer2` (64), `_IOW` | `0x40406469` / `0x80406469` |
++| `EXECBUFFER2_WR` | `0x29` | `drm_i915_gem_execbuffer2` (64), `_IOWR` | `0xc0406469`（同） |
+ 
+ mock 必须按 **完整 `cmd`** 分派，不能只比较 `nr`；否则会把 base/ext 或 MMAP_GTT/MMAP_OFFSET 误当成同一条命令。
+ 
+@@ -388,8 +426,8 @@
+ |---|---|
+ | 顶层 `drm_i915_getparam` / `drm_i915_gem_create` / `drm_i915_gem_context_param` 等 | XNU 自动 |
+ | `drm_version.name/date/desc` 字符串 | **手动 `copyout`** |
+-| `drm_get_cap.value` 指向的 u64 | **手动 `copyout`**（不要覆盖指针） |
+-| `drm_i915_getparam.value` 指向的 int | **手动 `copyout`** |
++| `drm_get_cap.value` | 标量，XNU 自动 copyin/out；不需要手动 copyout |
++| `drm_i915_getparam.value` 指向的 int | **手动 `copyout`**（它确实是用户指针） |
+ | `drm_i915_query.items_ptr` 指向的 item 数组 | **手动 `copyin` + `copyout`** |
+ | `drm_i915_query_item.data_ptr` 指向的 payload | **手动 `copyin`/`copyout`** |
+ | `drm_i915_gem_create_ext.extensions` 链 | **手动 `copyin`** 每个扩展 |
+@@ -401,7 +439,7 @@
+ | `drm_i915_gem_mmap_offset.offset` | 顶层结构自动 copyout；随后 `mmap(2)` 需要 `d_mmap` |
+ | `drm_i915_gem_mmap.addr_ptr` | 顶层结构自动 copyout，但值必须是用户可访问地址 |
+ 
+-### 7.3 NMDRM 已经踩到的指针陷阱
++### 7.3 NMDRM `GET_CAP` 的实际语义（更正）
+ 
+ `GET_CAP`：
+ 
+@@ -413,7 +451,9 @@
+ 
+ （`nmdrm.cpp:40,133-138`）
+ 
+-`value` 在 UAPI 中是**用户指针**；这里把它改成 0，用户输出变量完全没被写。i915 mock 的 `GETPARAM`、`GET_CAP` 必须避免同样的错误：**写指针指向的位置，不要写指针字段本身**。
++`nm_drm_get_cap` 的两个字段都是**标量**；`_IOWR` 返回后 XNU 自动把 16 字节结构 copyout。`c->value = 0` 是合法的标量输出，表示“不支持 PRIME”，不是“把用户指针写成 0”。`0x14` 返回 `EINVAL` 表示“不支持该 capability”。
++
++这与 `drm_i915_getparam.value` 不同：后者才是用户指针，需要 `copyout` 一个 int。**不要把 `GET_CAP.value` 和 `drm_i915_getparam.value` 当成同一种指针语义。**
+ 
+ ### 7.4 `mmap` 是独立的第二道门
+ 
+@@ -446,7 +486,7 @@
+ | `GEM_CREATE` | 4096 和 65536 都要成功；返回非 0 handle；`pad=0`。 |
+ | `GEM_CLOSE` | 删除 handle；返回 0。 |
+ | `CONTEXT_GETPARAM(GTT_SIZE)` | 返回 ≥ 4 GiB 的 u64（例如 `1<<48` 或 host RAM）。 |
+-| `GET_CAP(SYNCOBJ_TIMELINE)` | 0x14 返回非 0；`value` 指向的 u64 要 copyout。 |
++| `GET_CAP(SYNCOBJ_TIMELINE)` | 0x14 返回非 0 的标量 `value`；XNU 自动 copyout 16 字节结构。 |
+ | `SYNCOBJ_CREATE/WAIT/DESTROY` | 创建 signaled handle；零超时 WAIT_ALL 返回 0；destroy 删除。 |
+ | `PRIME_HANDLE_TO_FD` + dma-buf export/import | 需要一个真正的 dma-buf fd 和 sync_file 语义；这是非 i915 的硬依赖。 |
+ | `GETPARAM(HAS_CONTEXT_ISOLATION)` | 返回 1。 |
+@@ -491,11 +531,22 @@
+   ../../reference/i915-abi/probe_layout.c
+ ../../reference/i915-abi/probe_requests > ../../reference/i915-abi/requests.txt
+ ../../reference/i915-abi/probe_layout > ../../reference/i915-abi/layout.json
++
++# Darwin 请求号：强制 Mesa drm.h 走 BSD 分支，并使用显式 XNU ioccom 常量，
++# 不依赖 Linux 主机的 _IOW/_IOR 宏。
++clang -std=c11 -U__linux__ \
++  -I../../reference/i915-abi/repairs-001/darwin-include \
++  -Iinclude -I. \
++  -o ../../reference/i915-abi/repairs-001/probe_darwin_requests \
++  ../../reference/i915-abi/repairs-001/probe_darwin_requests.c
++../../reference/i915-abi/repairs-001/probe_darwin_requests \
++  > ../../reference/i915-abi/repairs-001/darwin-requests.txt
++
+ cd ../..
+ python3 reference/i915-abi/build_matrix.py
+ ```
+ 
+-`probe_requests.c` / `probe_layout.c` 只包含 Mesa 的 `include/drm-uapi/{drm.h,i915_drm.h,dma-buf.h}`，不使用 `/usr/include/drm/i915_drm.h`；不打开设备、不调用 ioctl。
++`probe_requests.c` / `probe_layout.c` 只包含 Mesa 的 `include/drm-uapi/{drm.h,i915_drm.h,dma-buf.h}`，不使用 `/usr/include/drm/i915_drm.h`；不打开设备、不调用 ioctl。Darwin 探针使用 `repairs-001/darwin-include/sys/ioccom.h`，其常量来自 Apple MacKernelSDK，见 `repairs-001/xnu-ioccom-excerpt.txt`。
+ 
+ ### 9.2 证据文件
+ 
+@@ -505,6 +556,10 @@
+ | `reference/i915-abi/layout.json` | 255 条结构体/字段布局 |
+ | `reference/i915-abi/probe_requests.c` | 请求号探针 |
+ | `reference/i915-abi/probe_layout.c` | size/align/offsetof 探针 |
++| `reference/i915-abi/repairs-001/ERRATA.md` | 两条更正的原始声明、证据、测试与哈希 |
++| `reference/i915-abi/repairs-001/CHANGES.diff` | 更正前后 unified diff |
++| `reference/i915-abi/repairs-001/probe_darwin_requests.c` | Darwin 请求号探针（显式 XNU 常量） |
++| `reference/i915-abi/repairs-001/darwin-requests.txt` | Darwin 探针输出 |
+ | `drm/NMDRM-AUDIT.md` | NMDRM 代码审计（另一代理所有，本文只读引用） |
+ 
+ ### 9.3 已知边界
+@@ -514,3 +569,4 @@
+ - libdrm 是外部依赖；`drmGetVersion` 的两次调用模式是通常实现，Darwin shim 需另行核对。
+ - TGL GT2 的 topology 数值是自洽的 mock 建议，不是对具体 9A49 fusing 的实测。
+ - 本矩阵只覆盖 i915 路径；xe 路径的 `VM_BIND`/`EXEC_QUEUE`/`VM` 结构不在范围内，不能混用。
++- **平台请求号不可近似**：只有 `_IOWR` 在 Linux/Darwin 数值相同；`_IOW`/`_IOR`/`_IO` 不同。JSON 对每条请求分别给出 `linux_request_hex` 和 `darwin_request_hex`。
+
+===== README.md.orig -> reference/i915-abi/README.md =====
+--- reference/i915-abi/repairs-001/README.md.orig	2026-10-21 00:04:11.154950644 +0800
++++ reference/i915-abi/README.md	2026-10-21 07:28:57.282661898 +0800
+@@ -4,17 +4,27 @@
+ 9A49/TGL path. No device node is opened, no ioctl is issued, and no GPU or
+ macOS kernel is touched.
+ 
++**Platform split:** every request in `i915-uapi-matrix.json` has explicit
++`linux_request_hex` and `darwin_request_hex`. Only `_IOWR` commands are
++numerically identical across Linux and Darwin; `_IOW`/`_IOR`/`_IO` differ
++because Linux and XNU assign opposite direction bits. Do not use a bare Linux
++request number in a Darwin mock.
++
+ ## Files
+ 
+ | File | Purpose |
+ |---|---|
+-| `i915-uapi-matrix.json` | Source-linked matrix: 47 request groups, struct layouts, call chains, NMDRM behavior, Darwin encoding |
++| `i915-uapi-matrix.json` | Source-linked matrix: 47 request groups, explicit Linux/Darwin request numbers, struct layouts, call chains, NMDRM behavior |
+ | `layout.json` | 255 `sizeof`/`_Alignof`/`offsetof` records from Mesa's pinned headers |
+-| `requests.txt` | Request-number probe output |
++| `requests.txt` | Linux request-number probe output |
+ | `probe_requests.c` | Prints Linux request numbers from `include/drm-uapi` |
+ | `probe_layout.c` | Prints struct size/align/field offsets |
+ | `probe_uapi.c` | Initial combined probe retained for reproducibility |
+ | `build_matrix.py` | Joins the probes and curated source references into the JSON |
++| `repairs-001/` | Pre-edit originals, ERRATA, XNU/Linux excerpts, Darwin probe |
++| `repairs-001/ERRATA.md` | Preserves the two original wrong claims and their corrections |
++| `repairs-001/probe_darwin_requests.c` | Darwin request probe compiled with `-U__linux__` against an explicit XNU `sys/ioccom.h` shim |
++| `repairs-001/darwin-requests.txt` | Darwin probe output |
+ 
+ ## Rebuild
+ 
+@@ -28,6 +38,17 @@
+   ../../reference/i915-abi/probe_layout.c
+ ../../reference/i915-abi/probe_requests > ../../reference/i915-abi/requests.txt
+ ../../reference/i915-abi/probe_layout > ../../reference/i915-abi/layout.json
++
++# Darwin numbers: force Mesa drm.h onto its BSD branch and use the pinned
++# XNU-compatible sys/ioccom.h shim (not host Linux macros).
++clang -std=c11 -U__linux__ \
++  -I../../reference/i915-abi/repairs-001/darwin-include \
++  -Iinclude -I. \
++  -o ../../reference/i915-abi/repairs-001/probe_darwin_requests \
++  ../../reference/i915-abi/repairs-001/probe_darwin_requests.c
++../../reference/i915-abi/repairs-001/probe_darwin_requests \
++  > ../../reference/i915-abi/repairs-001/darwin-requests.txt
++
+ cd ../..
+ python3 reference/i915-abi/build_matrix.py
+ ```
+@@ -39,4 +60,6 @@
+ - NMDRM `kexts/NMDRM/nmdrm.cpp` SHA-256 `842b28b73c48e28e75bdee0126b6ca8499810e677e63fef20fe4db06d70bc4a5`
+ 
+ The narrative summary and the first-init blocker are in
+-`../../drm/I915-UAPI-MATRIX.md`.
++`../../drm/I915-UAPI-MATRIX.md`. The GET_CAP scalar correction and the
++Darwin-vs-Linux direction-bit correction are recorded in
++`repairs-001/ERRATA.md`; the pre-edit artifacts are preserved there.
+
+===== build_matrix.py.orig -> reference/i915-abi/build_matrix.py =====
+--- reference/i915-abi/repairs-001/build_matrix.py.orig	2026-10-21 00:07:52.501122777 +0800
++++ reference/i915-abi/build_matrix.py	2026-10-21 07:29:50.449945468 +0800
+@@ -44,30 +44,33 @@
+ 
+ def req(name):
+     v = REQ[name]
++    d = (v >> 30) & 3
++    size = (v >> 16) & 0x3fff
++    xnu_dir = {0: 0x20000000, 1: 0x80000000, 2: 0x40000000, 3: 0xC0000000}[d]
++    dv = xnu_dir | ((size & 0x1fff) << 16) | (((v >> 8) & 0xff) << 8) | (v & 0xff)
+     return {
+         "macro": name,
+-        "request_hex": f"0x{v:08x}",
+-        "dir_bits": (v >> 30) & 3,
+-        "size": (v >> 16) & 0x3fff,
++        "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_request_hex": f"0x{v:08x}",
++        "darwin_request_hex": f"0x{dv:08x}",
++        "same_numeric": dv == v,
++        "linux_dir_bits": d,
++        "linux_dir_name": {0: "none", 1: "write", 2: "read", 3: "read_write"}[d],
++        "xnu_direction": {0: "IOC_VOID", 1: "IOC_IN", 2: "IOC_OUT", 3: "IOC_INOUT"}[d],
++        "xnu_direction_hex": f"0x{xnu_dir:08x}",
++        "size": size,
++        "size_fits_darwin_13bit": size < 8192,
+         "type": (v >> 8) & 0xff,
+         "nr": v & 0xff,
+-    }
+-
+-def darwin_same(name):
+-    v = REQ[name]
+-    dirbits = {0: 0, 1: 0x80000000, 2: 0x40000000, 3: 0xC0000000}[(v >> 30) & 3]
+-    dv = dirbits | (((v >> 16) & 0x1fff) << 16) | (((v >> 8) & 0xff) << 8) | (v & 0xff)
+-    return {
+-        "linux_request_hex": f"0x{v:08x}",
+-        "darwin_request_hex_same_bit_layout": f"0x{dv:08x}",
+-        "same": dv == v,
+-        "note": ("size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; "
+-                 "direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical")
++        "note": ("Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 "
++                 "but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR "
++                 "is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). "
++                 "All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees.")
+     }
+ 
+ ENOTTY = {"handled": False, "behavior": "default: return ENOTTY", "userspace_errno": 25,
+           "userspace_errno_name": "ENOTTY", "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"}
+-EINVAL = {"handled": True, "behavior": "GET_CAP case; only DRM_CAP_PRIME is accepted, other capabilities return EINVAL",
++EINVAL = {"handled": True, "behavior": "GET_CAP case; DRM_CAP_PRIME returns scalar 0 (unsupported), other capabilities return EINVAL (unsupported)",
+           "userspace_errno": 22, "userspace_errno_name": "EINVAL",
+           "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:133-138"}
+ 
+@@ -89,16 +92,16 @@
+         "copyinout": kw.get("copy", ""),
+         "padding": kw.get("padding", ""),
+         "nm_drm": kw.get("nm", ENOTTY),
+-        "darwin": {"encoding": darwin_same(kw["requests"][0]),
+-                   "copyinout_note": kw.get("darwin", "")},
++        "platform_encoding": {
++            "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++            "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++            "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++            "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
++            "copyinout_note": kw.get("darwin", "")
++        },
+         "notes": kw.get("notes", ""),
+     }
+-    if len(kw["requests"]) > 1:
+-        d["requests"] = [req(r) for r in kw["requests"]]
+-        d["darwin"] = {"encoding": [darwin_same(r) for r in kw["requests"]],
+-                       "copyinout_note": kw.get("darwin", "")}
+-    else:
+-        d["requests"] = [req(kw["requests"][0])]
++    d["requests"] = [req(r) for r in kw["requests"]]
+     return d
+ 
+ 
+@@ -133,13 +136,13 @@
+         src("sources/mesa/src/vulkan/runtime/vk_drm_syncobj.c", 708, "vk_drm_syncobj_get_type", "uses util_sync_provider_drm and the timeline_wait pointer"),
+     ],
+     caller_chain=["anv_physical_device_try_create", "vk_drm_syncobj_get_type", "util_sync_provider_drm", "drmGetCap"],
+-    hardware="capability=DRM_CAP_SYNCOBJ_TIMELINE (0x14) returns nonzero value if the kernel supports timeline syncobjs. DRM_CAP_PRIME (0x5) is a bitmask.",
+-    mock="drm_get_cap.value is a user pointer to a u64. Copy the u64 result to that pointer and do not overwrite the pointer field. Return 0 for supported caps, -EINVAL/EINVAL for unknown caps.",
+-    pointer="value is a 64-bit user pointer, not a scalar. This is a classic copyout trap.",
+-    copy="XNU copies the 16-byte top-level struct in/out; the handler must copyout the u64 to the user address in value.",
++    hardware="capability=DRM_CAP_SYNCOBJ_TIMELINE (0x14) returns a nonzero scalar value if the kernel supports timeline syncobjs. DRM_CAP_PRIME (0x5) is a bitmask; 0 means no PRIME support. Both fields are scalars in the 16-byte struct.",
++    mock="Set the scalar cap->value in the kernel copy; XNU copies the 16-byte struct back. Do not treat value as a user pointer. Return 0 for a supported/known capability, EINVAL for an unsupported capability.",
++    pointer="Both capability and value are 64-bit scalars. libdrm's drm_get_cap.value is also a scalar; it is not a user pointer.",
++    copy="XNU copies the 16-byte struct in and out; there is no nested copyout for GET_CAP.",
+     padding="none",
+-    nm={"handled": True, "behavior": "GET_CAP case; DRM_CAP_PRIME (0x5) returns 0 but writes the pointer field instead of copyout; DRM_CAP_SYNCOBJ_TIMELINE (0x14) returns EINVAL", "userspace_errno": 22, "userspace_errno_name": "EINVAL for 0x14; success(0) for 0x5", "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:133-138"},
+-    notes="NMDRM accepts only DRM_CAP_PRIME and writes c->value = 0 instead of copyout; the user's output variable is not written. For 0x14 it returns EINVAL, so timeline_signal/timeline_wait stay NULL and vk_drm_syncobj_get_type cannot set VK_SYNC_FEATURE_TIMELINE."
++    nm={"handled": True, "behavior": "GET_CAP case; DRM_CAP_PRIME (0x5) sets scalar value=0 (PRIME unsupported); DRM_CAP_SYNCOBJ_TIMELINE (0x14) returns EINVAL (unsupported)", "userspace_errno": 22, "userspace_errno_name": "EINVAL for 0x14; success(0) with scalar value 0 for 0x5", "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:133-138"},
++    notes="c->value = 0 is a valid scalar output for the _IOWR struct, not a pointer write. NMDRM accepts only DRM_CAP_PRIME and returns a negative answer; for 0x14 it returns EINVAL, so timeline_signal/timeline_wait stay NULL and vk_drm_syncobj_get_type cannot set VK_SYNC_FEATURE_TIMELINE. The kernel-inventory agent corrected the same pointer claim in reference/kernel-inventory/ERRATA.md."
+ ))
+ 
+ entries.append(e(
+@@ -965,6 +968,7 @@
+         "errno": "No i915 ioctl is reached. NMDRM VERSION itself returns success (0) and the string 'nmdrm'; the failure is ENOTSUP-equivalent at the Mesa logic level (VK_ERROR_INCOMPATIBLE_DRIVER), not an i915 errno.",
+         "not_just_i915": "Changing the VERSION name to 'i915' is necessary but far from sufficient. The next hard stops are GETPARAM(CS_TIMESTAMP_FREQUENCY), QUERY(TOPOLOGY_INFO), GETPARAM(HAS_CONTEXT_ISOLATION), GEM_CREATE (UNREACHABLE probe), GTT_SIZE, the PRIME/dma-buf sync-file probe, and syncobj create/wait/destroy."
+     },
++    "earliest_physical_device_sequence_platform": "Linux __linux__ request numbers. Darwin/BSD values differ for non-_IOWR commands; use requests[].darwin_request_hex for the target platform.",
+     "earliest_physical_device_sequence": [
+         {"order": 1, "step": "open(renderD*)", "type": "syscall", "hard": True, "source": "anv_physical_device.c:2830", "nm_drm": "works if devfs node exists"},
+         {"order": 2, "step": "DRM_IOCTL_VERSION via is_virtio_fd", "request": "0xc0406400", "hard": False, "source": "intel_virtio_device.c:69", "nm_drm": "returns 'nmdrm'; not 'virtio_gpu', so not virtio"},
+@@ -993,6 +997,20 @@
+         {"order": 25, "step": "DRM_IOCTL_I915_QUERY ENGINE_INFO + GUC_SUBMISSION_VERSION (intel_common_update_device_info)", "request": "0xc0106479", "hard": False, "source": "common/intel_common.c:19-36; common/i915/intel_engine.c:93-130", "nm_drm": "ENOTTY => no compute support"},
+         {"order": 26, "step": "perf init (GETPARAM PERF_REVISION, CONTEXT_GETPARAM SSEU, optional PERF_*)", "request": "0xc0106446 / 0xc0186474 / 0x40106476", "hard": False, "source": "anv_perf.c:37-56; perf/i915/intel_perf.c:91-114", "nm_drm": "ENOTTY => perf disabled; /proc check also fails on Darwin"},
+     ],
++    "platform_encoding_evidence": {
++        "selector": "Mesa include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux": {
++            "source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++            "rule": "_IO=0, _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000",
++            "size_bits": 14
++        },
++        "darwin": {
++            "source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++            "rule": "_IO=IOC_VOID=0x20000000, _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000",
++            "size_bits": 13
++        },
++        "consequence": "Only _IOWR is numerically identical. _IOW and _IOR are swapped between Linux and XNU; _IO also differs. Each request below carries both linux_request_hex and darwin_request_hex."
++    },
+     "requests": entries,
+     "not_used_by_anv_i915": [
+         {"macro": "DRM_IOCTL_I915_GEM_GET_CACHING", "reason": "no call site in src/intel/vulkan (ANV); only hasvk/other drivers"},
+@@ -1010,12 +1028,18 @@
+         "Mesa's UNREACHABLE() expands to assert(!str) plus __builtin_unreachable(); assert-enabled builds abort on the GEM_CREATE failure, NDEBUG builds reach UB.",
+         "The exact libdrm implementation is external to the pinned Mesa tree. drmGetVersion's two-call length/payload pattern is the normal libdrm behavior; verify the Darwin shim's implementation.",
+         "NMDRM's d_mmap is eno_mmap (nmdrm.cpp:157). Its return behavior is not determinable from the NullMoth tree; a GEM mmap mock must provide a real d_mmap.",
+-        "The 9A49 topology values in the mock guidance are a self-consistent TGL GT2 shape (1 slice, 6 subslices, 16 EUs/subslice), not a claim about a specific fused part."
++        "The 9A49 topology values in the mock guidance are a self-consistent TGL GT2 shape (1 slice, 6 subslices, 16 EUs/subslice), not a claim about a specific fused part.",
++        "GET_CAP.value is a scalar in both nm_drm_get_cap and generic drm_get_cap; c->value=0 is a valid unsupported answer, not a pointer bug. See repairs-001/ERRATA.md.",
++        "Linux and Darwin request numbers are not interchangeable: only _IOWR matches. Each request in this matrix carries linux_request_hex and darwin_request_hex."
+     ]
+ }
+ 
+ # attach SHA-256 of this JSON's inputs
+-for p in [HERE / "layout.json", HERE / "probe_uapi.c", HERE / "probe_layout.c", HERE / "probe_requests.c"]:
++for p in [HERE / "layout.json", HERE / "probe_uapi.c", HERE / "probe_layout.c", HERE / "probe_requests.c",
++          HERE / "repairs-001" / "probe_darwin_requests.c",
++          HERE / "repairs-001" / "darwin-requests.txt",
++          HERE / "repairs-001" / "xnu-ioccom-excerpt.txt",
++          HERE / "repairs-001" / "linux-asm-generic-ioctl-excerpt.txt"]:
+     matrix["generated_from"].setdefault("probe_files", {})[p.name] = hashlib.sha256(p.read_bytes()).hexdigest()
+ 
+ (HERE / "i915-uapi-matrix.json").write_text(json.dumps(matrix, indent=2, ensure_ascii=False) + "\n")
+
+===== i915-uapi-matrix.json.orig -> reference/i915-abi/i915-uapi-matrix.json =====
+--- reference/i915-abi/repairs-001/i915-uapi-matrix.json.orig	2026-10-21 07:16:09.374879385 +0800
++++ reference/i915-abi/i915-uapi-matrix.json	2026-10-21 07:34:18.285502436 +0800
+@@ -17,7 +17,11 @@
+       "layout.json": "35d7942202307ed43f65853b33afd9cc71c4d0e63b22366a453d17a255bde25f",
+       "probe_uapi.c": "41eb937e23b1ff26d53b2a8de56bcad33809c3ca3b97388a59046fb40b136c0a",
+       "probe_layout.c": "17d19dd42e47887cbb2a4b3cd00e7957ec02ab2bea2e15b82f0718ab70af77e5",
+-      "probe_requests.c": "8f8afacf877577762e2536e3991b4624433e5d0e3e13c14fd78268f00409d46a"
++      "probe_requests.c": "8f8afacf877577762e2536e3991b4624433e5d0e3e13c14fd78268f00409d46a",
++      "probe_darwin_requests.c": "f8ee5a3ea7d8b4cde92786390172d7a24aacf47db0496f7a71df352a9537ffac",
++      "darwin-requests.txt": "f5292850362637a41faf8d4d126d7a3d8595f62a413abc6fc0b81b8683a92d04",
++      "xnu-ioccom-excerpt.txt": "9a9d9239f1a3f8c0fe589604b09b72adf01c41090538dc287c6e8e1d8becc5fd",
++      "linux-asm-generic-ioctl-excerpt.txt": "9bdea83abec32a62bf31c9615eec69a3d4ed32ea4d2b68c6a562647e51a60c57"
+     }
+   },
+   "method": "static source reading + CPU-only clang probes against Mesa's pinned include/drm-uapi headers; no device node opened, no ioctl issued, no GPU or macOS kernel touched",
+@@ -123,6 +127,7 @@
+     "errno": "No i915 ioctl is reached. NMDRM VERSION itself returns success (0) and the string 'nmdrm'; the failure is ENOTSUP-equivalent at the Mesa logic level (VK_ERROR_INCOMPATIBLE_DRIVER), not an i915 errno.",
+     "not_just_i915": "Changing the VERSION name to 'i915' is necessary but far from sufficient. The next hard stops are GETPARAM(CS_TIMESTAMP_FREQUENCY), QUERY(TOPOLOGY_INFO), GETPARAM(HAS_CONTEXT_ISOLATION), GEM_CREATE (UNREACHABLE probe), GTT_SIZE, the PRIME/dma-buf sync-file probe, and syncobj create/wait/destroy."
+   },
++  "earliest_physical_device_sequence_platform": "Linux __linux__ request numbers. Darwin/BSD values differ for non-_IOWR commands; use requests[].darwin_request_hex for the target platform.",
+   "earliest_physical_device_sequence": [
+     {
+       "order": 1,
+@@ -333,6 +338,20 @@
+       "nm_drm": "ENOTTY => perf disabled; /proc check also fails on Darwin"
+     }
+   ],
++  "platform_encoding_evidence": {
++    "selector": "Mesa include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++    "linux": {
++      "source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++      "rule": "_IO=0, _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000",
++      "size_bits": 14
++    },
++    "darwin": {
++      "source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++      "rule": "_IO=IOC_VOID=0x20000000, _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000",
++      "size_bits": 13
++    },
++    "consequence": "Only _IOWR is numerically identical. _IOW and _IOR are swapped between Linux and XNU; _IO also differs. Each request below carries both linux_request_hex and darwin_request_hex."
++  },
+   "requests": [
+     {
+       "id": "version",
+@@ -340,11 +359,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_VERSION",
+-          "request_hex": "0xc0406400",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0406400",
++          "darwin_request_hex": "0xc0406400",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 64,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 0
++          "nr": 0,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -435,13 +462,11 @@
+         "userspace_errno_name": "success",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:59,121-127"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0406400",
+-          "darwin_request_hex_same_bit_layout": "0xc0406400",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": "XNU's d_ioctl receives a pre-copied kernel buffer; NMDRM's copyString() uses copyout to the user string pointers."
+       },
+       "notes": "This is the first NMDRM-side blocker: nmdrm != i915/xe. The request number happens to be identical to generic DRM VERSION because both encode group 'd', nr 0, size 64."
+@@ -452,11 +477,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_GET_CAP",
+-          "request_hex": "0xc010640c",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc010640c",
++          "darwin_request_hex": "0xc010640c",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 12
++          "nr": 12,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -500,28 +533,26 @@
+         "util_sync_provider_drm",
+         "drmGetCap"
+       ],
+-      "hardware_semantics": "capability=DRM_CAP_SYNCOBJ_TIMELINE (0x14) returns nonzero value if the kernel supports timeline syncobjs. DRM_CAP_PRIME (0x5) is a bitmask.",
+-      "mock_semantics": "drm_get_cap.value is a user pointer to a u64. Copy the u64 result to that pointer and do not overwrite the pointer field. Return 0 for supported caps, -EINVAL/EINVAL for unknown caps.",
+-      "pointer_compat": "value is a 64-bit user pointer, not a scalar. This is a classic copyout trap.",
+-      "copyinout": "XNU copies the 16-byte top-level struct in/out; the handler must copyout the u64 to the user address in value.",
++      "hardware_semantics": "capability=DRM_CAP_SYNCOBJ_TIMELINE (0x14) returns a nonzero scalar value if the kernel supports timeline syncobjs. DRM_CAP_PRIME (0x5) is a bitmask; 0 means no PRIME support. Both fields are scalars in the 16-byte struct.",
++      "mock_semantics": "Set the scalar cap->value in the kernel copy; XNU copies the 16-byte struct back. Do not treat value as a user pointer. Return 0 for a supported/known capability, EINVAL for an unsupported capability.",
++      "pointer_compat": "Both capability and value are 64-bit scalars. libdrm's drm_get_cap.value is also a scalar; it is not a user pointer.",
++      "copyinout": "XNU copies the 16-byte struct in and out; there is no nested copyout for GET_CAP.",
+       "padding": "none",
+       "nm_drm": {
+         "handled": true,
+-        "behavior": "GET_CAP case; DRM_CAP_PRIME (0x5) returns 0 but writes the pointer field instead of copyout; DRM_CAP_SYNCOBJ_TIMELINE (0x14) returns EINVAL",
++        "behavior": "GET_CAP case; DRM_CAP_PRIME (0x5) sets scalar value=0 (PRIME unsupported); DRM_CAP_SYNCOBJ_TIMELINE (0x14) returns EINVAL (unsupported)",
+         "userspace_errno": 22,
+-        "userspace_errno_name": "EINVAL for 0x14; success(0) for 0x5",
++        "userspace_errno_name": "EINVAL for 0x14; success(0) with scalar value 0 for 0x5",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:133-138"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc010640c",
+-          "darwin_request_hex_same_bit_layout": "0xc010640c",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+-      "notes": "NMDRM accepts only DRM_CAP_PRIME and writes c->value = 0 instead of copyout; the user's output variable is not written. For 0x14 it returns EINVAL, so timeline_signal/timeline_wait stay NULL and vk_drm_syncobj_get_type cannot set VK_SYNC_FEATURE_TIMELINE."
++      "notes": "c->value = 0 is a valid scalar output for the _IOWR struct, not a pointer write. NMDRM accepts only DRM_CAP_PRIME and returns a negative answer; for 0x14 it returns EINVAL, so timeline_signal/timeline_wait stay NULL and vk_drm_syncobj_get_type cannot set VK_SYNC_FEATURE_TIMELINE. The kernel-inventory agent corrected the same pointer claim in reference/kernel-inventory/ERRATA.md."
+     },
+     {
+       "id": "getparam",
+@@ -529,11 +560,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GETPARAM",
+-          "request_hex": "0xc0106446",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0106446",
++          "darwin_request_hex": "0xc0106446",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 70
++          "nr": 70,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -596,13 +635,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0106446",
+-          "darwin_request_hex_same_bit_layout": "0xc0106446",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "After fixing the driver name, CS_TIMESTAMP_FREQUENCY is the next hard stop for TGL (ver=12 >= 10): failure returns false at intel_device_info.c:567-572. HAS_CONTEXT_ISOLATION is a later hard gate at anv_physical_device.c:2884-2888. Note the nested getparam at intel_device_info.c:632: after the inner HAS_CONTEXT_ISOLATION succeeds, the outer call uses its boolean result as the next param (param 1, IRQ_ACTIVE); failure only affects supports_low_latency_hint, not physical-device creation.",
+@@ -693,11 +730,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_QUERY",
+-          "request_hex": "0xc0106479",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0106479",
++          "darwin_request_hex": "0xc0106479",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 121
++          "nr": 121,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -836,13 +881,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0106479",
+-          "darwin_request_hex_same_bit_layout": "0xc0106479",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "On failure intel_i915_query_alloc returns NULL; query_topology returns false; TGL returns false from intel_device_info_i915_get_info_from_fd."
+@@ -853,11 +896,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_QUERY",
+-          "request_hex": "0xc0106479",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0106479",
++          "darwin_request_hex": "0xc0106479",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 121
++          "nr": 121,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -939,13 +990,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0106479",
+-          "darwin_request_hex_same_bit_layout": "0xc0106479",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "Not a hard blocker."
+@@ -956,11 +1005,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_QUERY",
+-          "request_hex": "0xc0106479",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0106479",
++          "darwin_request_hex": "0xc0106479",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 121
++          "nr": 121,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -1102,13 +1159,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0106479",
+-          "darwin_request_hex_same_bit_layout": "0xc0106479",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "Failure is not fatal, but it changes the later GEM create/mmap path and memory heap data."
+@@ -1119,11 +1174,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_QUERY",
+-          "request_hex": "0xc0106479",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0106479",
++          "darwin_request_hex": "0xc0106479",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 121
++          "nr": 121,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -1272,13 +1335,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0106479",
+-          "darwin_request_hex_same_bit_layout": "0xc0106479",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "Not fatal; but without it has_vm_control may be false and CONTEXT_CREATE_EXT with engines is not used."
+@@ -1289,11 +1350,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_QUERY",
+-          "request_hex": "0xc0106479",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0106479",
++          "darwin_request_hex": "0xc0106479",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 121
++          "nr": 121,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -1398,13 +1467,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0106479",
+-          "darwin_request_hex_same_bit_layout": "0xc0106479",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "Not a hard blocker."
+@@ -1415,11 +1482,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_CREATE",
+-          "request_hex": "0xc010645b",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc010645b",
++          "darwin_request_hex": "0xc010645b",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 91
++          "nr": 91,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -1492,13 +1567,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc010645b",
+-          "darwin_request_hex_same_bit_layout": "0xc010645b",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "has_get_tiling calls UNREACHABLE('Failed to create GEM BO') when GEM_CREATE fails (intel_device_info.c:481-483). In assert builds this aborts; in NDEBUG it reaches __builtin_unreachable(), which is undefined behaviour. Therefore GEM_CREATE 4096 is effectively mandatory even before has_tiling_uapi can be false."
+@@ -1509,11 +1582,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_CREATE_EXT",
+-          "request_hex": "0xc018647c",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc018647c",
++          "darwin_request_hex": "0xc018647c",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 24,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 124
++          "nr": 124,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -1658,13 +1739,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc018647c",
+-          "darwin_request_hex_same_bit_layout": "0xc018647c",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "On real i915 with a successful MEMORY_REGIONS query this is the normal BO path. On NMDRM MEMORY_REGIONS fails, so Mesa would use legacy GEM_CREATE instead unless the mock implements regions."
+@@ -1675,11 +1754,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_GEM_CLOSE",
+-          "request_hex": "0x40086409",
+-          "dir_bits": 1,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0x40086409",
++          "darwin_request_hex": "0x80086409",
++          "same_numeric": false,
++          "linux_dir_bits": 1,
++          "linux_dir_name": "write",
++          "xnu_direction": "IOC_IN",
++          "xnu_direction_hex": "0x80000000",
+           "size": 8,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 9
++          "nr": 9,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -1741,13 +1828,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0x40086409",
+-          "darwin_request_hex_same_bit_layout": "0x80086409",
+-          "same": false,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "If GEM_CLOSE returns ENOTTY, mock handles leak but Mesa does not abort."
+@@ -1758,11 +1843,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_MMAP_OFFSET",
+-          "request_hex": "0xc0206464",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0206464",
++          "darwin_request_hex": "0xc0206464",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 32,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 100
++          "nr": 100,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -1837,13 +1930,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0206464",
+-          "darwin_request_hex_same_bit_layout": "0xc0206464",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "Because NMDRM GETPARAM MMAP_GTT_VERSION fails, has_mmap_offset stays false, so Mesa would take the legacy GEM_MMAP path. For a Gen12 i915-compatible mock, returning MMAP_GTT_VERSION>=4 and implementing MMAP_OFFSET + d_mmap is the correct path."
+@@ -1854,11 +1945,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_MMAP",
+-          "request_hex": "0xc028645e",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc028645e",
++          "darwin_request_hex": "0xc028645e",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 40,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 94
++          "nr": 94,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -1924,13 +2023,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc028645e",
+-          "darwin_request_hex_same_bit_layout": "0xc028645e",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "On a real TGL/Gen12 i915 this legacy path is not available. Prefer MMAP_OFFSET."
+@@ -1941,11 +2038,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_CONTEXT_CREATE",
+-          "request_hex": "0xc008646d",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc008646d",
++          "darwin_request_hex": "0xc008646d",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 8,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 109
++          "nr": 109,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -2001,13 +2106,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc008646d",
+-          "darwin_request_hex_same_bit_layout": "0xc008646d",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "Reached only if the engine query returns NULL and has_vm_control is false."
+@@ -2018,11 +2121,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_CONTEXT_CREATE_EXT",
+-          "request_hex": "0xc010646d",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc010646d",
++          "darwin_request_hex": "0xc010646d",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 109
++          "nr": 109,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -2149,13 +2260,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc010646d",
+-          "darwin_request_hex_same_bit_layout": "0xc010646d",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "On real TGL i915 this is the normal path. If the mock does not implement engine info, Mesa uses base CONTEXT_CREATE."
+@@ -2166,11 +2275,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_CONTEXT_DESTROY",
+-          "request_hex": "0x4008646e",
+-          "dir_bits": 1,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0x4008646e",
++          "darwin_request_hex": "0x8008646e",
++          "same_numeric": false,
++          "linux_dir_bits": 1,
++          "linux_dir_name": "write",
++          "xnu_direction": "IOC_IN",
++          "xnu_direction_hex": "0x80000000",
+           "size": 8,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 110
++          "nr": 110,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -2225,13 +2342,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0x4008646e",
+-          "darwin_request_hex_same_bit_layout": "0x8008646e",
+-          "same": false,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -2242,11 +2357,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM",
+-          "request_hex": "0xc0186475",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0186475",
++          "darwin_request_hex": "0xc0186475",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 24,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 117
++          "nr": 117,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -2316,13 +2439,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0186475",
+-          "darwin_request_hex_same_bit_layout": "0xc0186475",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "Failure is not fatal: Mesa leaves max_context_priority at LOW and continues. anv_i915_set_queue_parameters ignores the RECOVERABLE return."
+@@ -2333,11 +2454,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_CONTEXT_GETPARAM",
+-          "request_hex": "0xc0186474",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0186474",
++          "darwin_request_hex": "0xc0186474",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 24,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 116
++          "nr": 116,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -2441,13 +2570,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0186474",
+-          "darwin_request_hex_same_bit_layout": "0xc0186474",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "If GTT_SIZE fails, device->gtt_size falls back to aperture_bytes (also 0 if GET_APERTURE failed) and anv_physical_device.c:2938-2941 rejects the device ('GTT size too small'). This is a hard post-parameter gate."
+@@ -2458,11 +2585,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_VM_CREATE",
+-          "request_hex": "0xc010647a",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc010647a",
++          "darwin_request_hex": "0xc010647a",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 122
++          "nr": 122,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -2522,13 +2657,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc010647a",
+-          "darwin_request_hex_same_bit_layout": "0xc010647a",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "Not reached on NMDRM because has_vm_control is false when CONTEXT_GETPARAM(VM) fails."
+@@ -2539,11 +2672,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_VM_DESTROY",
+-          "request_hex": "0x4010647b",
+-          "dir_bits": 1,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0x4010647b",
++          "darwin_request_hex": "0x8010647b",
++          "same_numeric": false,
++          "linux_dir_bits": 1,
++          "linux_dir_name": "write",
++          "xnu_direction": "IOC_IN",
++          "xnu_direction_hex": "0x80000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 123
++          "nr": 123,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -2602,13 +2743,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0x4010647b",
+-          "darwin_request_hex_same_bit_layout": "0x8010647b",
+-          "same": false,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -2619,11 +2758,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_EXECBUFFER2",
+-          "request_hex": "0x40406469",
+-          "dir_bits": 1,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0x40406469",
++          "darwin_request_hex": "0x80406469",
++          "same_numeric": false,
++          "linux_dir_bits": 1,
++          "linux_dir_name": "write",
++          "xnu_direction": "IOC_IN",
++          "xnu_direction_hex": "0x80000000",
+           "size": 64,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 105
++          "nr": 105,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -2822,13 +2969,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0x40406469",
+-          "darwin_request_hex_same_bit_layout": "0x80406469",
+-          "same": false,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "Mesa uses the non-WR request 0x40406469. DRM_IOCTL_I915_GEM_EXECBUFFER2_WR (0xc0406469) also exists but is not the macro used here."
+@@ -2839,11 +2984,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_SYNCOBJ_CREATE",
+-          "request_hex": "0xc00864bf",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc00864bf",
++          "darwin_request_hex": "0xc00864bf",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 8,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 191
++          "nr": 191,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -2911,13 +3064,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc00864bf",
+-          "darwin_request_hex_same_bit_layout": "0xc00864bf",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "At physical-device time Mesa creates one signaled syncobj; failure returns features=0 and trips the asserts at anv_physical_device.c:2996-2998."
+@@ -2928,11 +3079,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_SYNCOBJ_DESTROY",
+-          "request_hex": "0xc00864c0",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc00864c0",
++          "darwin_request_hex": "0xc00864c0",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 8,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 192
++          "nr": 192,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -2986,13 +3145,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc00864c0",
+-          "darwin_request_hex_same_bit_layout": "0xc00864c0",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -3003,11 +3160,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_SYNCOBJ_WAIT",
+-          "request_hex": "0xc02864c3",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc02864c3",
++          "darwin_request_hex": "0xc02864c3",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 40,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 195
++          "nr": 195,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -3081,13 +3246,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc02864c3",
+-          "darwin_request_hex_same_bit_layout": "0xc02864c3",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "At physical-device time timeout=0, flags=WAIT_ALL, and the syncobj was created signaled; the mock must return 0 for the CPU_WAIT feature bit."
+@@ -3098,11 +3261,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_SYNCOBJ_RESET",
+-          "request_hex": "0xc01064c4",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc01064c4",
++          "darwin_request_hex": "0xc01064c4",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 196
++          "nr": 196,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -3160,13 +3331,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc01064c4",
+-          "darwin_request_hex_same_bit_layout": "0xc01064c4",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -3177,11 +3346,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_SYNCOBJ_SIGNAL",
+-          "request_hex": "0xc01064c5",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc01064c5",
++          "darwin_request_hex": "0xc01064c5",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 197
++          "nr": 197,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -3239,13 +3416,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc01064c5",
+-          "darwin_request_hex_same_bit_layout": "0xc01064c5",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -3256,11 +3431,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_SYNCOBJ_TIMELINE_WAIT",
+-          "request_hex": "0xc03064ca",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc03064ca",
++          "darwin_request_hex": "0xc03064ca",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 48,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 202
++          "nr": 202,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -3338,13 +3521,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc03064ca",
+-          "darwin_request_hex_same_bit_layout": "0xc03064ca",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -3355,11 +3536,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_SYNCOBJ_TIMELINE_SIGNAL",
+-          "request_hex": "0xc01864cd",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc01864cd",
++          "darwin_request_hex": "0xc01864cd",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 24,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 205
++          "nr": 205,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -3421,13 +3610,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc01864cd",
+-          "darwin_request_hex_same_bit_layout": "0xc01864cd",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -3438,11 +3625,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_SYNCOBJ_QUERY",
+-          "request_hex": "0xc01864cb",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc01864cb",
++          "darwin_request_hex": "0xc01864cb",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 24,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 203
++          "nr": 203,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -3504,13 +3699,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc01864cb",
+-          "darwin_request_hex_same_bit_layout": "0xc01864cb",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -3521,11 +3714,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_SYNCOBJ_TRANSFER",
+-          "request_hex": "0xc02064cc",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc02064cc",
++          "darwin_request_hex": "0xc02064cc",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 32,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 204
++          "nr": 204,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -3596,13 +3797,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc02064cc",
+-          "darwin_request_hex_same_bit_layout": "0xc02064cc",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -3613,11 +3812,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_SYNCOBJ_HANDLE_TO_FD",
+-          "request_hex": "0xc01064c1",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc01064c1",
++          "darwin_request_hex": "0xc01064c1",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 193
++          "nr": 193,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -3679,13 +3886,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc01064c1",
+-          "darwin_request_hex_same_bit_layout": "0xc01064c1",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -3696,11 +3901,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_SYNCOBJ_FD_TO_HANDLE",
+-          "request_hex": "0xc01064c2",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc01064c2",
++          "darwin_request_hex": "0xc01064c2",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 194
++          "nr": 194,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -3762,13 +3975,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc01064c2",
+-          "darwin_request_hex_same_bit_layout": "0xc01064c2",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -3779,11 +3990,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_GET_TILING",
+-          "request_hex": "0xc0106462",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0106462",
++          "darwin_request_hex": "0xc0106462",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 98
++          "nr": 98,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -3852,13 +4071,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0106462",
+-          "darwin_request_hex_same_bit_layout": "0xc0106462",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "If GEM_CREATE succeeds but GET_TILING fails, has_tiling_uapi=false; no abort. SET_TILING is not called during the 9A49 probe because has_bit6_swizzle is short-circuited by ver<8."
+@@ -3869,11 +4086,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_SET_TILING",
+-          "request_hex": "0xc0106461",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0106461",
++          "darwin_request_hex": "0xc0106461",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 97
++          "nr": 97,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -3936,13 +4161,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0106461",
+-          "darwin_request_hex_same_bit_layout": "0xc0106461",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "Not reached if has_tiling_uapi=false."
+@@ -3953,11 +4176,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_SET_CACHING",
+-          "request_hex": "0x4008646f",
+-          "dir_bits": 1,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0x4008646f",
++          "darwin_request_hex": "0x8008646f",
++          "same_numeric": false,
++          "linux_dir_bits": 1,
++          "linux_dir_name": "write",
++          "xnu_direction": "IOC_IN",
++          "xnu_direction_hex": "0x80000000",
+           "size": 8,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 111
++          "nr": 111,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -4011,13 +4242,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0x4008646f",
+-          "darwin_request_hex_same_bit_layout": "0x8008646f",
+-          "same": false,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "TGL has_llc=true, so the condition at anv_kmd_backend.c:75 is false; this ioctl is not expected on 9A49."
+@@ -4028,11 +4257,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_GET_CACHING",
+-          "request_hex": "0xc0086470",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0086470",
++          "darwin_request_hex": "0xc0086470",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 8,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 112
++          "nr": 112,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -4070,13 +4307,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0086470",
+-          "darwin_request_hex_same_bit_layout": "0xc0086470",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "No call site in src/intel/vulkan (ANV i915). Only the hasvk/other drivers reference this family; do not add it to the ANV mock unless a concrete caller appears."
+@@ -4087,11 +4322,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_GET_APERTURE",
+-          "request_hex": "0x80106463",
+-          "dir_bits": 2,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0x80106463",
++          "darwin_request_hex": "0x40106463",
++          "same_numeric": false,
++          "linux_dir_bits": 2,
++          "linux_dir_name": "read",
++          "xnu_direction": "IOC_OUT",
++          "xnu_direction_hex": "0x40000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 99
++          "nr": 99,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -4146,13 +4389,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0x80106463",
+-          "darwin_request_hex_same_bit_layout": "0x40106463",
+-          "same": false,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "If both this and GTT_SIZE fail, anv_physical_device.c:2938-2941 rejects the device."
+@@ -4163,11 +4404,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_USERPTR",
+-          "request_hex": "0xc0186473",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0186473",
++          "darwin_request_hex": "0xc0186473",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 24,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 115
++          "nr": 115,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -4230,13 +4479,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0186473",
+-          "darwin_request_hex_same_bit_layout": "0xc0186473",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "ENOTTY simply leaves has_userptr_uapi=false."
+@@ -4247,11 +4494,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_REG_READ",
+-          "request_hex": "0xc0106471",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0106471",
++          "darwin_request_hex": "0xc0106471",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 113
++          "nr": 113,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -4306,13 +4561,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0106471",
+-          "darwin_request_hex_same_bit_layout": "0xc0106471",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -4323,11 +4576,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GET_RESET_STATS",
+-          "request_hex": "0xc0186472",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0186472",
++          "darwin_request_hex": "0xc0186472",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 24,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 114
++          "nr": 114,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -4388,13 +4649,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0186472",
+-          "darwin_request_hex_same_bit_layout": "0xc0186472",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "Failure is treated as device lost."
+@@ -4405,11 +4664,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_GEM_WAIT",
+-          "request_hex": "0xc010646c",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc010646c",
++          "darwin_request_hex": "0xc010646c",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 108
++          "nr": 108,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -4467,13 +4734,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc010646c",
+-          "darwin_request_hex_same_bit_layout": "0xc010646c",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -4484,11 +4749,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_PRIME_HANDLE_TO_FD",
+-          "request_hex": "0xc00c642d",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc00c642d",
++          "darwin_request_hex": "0xc00c642d",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 12,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 45
++          "nr": 45,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -4547,13 +4820,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc00c642d",
+-          "darwin_request_hex_same_bit_layout": "0xc00c642d",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "This is a non-i915 blocker: even a complete i915 ioctl mock needs PRIME + dma-buf sync_file support to pass the physical-device parameter checks."
+@@ -4564,11 +4835,19 @@
+       "requests": [
+         {
+           "macro": "DMA_BUF_IOCTL_EXPORT_SYNC_FILE",
+-          "request_hex": "0xc0086202",
+-          "dir_bits": 3,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0xc0086202",
++          "darwin_request_hex": "0xc0086202",
++          "same_numeric": true,
++          "linux_dir_bits": 3,
++          "linux_dir_name": "read_write",
++          "xnu_direction": "IOC_INOUT",
++          "xnu_direction_hex": "0xc0000000",
+           "size": 8,
++          "size_fits_darwin_13bit": true,
+           "type": 98,
+-          "nr": 2
++          "nr": 2,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -4616,13 +4895,11 @@
+         "userspace_errno_name": "n/a",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0xc0086202",
+-          "darwin_request_hex_same_bit_layout": "0xc0086202",
+-          "same": true,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "Separate ioctl family on the dma-buf fd, not the DRM fd."
+@@ -4633,11 +4910,19 @@
+       "requests": [
+         {
+           "macro": "DMA_BUF_IOCTL_IMPORT_SYNC_FILE",
+-          "request_hex": "0x40086203",
+-          "dir_bits": 1,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0x40086203",
++          "darwin_request_hex": "0x80086203",
++          "same_numeric": false,
++          "linux_dir_bits": 1,
++          "linux_dir_name": "write",
++          "xnu_direction": "IOC_IN",
++          "xnu_direction_hex": "0x80000000",
+           "size": 8,
++          "size_fits_darwin_13bit": true,
+           "type": 98,
+-          "nr": 3
++          "nr": 3,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -4685,13 +4970,11 @@
+         "userspace_errno_name": "n/a",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0x40086203",
+-          "darwin_request_hex_same_bit_layout": "0x80086203",
+-          "same": false,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -4702,11 +4985,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_PERF_OPEN",
+-          "request_hex": "0x40106476",
+-          "dir_bits": 1,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0x40106476",
++          "darwin_request_hex": "0x80106476",
++          "same_numeric": false,
++          "linux_dir_bits": 1,
++          "linux_dir_name": "write",
++          "xnu_direction": "IOC_IN",
++          "xnu_direction_hex": "0x80000000",
+           "size": 16,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 118
++          "nr": 118,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -4765,13 +5056,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0x40106476",
+-          "darwin_request_hex_same_bit_layout": "0x80106476",
+-          "same": false,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": "On Darwin the /proc/sys/dev/i915/perf_stream_paranoid check fails, so OA config loading is skipped."
+@@ -4782,11 +5071,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_PERF_ADD_CONFIG",
+-          "request_hex": "0x40486477",
+-          "dir_bits": 1,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0x40486477",
++          "darwin_request_hex": "0x80486477",
++          "same_numeric": false,
++          "linux_dir_bits": 1,
++          "linux_dir_name": "write",
++          "xnu_direction": "IOC_IN",
++          "xnu_direction_hex": "0x80000000",
+           "size": 72,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 119
++          "nr": 119,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [
+@@ -4854,13 +5151,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0x40486477",
+-          "darwin_request_hex_same_bit_layout": "0x80486477",
+-          "same": false,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -4871,11 +5166,19 @@
+       "requests": [
+         {
+           "macro": "DRM_IOCTL_I915_PERF_REMOVE_CONFIG",
+-          "request_hex": "0x40086478",
+-          "dir_bits": 1,
++          "platform_selector": "sources/mesa/include/drm-uapi/drm.h: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++          "linux_request_hex": "0x40086478",
++          "darwin_request_hex": "0x80086478",
++          "same_numeric": false,
++          "linux_dir_bits": 1,
++          "linux_dir_name": "write",
++          "xnu_direction": "IOC_IN",
++          "xnu_direction_hex": "0x80000000",
+           "size": 8,
++          "size_fits_darwin_13bit": true,
+           "type": 100,
+-          "nr": 120
++          "nr": 120,
++          "note": "Same numeric value only for _IOWR (0xc0000000). Linux _IOW is 0x40000000 but XNU _IOW is IOC_IN 0x80000000; Linux _IOR is 0x80000000 but XNU _IOR is IOC_OUT 0x40000000. _IO also differs (Linux 0, XNU IOC_VOID 0x20000000). All inventoried struct sizes are <8192, so the 13-bit/14-bit length field agrees."
+         }
+       ],
+       "structs": [],
+@@ -4907,13 +5210,11 @@
+         "userspace_errno_name": "ENOTTY",
+         "source": "sources/nullmoth/kexts/NMDRM/nmdrm.cpp:142-143"
+       },
+-      "darwin": {
+-        "encoding": {
+-          "linux_request_hex": "0x40086478",
+-          "darwin_request_hex_same_bit_layout": "0x80086478",
+-          "same": false,
+-          "note": "size < 8192, so Linux 14-bit and XNU 13-bit parameter-length fields agree; direction/type/nr shifts and IOC_IN/IOC_OUT bits are identical"
+-        },
++      "platform_encoding": {
++        "selector": "Mesa drm.h compile-time branch: __linux__ -> <asm/ioctl.h>; otherwise <sys/ioccom.h>",
++        "linux_source": "reference/i915-abi/repairs-001/linux-asm-generic-ioctl-excerpt.txt",
++        "darwin_source": "reference/i915-abi/repairs-001/xnu-ioccom-excerpt.txt",
++        "rule": "Linux _IOW=0x40000000, _IOR=0x80000000, _IOWR=0xc0000000, _IO=0; XNU _IOW=IOC_IN=0x80000000, _IOR=IOC_OUT=0x40000000, _IOWR=IOC_INOUT=0xc0000000, _IO=IOC_VOID=0x20000000. Only _IOWR is numerically identical.",
+         "copyinout_note": ""
+       },
+       "notes": ""
+@@ -4959,6 +5260,8 @@
+     "Mesa's UNREACHABLE() expands to assert(!str) plus __builtin_unreachable(); assert-enabled builds abort on the GEM_CREATE failure, NDEBUG builds reach UB.",
+     "The exact libdrm implementation is external to the pinned Mesa tree. drmGetVersion's two-call length/payload pattern is the normal libdrm behavior; verify the Darwin shim's implementation.",
+     "NMDRM's d_mmap is eno_mmap (nmdrm.cpp:157). Its return behavior is not determinable from the NullMoth tree; a GEM mmap mock must provide a real d_mmap.",
+-    "The 9A49 topology values in the mock guidance are a self-consistent TGL GT2 shape (1 slice, 6 subslices, 16 EUs/subslice), not a claim about a specific fused part."
++    "The 9A49 topology values in the mock guidance are a self-consistent TGL GT2 shape (1 slice, 6 subslices, 16 EUs/subslice), not a claim about a specific fused part.",
++    "GET_CAP.value is a scalar in both nm_drm_get_cap and generic drm_get_cap; c->value=0 is a valid unsupported answer, not a pointer bug. See repairs-001/ERRATA.md.",
++    "Linux and Darwin request numbers are not interchangeable: only _IOWR matches. Each request in this matrix carries linux_request_hex and darwin_request_hex."
+   ]
+ }
+

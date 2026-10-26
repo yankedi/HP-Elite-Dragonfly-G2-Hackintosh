@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "scope": "Actual exact-a0ed SPT trial: personality effective, physical USB still absent",
+  "private_report": ".local/install-prep/hp-xhci-live-w3guz183/report.json",
+  "private_report_sha256": "0f6774271436545820766791566fa4f1d1c2a7b8ffe38b6615b970144b7bda52",
+  "analysis": {
+    "path": ".local/install-prep/hp-xhci-live-w3guz183/analysis.json",
+    "sha256": "d85fdd3ac0c0704472c3fbcd1fa6c846d1de6e0d773b9424552954527836c3ef"
+  },
+  "delivered_image_sha256_before_boot": "e55eb607858afda49cda89fe8a9f023143ff49ce20a937424cd9ba704a66ae72",
+  "post_boot_usb_img_recovered": true,
+  "post_boot_capture": {
+    "path": ".local/install-prep/hp-xhci-capture-vy977qe3/report.json",
+    "sha256": "4b29cd082180b3953db9cced0457247361413e4b3d77b1257d15ccc27c334e26",
+    "image_sha256": "4c3b249ee34a71317e05fe75875b92d549c36abfe1643a908cf30f1d6264082e",
+    "original_files_identical": 48,
+    "new_log_exitbs": true
+  },
+  "archive_sha256": "4bc61af31014d15b523b62caa8e4af69c57cab3f8d14e80f07c49705b754cde6",
+  "archive_sftp_and_independent_ssh_cat_identical": true,
+  "collector_commands": 67,
+  "captured_files": 141,
+  "failed_or_missing_commands": 10,
+  "timeouts": 0,
+  "actual_controllers": [
+    {
+      "pci_id": "8086:a0ed",
+      "acpi_name": "XHCI",
+      "io_class": "AppleUSBXHCISPT",
+      "publisher": "org.rehabman.injector.XHCI.unsupported",
+      "probe_score": 900,
+      "current_power_state": 0,
+      "driver_power_state": 0,
+      "io_count": 0,
+      "children": 0,
+      "recorded_on_state_ms": 5178
+    },
+    {
+      "pci_id": "8086:9a13",
+      "acpi_name": "TXHC",
+      "io_class": "AppleUSBXHCIPCI",
+      "current_power_state": 0,
+      "driver_power_state": 0,
+      "io_count": 0,
+      "children": 0,
+      "recorded_on_state_ms": 5180
+    }
+  ],
+  "physical_lexar_present": false,
+  "usb_host_device_count": 0,
+  "usb_host_interface_count": 0,
+  "wifi_ssh_sftp_working": true,
+  "touchpad_interrupt_mode": "Polling",
+  "touchscreen_interrupt_mode": "APIC",
+  "early_log_limit": {
+    "actual_sysctl_kern_msgbuf_bytes": 131072,
+    "saved_dmesg_bytes": 131071,
+    "earliest_saved_dmesg_kernel_uptime_seconds": 109.145141,
+    "rotated_logs_archive": {
+      "path": ".local/install-prep/hp-xhci-live-w3guz183/early-and-rotated-logs.tar.gz",
+      "sha256": "9408222449e33244f45e4d3e1b48728d5a18e9af741a13573622bc4b3258945d"
+    },
+    "rotated_log_files_saved": 37,
+    "earliest_rotated_syslog_kernel_uptime_seconds": 11.978993,
+    "unified_log_show_exit": 65,
+    "logd_service_absent": true,
+    "actual_early_usb_initialization_error_recovered": false
+  },
+  "interpretation": "Exact class matching alone did not restore USB. About5.18s recorded in On state is not proof of a reset timeout or ACPI cause. Static driver strings are possible messages, not observed errors. No unsupported port map or power patch inferred",
+  "next_action": "Source-backed 1MiB log-buffer-only image delivered, physical boot pending. Keep USB-negative SPT outcome separate from next diagnostic trial",
+  "integration_audit": {
+    "path": ".local/install-prep/hp-xhci-live-w3guz183/integration-audit.json",
+    "sha256": "4674269db3807fd9d8cadcc11e6b7491e8aa80f1c8cabea1f55da154a723bf72",
+    "history_events": 29,
+    "unique_history_runtime_diagnostic_references_verified": 42,
+    "repository_checks": "make check passes44Python/36JSON/25Markdown;git diff --check passes"
+  },
+  "firmware_nvram_partition_writes_remote_reboot_or_driver_unload": false
+}

@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "observation_date": "2026-10-16",
+  "runtime_capture_started_at": "2026-10-15T18:03:25.751869+00:00",
+  "private_evidence_directory": ".local/hardware/20261015T174049.365004Z/analysis/display-followup",
+  "policy": "Read-only sysfs/debugfs, PCI config reads, kernel-log reads and local decoding only; no MMIO writes, forcewake changes, mode changes or target restart",
+  "pci_memory": {
+    "host_00_00_0_ggc_50w": "0x10c1",
+    "gpu_00_02_0_ggc_50w": "0x10c1",
+    "gms_bits_15_8": "0x10",
+    "decoded_stolen_size_mib": 512,
+    "gpu_bdsm_c0l": "0x30800001",
+    "gpu_bdsm_c4l": "0x00000000",
+    "decoded_stolen_base": "0x30800000",
+    "kernel_reserved_start": "0x30800000",
+    "kernel_reserved_end_inclusive": "0x507fffff",
+    "kernel_reserved_bytes": 536870912,
+    "ggc_and_kernel_reservation_agree": true,
+    "note": "GMS 0x10 is the ordinary 32 MiB increment path, not the special 0xf0+ encoding. This is not a test of Apple's DVMT handling."
+  },
+  "panel_runtime": {
+    "max_lanes": 2,
+    "max_link_rate_i915_units": 270000,
+    "max_bits_per_color": 8,
+    "power_up_delay_ms": 200,
+    "power_down_delay_ms": 50,
+    "power_cycle_delay_ms": 500,
+    "backlight_on_delay_ms": 50,
+    "backlight_off_delay_ms": 200,
+    "backlight_bl_power": 0,
+    "note": "PPS units interpreted using fixed Linux v6.18 source. These are Linux's selected runtime delays, not raw register values or macOS settings."
+  },
+  "opregion": {
+    "signature": "IntelGraphicsMem",
+    "version_raw": "0x02010000",
+    "size_kib": 8,
+    "rvds_bytes": 8704,
+    "bclm_percent_0_value": "0x19",
+    "bclm_percent_100_value": "0xff",
+    "note": "ASLE BCLM software brightness table, sysfs max_brightness 19200 and PWM register period are distinct quantities. No igfxtglblmax is selected."
+  },
+  "evidence": [
+    {"path": "runtime.txt", "bytes": 215, "sha256": "3b9e64bb65056cc589a41acb6074098ec2ca4890a64a006023e1220e14526c4b"},
+    {"path": "pci-memory.txt", "bytes": 157, "sha256": "d1fd62d4a23ca01a679a44e3f83fcd68da713e6774048fab4884202afcf8b992"},
+    {"path": "opregion.txt", "bytes": 4144, "sha256": "211df63e9f03235b5f131df4219c7e7fbad3eb47198d3ead47bd4946b053031e"}
+  ],
+  "linux_reference": {
+    "tag": "v6.18",
+    "commit": "7d0a66e4bb9081d75c82ec4957c50034cb0ea449",
+    "scope": "Reference interpretation, not a claim that the running NixOS 6.18.56 kernel is this exact commit",
+    "files": [
+      {"url": "https://github.com/torvalds/linux/blob/7d0a66e4bb9081d75c82ec4957c50034cb0ea449/arch/x86/kernel/early-quirks.c", "sha256": "ecbdad921b409704de1d278dcecb2f3bd420d98519e91204d3e1d03150ba8c1a"},
+      {"url": "https://github.com/torvalds/linux/blob/7d0a66e4bb9081d75c82ec4957c50034cb0ea449/drivers/gpu/drm/i915/display/intel_pps.c", "sha256": "ca05922e08524a77aced4583f80a02c35272fe28bc8aaeac0caf378a998d3ac3"},
+      {"url": "https://github.com/torvalds/linux/blob/7d0a66e4bb9081d75c82ec4957c50034cb0ea449/include/drm/intel/i915_drm.h", "git_blob_sha": "adff68538484405edb37666ed1272d1cb10dfb6a"}
+    ]
+  },
+  "macos_verified": false
+}

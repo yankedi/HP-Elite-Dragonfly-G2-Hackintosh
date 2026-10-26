@@ -1,0 +1,233 @@
+{
+  "schema": "mac-for-elitebook/graphics-sources-v1",
+  "reviewed_at": "2026-10-16",
+  "policy": {
+    "binary_scope": "Do not obtain unknown-provenance Apple OS or system-driver binaries. Official community open-source kext releases and official SDK archives are permitted when source, version, SHA-256 and license are checked.",
+    "this_graphics_research_subtask_downloaded_additional_binaries": false,
+    "target_hardware_accessed_by_this_documentation_subtask": false,
+    "verified_hardware_evidence_incorporated": true,
+    "macos_boot_tested": false,
+    "ventoy_modified": false,
+    "commit_links_are_immutable_when_sha_is_present": true,
+    "all_source_commits_pinned": false
+  },
+  "hardware_evidence": {
+    "inventory": "../hardware/elite-dragonfly-g2.json",
+    "documentation": ["../docs/hardware.md", "../docs/verification.md"],
+    "captured_at": "2026-10-15T17:40:49.365004+00:00",
+    "verification": "make verify-evidence checked 62 captured files for size and SHA-256; ACPI/EDID checksums and VBT signature passed",
+    "macos_status": "No OpenCore, Tahoe installer or macOS desktop boot test on this HP",
+    "records": [
+      {
+        "id": "system-cpu-bios-gpu",
+        "status": "Captured in the sanitized inventory; source text hashes verified",
+        "evidence_hashes": [
+          {"name": "dmi", "sha256": "b9b5ae1b197910f933e1938af75c8e8d7d7a3a1e8079ca88c97c35cf44f3d343"},
+          {"name": "cpu_system", "sha256": "f8f7fe1ac5fdd0938df6eacc9c82b0aa2803bcfb48c035f3c59ee60be2375de0"},
+          {"name": "pci", "sha256": "bc73d7f1deeebb0689deca97f3e46b18053a8f0bb0ded0534a9459c27834a2be"},
+          {"name": "graphics", "sha256": "c7d60c98f4292d329a186b21bc282b24e115bb12ac1125a6490146a6d47941e9"},
+          {"name": "firmware_settings", "sha256": "5152508f6636e840be064abc73860933b3d4538e00aa2702662ee2f64d9f1a99"}
+        ],
+        "findings": "Board 8716 / BIOS T90 01.25.00; CPU family 6 model 140 (0x8C) stepping 1; GPU 8086:9A49 rev 01, subsystem 103C:8716; the 2026-10-15 Linux i915 capture reports B0, 80 EU and 5 subslices; a separate later runtime observation reports 80 EU / 10 subslices (see the public current-status index); BIOS reports Video Memory Size 512 MB and GGC 0x10c1. Detailed DVMT register decoding remains incomplete."
+      },
+      {
+        "id": "panel-vbt-edid-display-link",
+        "status": "VBT and EDID acquired with verified SHA-256; i915 route/timing captured",
+        "evidence_hashes": [
+          {"name": "vbt_8704_bytes", "sha256": "715772cebbc951aef00ddec4bc76fe571c5f4f5dc5c0c26b8171a53f6333241d"},
+          {"name": "edid_128_bytes", "sha256": "229597c3c0f0577d85202c7928c8ad4718a7624558e41afde1f8b7dce15adba5"}
+        ],
+        "findings": "IVO8596 X133NVFF R0, 1920x1080; eDP-1 pipe A / DDI A / PHY A, two lanes at 2700 Mbps per lane; pixel clock 138.8 MHz and port clock 270 MHz (i915 units confirmed). DPCD is only an i915 summary reporting revision 1.2; full AUX/DPCD dump is absent."
+      },
+      {
+        "id": "acpi-tables",
+        "status": "32 AML tables captured; per-table decompilation output produced; shared namespace diagnostics remain",
+        "verified_capture_file_count": 62,
+        "representative_evidence_hashes": [
+          {"name": "dsdt", "sha256": "7afb4e662e79265a1a7c42c1af7ad448c003e8dbfa735b354e77dbb82f1ab343"},
+          {"name": "dmar", "sha256": "2ca3fa2c612c438a8bd5a9f2583596f7c680202a4fc2212933c20db63963aa9b"},
+          {"name": "nhlt", "sha256": "a5778dc31aa1a8788ce91f0dd78dc112cb0135a1251fc818db3f77d11b76c096"}
+        ],
+        "limits": "32 AML outputs do not prove complete namespace resolution or safe DSDT recompilation; DSDT and SSDT6 diagnostics are documented."
+      },
+      {
+        "id": "hid-report-descriptors",
+        "status": "Touchpad and touchscreen/pen HID report descriptor raw files were acquired; their SHA-256 values are present and verified in the private evidence capture, not duplicated in the sanitized inventory.",
+        "inventory_evidence_hashes": [
+          {"name": "inputs_text", "sha256": "a97b501384dafc390feb3175c6b38784d5aaaf443bece2a31d16981bc6a18ba1"},
+          {"name": "i2c_text", "sha256": "30f38f24cf24d5a5ab55e9af4a6a0ad260a48c5ef136b50136a053eeb5aa29f1"}
+        ]
+      },
+      {
+        "id": "unresolved-graphics-captures",
+        "status": "Not completed",
+        "items": ["DVMT/stolen-memory register interpretation", "full AUX/DPCD trace", "firmware PWM frequency/duty and 0xC2014", "forcewake GT fuse registers 0x9134, 0x9138, 0x913C, 0x9120, 0x9140"]
+      }
+    ]
+  },
+  "primary_agent_reported_official_release_cache": {
+    "status": "Primary agent reports the official release archives below were acquired locally and SHA-256 checked; this graphics documentation subtask did not independently re-open the cache. core-sources.json records upstream release metadata/digests, not the local cache verification result.",
+    "source_manifest": "../manifests/core-sources.json",
+    "other_assets": "Not reported acquired here; no patched WhateverGreen build is claimed.",
+    "assets": [
+      {"project": "OpenCorePkg", "version": "1.0.8", "commit": "6fe4d15cb66596d99d8cfedce69d8fc6dad71886", "license": "BSD-3-Clause", "asset": "OpenCore-1.0.8-RELEASE.zip", "official_sha256": "2011e8b7216ecb2645d97ea710df965947edd406846e92050b9bc4190be6d27b", "release_url": "https://github.com/acidanthera/OpenCorePkg/releases/tag/1.0.8"},
+      {"project": "Lilu", "version": "1.7.2", "commit": "e4748cc081bf060302c7d3c44a643ce1d11b7e1d", "license": "BSD-3-Clause", "asset": "Lilu-1.7.2-RELEASE.zip", "official_sha256": "53967d7dcfaab01023a33df2e969a89522f13d6654a6a56ac4711b62dabf3ab8", "release_url": "https://github.com/acidanthera/Lilu/releases/tag/1.7.2"},
+      {"project": "VirtualSMC", "version": "1.3.8", "commit": "b15991dd87e36a102bf159ea56490e3126245590", "license": "BSD-3-Clause", "asset": "VirtualSMC-1.3.8-RELEASE.zip", "official_sha256": "2e29a8aaf91b4eb0bcdf5913ed17e70f5cf76531122acd4132eff7813a54de8b", "release_url": "https://github.com/acidanthera/VirtualSMC/releases/tag/1.3.8"},
+      {"project": "VoodooPS2", "version": "2.3.7", "commit": "bdbf80639936701337f4574bae8c3ea25bb8dd3d", "license": "APSL-2.0", "asset": "VoodooPS2Controller-2.3.7-RELEASE.zip", "official_sha256": null, "release_url": "https://github.com/acidanthera/VoodooPS2/releases/tag/2.3.7", "note": "Upstream release API exposed no digest; primary agent reports a local SHA-256 check, exact local digest is not duplicated here."}
+    ]
+  },
+  "sources": [
+    {
+      "id": "latitude-7320-tahoe-framebuffer-study",
+      "url": "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh",
+      "api_url": "https://api.github.com/repos/holdmysocks/latitude-7320-detachable-hackintosh/git/commits/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c",
+      "commit": "1010490d3421628c9d6fd0bd518b6c4b6f8ee33c",
+      "commit_date": "2026-10-08T18:20:19Z",
+      "pin_date": "2026-10-16",
+      "version": "Repository snapshot; README reports OpenCore 1.0.7, Tahoe 26.6 build 25G72 and Apple framebuffer 24.0.5",
+      "license": {
+        "project": "MIT, as scoped in LICENSE to authored documentation/scripts/ACPI/config/research data; GitHub API metadata is Other/NOASSERTION",
+        "third_party_code": [
+          "WhateverGreen-derived patch diffs retain upstream BSD-3-Clause notices/terms; root MIT is not a replacement for upstream terms",
+          "Third-party kext binaries are not committed"
+        ]
+      },
+      "purpose": "Primary framebuffer-only 9A40 reference; patch mapping, run evidence, hardware capture schema and build procedure",
+      "status": "Pinned and source-reviewed. Tahoe/display/Metal findings are repository-author claims backed by published logs; not independently reproduced on the HP. No patched WhateverGreen binary was downloaded or built in this graphics review.",
+      "files": [
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/research/LAYER3.md",
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/research/LAYER4.md",
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/research/RESULTS.md",
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/research/METHODOLOGY.md",
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/research/data/layer3/runs.csv",
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/research/data/layer4/gt-fuses.txt",
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/WhateverGreen-patches/README.md",
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/WhateverGreen-patches/0001-tigerlake-icllp-mmio-tracer.patch",
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/WhateverGreen-patches/0002-tgl-function-tracer.patch",
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/WhateverGreen-patches/0003-tgl-register-map.patch",
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/WhateverGreen-patches/build-weg-clt.sh",
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/WhateverGreen-patches/tgl-xlate/README.md",
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/WhateverGreen-patches/tgl-xlate/setup.sh",
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/LICENSE"
+      ]
+    },
+    {
+      "id": "acidanthera-whatevergreen",
+      "url": "https://github.com/acidanthera/WhateverGreen",
+      "api_url": "https://api.github.com/repos/acidanthera/WhateverGreen/git/commits/0762cecc2a70054cd4dc3cf4d08979aca6acd9bb",
+      "commit_page": "https://github.com/acidanthera/WhateverGreen/commit/0762cecc2a70054cd4dc3cf4d08979aca6acd9bb.patch",
+      "commit": "0762cecc2a70054cd4dc3cf4d08979aca6acd9bb",
+      "commit_date": "2026-05-12T08:20:02+03:00",
+      "pin_date": "2026-10-16",
+      "version": "1.7.1 (Changelog.md at this commit)",
+      "license": {
+        "project": "BSD-3-Clause",
+        "third_party_code": []
+      },
+      "purpose": "Exact upstream source base required by latitude patch series 0001-0003",
+      "status": "Full SHA/date/version verified from the fixed GitHub commit patch and changelog. GitHub REST API request was rate-limited (403); no binary fetched.",
+      "files": [
+        "https://github.com/acidanthera/WhateverGreen/blob/0762cecc2a70054cd4dc3cf4d08979aca6acd9bb/Changelog.md",
+        "https://raw.githubusercontent.com/acidanthera/WhateverGreen/0762cecc2a70054cd4dc3cf4d08979aca6acd9bb/LICENSE.txt"
+      ]
+    },
+    {
+      "id": "acidanthera-lilu",
+      "url": "https://github.com/acidanthera/Lilu",
+      "release_url": "https://github.com/acidanthera/Lilu/releases/tag/1.7.2",
+      "commit_page": "https://github.com/acidanthera/Lilu/commit/e4748cc081bf060302c7d3c44a643ce1d11b7e1d.patch",
+      "commit": "e4748cc081bf060302c7d3c44a643ce1d11b7e1d",
+      "commit_date": "2026-01-18T21:45:09-08:00",
+      "pin_date": "2026-10-16",
+      "version": "1.7.2 source tag; release page identifies tag commit e4748cc081bf060302c7d3c44a643ce1d11b7e1d",
+      "license": {
+        "project": "BSD-3-Clause",
+        "third_party_code": []
+      },
+      "purpose": "WhateverGreen plugin headers and plugin_start.cpp build dependency",
+      "status": "Source commit and license checked. Primary agent reports an official Lilu 1.7.2 release archive in its SHA-checked local cache (see core-sources.json). Latitude build instructions name a 1.7.2 DEBUG bundle; compatibility of the cached RELEASE bundle/layout with that exact build script has not been verified. This graphics review did not download another Lilu asset.",
+      "files": [
+        "https://github.com/acidanthera/Lilu/blob/e4748cc081bf060302c7d3c44a643ce1d11b7e1d/Changelog.md",
+        "https://raw.githubusercontent.com/acidanthera/Lilu/e4748cc081bf060302c7d3c44a643ce1d11b7e1d/LICENSE.txt"
+      ]
+    },
+    {
+      "id": "acidanthera-mackernelsdk",
+      "url": "https://github.com/acidanthera/MacKernelSDK",
+      "api_url": "https://github.com/acidanthera/MacKernelSDK/commits/master.atom",
+      "commit_page": "https://github.com/acidanthera/MacKernelSDK/commit/3f750085caa17ec3a7880f11c11bf4f48cd6a164",
+      "commit": "3f750085caa17ec3a7880f11c11bf4f48cd6a164",
+      "commit_date": "2026-09-23T19:13:31Z",
+      "pin_date": "2026-10-16",
+      "version": "Candidate master snapshot; upstream framebuffer build instructions clone depth=1 without a revision pin",
+      "license": {
+        "project": "LICENSE.txt is Apple Public Source License 2.0; component-level scope for bundled archives not established",
+        "third_party_code": ["Repository documents prebuilt libkmod.a; its exact archive digest and component-level license were not checked in this graphics review"]
+      },
+      "purpose": "Headers and x86_64 libkmod archive used by build-weg-clt.sh",
+      "status": "Initial graphics-review snapshot did not fetch this SDK. Subsequent pinned MacKernelSDK 3f750085caa17ec3a7880f11c11bf4f48cd6a164 and Lilu resources were used for a real Linux cross-build and MH_KEXT_BUNDLE link without Apple SDK/Xcode; see manifests/framebuffer-build-readiness.json, framebuffer-link-check.json and macho-toolchain.json. macOS loader/kernel ABI and HP runtime remain unverified.",
+      "files": [
+        "https://github.com/acidanthera/MacKernelSDK/blob/3f750085caa17ec3a7880f11c11bf4f48cd6a164/README.md",
+        "https://github.com/acidanthera/MacKernelSDK/blob/3f750085caa17ec3a7880f11c11bf4f48cd6a164/LICENSE.txt"
+      ]
+    },
+    {
+      "id": "mesa-accelerator-only",
+      "url": "https://gitlab.freedesktop.org/mesa/mesa",
+      "commit": null,
+      "commit_date": null,
+      "pin_date": "2026-10-16",
+      "version": "mesa-23.3.6 tag, as named by tgl-xlate/setup.sh",
+      "license": {
+        "project": "MIT, per tgl-xlate/README.md and setup.sh",
+        "third_party_code": []
+      },
+      "purpose": "Optional Gen11-to-Gen12 EU translator for patch 0004; not a framebuffer-only dependency",
+      "status": "Tag documented, exact commit unresolved because official GitLab API presented an Anubis challenge. Deferred and excluded from the 9A49 framebuffer route.",
+      "files": [
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/WhateverGreen-patches/tgl-xlate/setup.sh",
+        "https://github.com/holdmysocks/latitude-7320-detachable-hackintosh/blob/1010490d3421628c9d6fd0bd518b6c4b6f8ee33c/WhateverGreen-patches/tgl-xlate/README.md"
+      ]
+    },
+    {
+      "id": "b00t0x-whateverxe",
+      "url": "https://github.com/b00t0x/WhateverXe",
+      "api_url": "https://api.github.com/repos/b00t0x/WhateverXe/git/commits/61a449255d385aeb468f64e5d5042e126f387b90",
+      "release_url": "https://github.com/b00t0x/WhateverXe/releases/tag/0.2.3",
+      "commit": "61a449255d385aeb468f64e5d5042e126f387b90",
+      "commit_date": "2026-10-10T14:10:33Z",
+      "pin_date": "2026-10-16",
+      "version": "0.2.3",
+      "license": {
+        "project": "BSD-3-Clause",
+        "third_party_code": ["Derived from WhateverGreen; README says upstream notices/BSD-3-Clause retained"]
+      },
+      "purpose": "Separate later Xe acceleration experiment; source backend table includes device ID 9A49",
+      "status": "Review-only. README target is Big Sur 20G1443; described Metal tests are external-display; Tahoe and internal display are planned. Does not establish HP/Tahoe/eDP compatibility. No WhateverXe release asset was downloaded in this graphics review.",
+      "files": [
+        "https://github.com/b00t0x/WhateverXe/blob/61a449255d385aeb468f64e5d5042e126f387b90/README.md",
+        "https://github.com/b00t0x/WhateverXe/blob/61a449255d385aeb468f64e5d5042e126f387b90/docs/device-selection.md",
+        "https://github.com/b00t0x/WhateverXe/blob/61a449255d385aeb468f64e5d5042e126f387b90/LICENSE.txt",
+        "https://github.com/b00t0x/WhateverXe/blob/61a449255d385aeb468f64e5d5042e126f387b90/tools/build.py"
+      ]
+    },
+    {
+      "id": "lshbluesky-samsung-reference",
+      "url": "https://github.com/lshbluesky/Samsung-NT750XDA-KF59U-Hackintosh",
+      "api_url": "https://api.github.com/repos/lshbluesky/Samsung-NT750XDA-KF59U-Hackintosh/git/commits/bb72f964baffb36a23153f211c9c0c5880826d1a",
+      "commit": "bb72f964baffb36a23153f211c9c0c5880826d1a",
+      "commit_date": "2026-06-07T05:33:55Z",
+      "pin_date": "2026-10-16",
+      "version": "OpenCore r1.0.7; README lists macOS Catalina through Sonoma",
+      "license": {
+        "project": null,
+        "third_party_code": ["GitHub repository API license=null; no project license declared"]
+      },
+      "purpose": "Read-only Tiger Lake/i5-1135G7 setup context, not graphics implementation source",
+      "status": "README explicitly says Iris Xe QE/CI unavailable; EFI includes binaries and is not licensed for copying. No Tahoe 9A49 success evidence.",
+      "files": [
+        "https://github.com/lshbluesky/Samsung-NT750XDA-KF59U-Hackintosh/blob/bb72f964baffb36a23153f211c9c0c5880826d1a/README.md"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+--- a/meson.build
++++ b/meson.build
+@@ -1771,6 +1771,22 @@
+ 
+ if cc.has_function('dl_iterate_phdr')
+   pre_args += '-DHAVE_DL_ITERATE_PHDR'
++elif with_intel_darwin
++  # util/build_id.c already implements dladdr + Mach-O LC_UUID for Apple.
++  # ANV uses that shared helper, not dl_iterate_phdr directly. Do not claim
++  # the ELF interface exists or replace UUIDs with constant/CPU identities.
++  if not cc.links('''
++      #include <dlfcn.h>
++      #include <mach-o/loader.h>
++      int main(void) {
++        Dl_info info;
++        struct uuid_command command = { .cmd = LC_UUID };
++        return !dladdr((const void *)&main, &info) ||
++               sizeof(command.uuid) != 16;
++      }
++    ''', dependencies : dep_dl, name : 'ANV Darwin dladdr and Mach-O UUID')
++    error('Intel Darwin requires native dladdr and Mach-O UUID build identity')
++  endif
+ elif with_intel_vk or with_intel_hasvk
+   error('Intel "Anvil" Vulkan driver requires the dl_iterate_phdr function')
+ endif

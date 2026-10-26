@@ -1,0 +1,11 @@
+--- before/numeric/proofs/lowering.py
++++ after/numeric/proofs/lowering.py
+@@ -37,7 +37,7 @@
+         raise ValueError('Lowering mapping incomplete')
+     results = []
+     for pc, node in source_nodes.items():
+-        if not node['numeric_semantics']['accumulator']:
++        if not (node['numeric_semantics'].get('accumulator') or node['numeric_semantics'].get('nf')):
+             continue
+         mapped = by_source[pc]
+         replacements = []

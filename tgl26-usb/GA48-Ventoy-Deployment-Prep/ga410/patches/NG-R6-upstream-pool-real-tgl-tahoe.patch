@@ -1,0 +1,38 @@
+--- a/src/NootedGreen/kern_green.cpp
++++ b/src/NootedGreen/kern_green.cpp
+@@ -359,7 +359,16 @@
+ static bool wrapPoolInit(void *that, void *accel, void *channel, void *task, int count, int bufSize, uint32_t a,
+ 						 uint32_t b, uint32_t c, uint32_t reserve) {
+ 	static int fixArg = -1, nlog = 0;
+-	if (fixArg < 0) fixArg = (checkKernelArgument("-ngreenxefix") && !checkKernelArgument("-ngreennopoolfix")) ? 1 : 0;
++	// HP-R6: the Tahoe 4KB command-pool mismatch also affects real TGL.
++	// Reuse only the upstream sizing/alignment algorithm below; preserve
++	// -ngreennopoolfix and do not turn on unrelated RPL-only xefix paths.
++	if (fixArg < 0) {
++		const bool hpTglTahoe = NGreen::callback && NGreen::callback->getIsRealTGL() &&
++			getKernelVersion() == KernelVersion::Tahoe;
++		fixArg = ((checkKernelArgument("-ngreenxefix") || hpTglTahoe) &&
++			!checkKernelArgument("-ngreennopoolfix")) ? 1 : 0;
++		if (hpTglTahoe) IOLog("HP-R6: real TGL/Tahoe upstream pool sizing/alignment enabled=%d\n", fixArg);
++	}
+ 	int novo = bufSize;
+ 	// 20/10: 256 buffers x 128 KB = 32 MB por pool (um por processo) esgotava a área de endereços dos buffers de comando:
+ 	// hang com o batch continuando numa página "scratch" (0xc01dbead) em 40c2a000. Só os pools pequenos (o do blit3d do
+@@ -384,7 +393,16 @@
+ static mach_vm_address_t orgPoolGetPtr = 0;
+ static void *wrapPoolGetPtr(void *that, uint32_t ndw) {
+ 	static int fixArg = -1, nlog = 0;
+-	if (fixArg < 0) fixArg = (checkKernelArgument("-ngreenxefix") && !checkKernelArgument("-ngreennopoolfix")) ? 1 : 0;
++	// HP-R6: the Tahoe 4KB command-pool mismatch also affects real TGL.
++	// Reuse only the upstream sizing/alignment algorithm below; preserve
++	// -ngreennopoolfix and do not turn on unrelated RPL-only xefix paths.
++	if (fixArg < 0) {
++		const bool hpTglTahoe = NGreen::callback && NGreen::callback->getIsRealTGL() &&
++			getKernelVersion() == KernelVersion::Tahoe;
++		fixArg = ((checkKernelArgument("-ngreenxefix") || hpTglTahoe) &&
++			!checkKernelArgument("-ngreennopoolfix")) ? 1 : 0;
++		if (hpTglTahoe) IOLog("HP-R6: real TGL/Tahoe upstream pool sizing/alignment enabled=%d\n", fixArg);
++	}
+ 	if (fixArg == 1 && ndw >= 0x400) {
+ 		auto *p = static_cast<uint8_t *>(that);
+ 		int16_t idx = *reinterpret_cast<int16_t *>(p + 0x1842);

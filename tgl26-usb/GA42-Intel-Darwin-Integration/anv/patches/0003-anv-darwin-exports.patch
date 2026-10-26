@@ -1,0 +1,18 @@
+--- a/src/vulkan/meson.build
++++ b/src/vulkan/meson.build
+@@ -21,0 +22,7 @@
++if host_machine.system() == 'darwin' and with_intel_darwin
++  # Mach-O has no GNU version scripts; keep only the Vulkan loader ABI.
++  vulkan_icd_link_args += ['-Wl,-exported_symbols_list,' + join_paths(
++    meson.current_source_dir(), 'vulkan-darwin-symbols.txt')]
++  vulkan_icd_link_depends += files('vulkan-darwin-symbols.txt')
++endif
++
+--- /dev/null
++++ b/src/vulkan/vulkan-darwin-symbols.txt
+@@ -0,0 +1,5 @@
++# Darwin ld exported-symbols-list format includes the leading underscore.
++_vk_icdGetInstanceProcAddr
++_vk_icdGetPhysicalDeviceProcAddr
++_vk_icdNegotiateLoaderICDInterfaceVersion
++

@@ -1,0 +1,8 @@
+--- a/Utilities/TestKextInject/KextInject.c
++++ b/Utilities/TestKextInject/KextInject.c
+@@ -702,1 +702,1 @@
+-  ApplyKernelPatches (mPrelinked, mPrelinkedSize);
++  if (FALSE) { ApplyKernelPatches (mPrelinked, mPrelinkedSize); }
+@@ -721,1 +721,1 @@
+-    ApplyKextPatches (&Context);
++    if (FALSE) { ApplyKextPatches (&Context); }

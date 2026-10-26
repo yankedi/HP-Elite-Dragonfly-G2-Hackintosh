@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "checked_on": "2026-10-16",
+  "candidate": {
+    "version": "26.6",
+    "build": "25G72",
+    "basis": "Pinned Latitude framebuffer research, not independently verified Apple distribution metadata",
+    "reference_commit": "1010490d3421628c9d6fd0bd518b6c4b6f8ee33c"
+  },
+  "official_metadata_attempts": [
+    {
+      "url": "https://mesu.apple.com/assets/macos/com_apple_MobileAsset_MacSoftwareUpdate/com_apple_MobileAsset_MacSoftwareUpdate.xml",
+      "transport": "Python urllib with certificate verification",
+      "result": "HTTP 403 Forbidden"
+    },
+    {
+      "url": "https://gdmf.apple.com/v2/pmv",
+      "transport": "Python urllib with certificate verification",
+      "result": "CERTIFICATE_VERIFY_FAILED: self-signed certificate in certificate chain; verification was not disabled"
+    },
+    {
+      "url": "https://gdmf.apple.com/v2/pmv",
+      "transport": "webfetch",
+      "result": "Transport error"
+    }
+  ],
+  "apple_build_metadata_verified": false,
+  "installer_obtained": false,
+  "installer_build_verified": false,
+  "installation_target_selected": false,
+  "ventoy_data_available_bytes": 99215736832,
+  "media_written": false,
+  "current_blockers": [
+    "Official candidate build metadata could not be verified through available network transports",
+    "Existing Ventoy must remain read-only; no approved deployment path is established",
+    "Installation destination has not been selected",
+    "Target shutdown/reboot remains prohibited"
+  ]
+}

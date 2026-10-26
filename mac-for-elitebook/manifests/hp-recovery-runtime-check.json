@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "scope": "First real HP Recovery full runtime capture over verified dedicated-key SSH/SFTP",
+  "version": "26.6.2",
+  "build": "25G83",
+  "last_delivered_wifi_img_sha256": "8ff91489c5c533644af60eee9ed5cd245fa805e6065263b4562992586845c54c",
+  "running_usb_img_recaptured": false,
+  "physical_results": {
+    "user_confirms_wifi": true,
+    "actual_airportitlwm_version": "2.4.0",
+    "interface_class": "AirportItlwmEthernetInterface",
+    "root_publickey_ssh_commands": true,
+    "internal_sftp_archive_download": true,
+    "sftp_and_independent_ssh_cat_identical": true,
+    "ordinary_internal_ntfs_readonly_script_execution": true,
+    "touchpad_SYNA30B6_interrupt_mode": "Polling",
+    "touchscreen_WACF4233_interrupt_mode": "APIC",
+    "both_xhci_class": "AppleUSBXHCIPCI",
+    "both_xhci_current_and_driver_power_states": 0,
+    "usb_host_devices_or_interfaces_observed": false,
+    "lexar_physical_disk_present": false
+  },
+  "collector": {
+    "archive_sha256": "9c8b31a43c9da497a36013905323ae04e3ca091afd8ad28a1a595f35f730432a",
+    "private_capture": ".local/install-prep/hp-recovery-live-hlhn8fro",
+    "files": 141,
+    "commands": 67,
+    "failed_or_missing": 10,
+    "timed_out": 0,
+    "wifi_summary_limitation": "Old IO80211Interface class query is empty, while actual AirportItlwmEthernetInterface and LAN transfers work; not_observed is not network failure",
+    "unified_log_limitation": "Separate log show query exits 65: Connection to logd failed. Captured dmesg is 131071 bytes; lack of USB lines does not exclude earlier startup errors",
+    "missing_shasum": "Initial remote SHA query failed 127; two independent SFTP/SSH byte readbacks matched and local SHA-256 was calculated"
+  },
+  "pid_warning": {
+    "photo_evidence": "Conversation-only original: server listening message followed by missing-PID warning",
+    "actual_listener_and_pid_file_present_later": true,
+    "local_delayed_pid_regression_old_exit": 1,
+    "local_bounded_wait_fix_exit": 0,
+    "local_fixed_runner_sha256": "fea60d9ca5434166f4b2eabec33aebb14c3e120012731a9b14f221acf1dbf320",
+    "local_fix_redeployed": false,
+    "running_listener_untouched": true
+  },
+  "evidence": [
+    {"path": ".local/install-prep/hp-recovery-live-hlhn8fro/report.json", "sha256": "8f8a60710f75b991f3a2da50726db95834454e2e219294b1868547d1a5b3ffcc"},
+    {"path": ".local/install-prep/hp-recovery-live-hlhn8fro/analysis.json", "sha256": "5242d5316bb0ebc9d0bd8236a8077b694972a23007439a1be4033947a5560498"},
+    {"path": ".local/install-prep/hp-recovery-live-hlhn8fro/supplemental.json", "sha256": "3b95605412a9e71da4b7e838a4db1ed6c8a90a6b812570b1661720bd20e2dab6"},
+    {"path": ".local/install-prep/hp-ssh-pid-race-_4mxop6w/report.json", "sha256": "516b6c8f57732b51b4b196fd18edeca82de2dd3538049878a9c14c5852891b20"}
+  ],
+  "target_changes": "Observation output in /tmp only; no mounts, drivers loaded/unloaded, reboot, firmware, EFI/NVRAM, partitioning or installer actions",
+  "limit": "Working LAN does not establish Internet/TLS or download capability. Polling observation is not proof of stutter root cause. I2C registration is not a touchscreen gesture test. No USB/NVMe data-write, full installation or Metal pass."
+}

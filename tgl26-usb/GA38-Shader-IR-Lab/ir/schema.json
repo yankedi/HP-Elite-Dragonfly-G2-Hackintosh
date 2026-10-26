@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ga38:semantic-ir:v1",
+  "title": "Raw-anchored EU program, explicit unknowns",
+  "type": "object",
+  "required": ["schema_version", "shader_id", "platform", "program_sha256", "byte_length", "nodes", "coverage", "hardware_validated"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "shader_id": {"type": "string", "minLength": 1},
+    "platform": {"enum": ["11", "12p1"]},
+    "program_sha256": {"$ref": "#/$defs/hash"},
+    "byte_length": {"type": "integer", "minimum": 8, "maximum": 1048576},
+    "nodes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/instruction"}},
+    "coverage": {"type": "string"},
+    "hardware_validated": {"const": false}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "knowledge": {"enum": ["KNOWN", "CONDITIONAL", "UNKNOWN", "NONE", "INVALID"]},
+    "fact": {
+      "type": "object",
+      "required": ["state", "value", "evidence", "condition"],
+      "properties": {
+        "state": {"$ref": "#/$defs/knowledge"}, "value": {},
+        "evidence": {"type": "array", "items": {"type": "string"}},
+        "condition": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "access": {
+      "type": "object",
+      "required": ["mode", "file", "state", "elements", "role", "condition", "symbolic_set", "evidence"],
+      "properties": {
+        "mode": {"enum": ["READ", "WRITE"]}, "file": {"type": "string"},
+        "state": {"$ref": "#/$defs/knowledge"},
+        "elements": {"type": ["array", "null"], "items": {
+          "type": "object", "required": ["byte_start", "byte_end", "lane"],
+          "properties": {"byte_start": {"type": "integer", "minimum": 0},
+                         "byte_end": {"type": "integer", "minimum": 1},
+                         "lane": {"type": ["integer", "null"], "minimum": 0, "maximum": 31}},
+          "additionalProperties": false
+        }},
+        "role": {"type": "string"}, "condition": {"type": "string"},
+        "symbolic_set": {"type": ["string", "null"]},
+        "evidence": {"type": "array", "items": {"type": "string"}}
+      },
+      "allOf": [
+        {"if": {"properties": {"state": {"const": "NONE"}}},
+         "then": {"properties": {"elements": {"const": []}}}},
+        {"if": {"properties": {"state": {"enum": ["UNKNOWN", "INVALID"]}}},
+         "then": {"properties": {"elements": {"type": "null"}, "symbolic_set": {"type": "string", "minLength": 1}}}}
+      ],
+      "additionalProperties": false
+    },
+    "range": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 0}},
+    "instruction": {
+      "type": "object",
+      "required": ["shader_id", "platform", "source_identity", "byte_range", "eu_window_range", "raw_hex", "length", "compact", "iga_fields", "opcode", "execution_semantics", "explicit_operands", "implicit_operands", "register_access", "control_effects", "message_effects", "numeric_semantics", "unresolved_semantics", "evidence"],
+      "properties": {
+        "shader_id": {"type": "string"}, "platform": {"enum": ["11", "12p1"]},
+        "source_identity": {"type": "object", "required": ["program_sha256", "tool", "iga_json_sha256"]},
+        "byte_range": {"$ref": "#/$defs/range"},
+        "eu_window_range": {"anyOf": [{"$ref": "#/$defs/range"}, {"type": "null"}]},
+        "raw_hex": {"type": "string", "pattern": "^([0-9a-f]{16}|[0-9a-f]{32})$"},
+        "length": {"enum": [8, 16]}, "compact": {"type": "boolean"},
+        "iga_fields": {"type": "object", "required": ["pc", "op", "es"]},
+        "opcode": {"type": "string"},
+        "execution_semantics": {"type": "object", "required": ["execution_size", "channel_offset", "mask_control", "predicate", "flag_register", "saturate"], "additionalProperties": {"$ref": "#/$defs/fact"}},
+        "explicit_operands": {"type": "object", "required": ["destination", "sources", "state", "scope"]},
+        "implicit_operands": {"type": "object", "required": ["state", "accesses"], "properties": {"state": {"$ref": "#/$defs/knowledge"}, "accesses": {"type": "array", "items": {"$ref": "#/$defs/access"}}}},
+        "register_access": {"type": "object", "required": ["state", "accesses", "coordinate_system"], "properties": {"state": {"$ref": "#/$defs/knowledge"}, "accesses": {"type": "array", "items": {"$ref": "#/$defs/access"}}}},
+        "control_effects": {"type": "object", "required": ["eot", "options", "debug_switch", "debug_effect"]},
+        "message_effects": {"type": "object", "required": ["state", "is_send", "eot"]},
+        "numeric_semantics": {"type": "object", "required": ["state", "nf", "accumulator", "rounding_mode", "fused_and_intermediate_precision"]},
+        "unresolved_semantics": {"type": "array", "items": {"type": "object", "required": ["code", "impact", "evidence"]}},
+        "evidence": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    }
+  }
+}
