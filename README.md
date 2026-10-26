@@ -20,6 +20,7 @@
 | 构建与验证说明 | [BUILDING](docs/BUILDING.md) |
 | 目录与发布范围 | [REPOSITORY](docs/REPOSITORY.md) |
 | 新的上游求助 issue 草稿 | [ISSUE-DRAFT](docs/ISSUE-DRAFT.md) |
+| 首次上传版本与检查记录 | [PUBLICATION](docs/PUBLICATION.md) |
 
 ## 实测机器
 

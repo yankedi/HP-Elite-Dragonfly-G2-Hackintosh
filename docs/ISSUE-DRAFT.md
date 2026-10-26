@@ -13,10 +13,19 @@ With our experimental accelerated Tiger Lake stack loaded, four consecutive rece
 I have now published the local source, patch/provenance records, configuration examples and reviewed panic texts so the actual HP adaptations can be inspected:
 
 - Project: https://github.com/yankedi/HP-Elite-Dragonfly-G2-Hackintosh
-- [Graphics source and provenance](https://github.com/yankedi/HP-Elite-Dragonfly-G2-Hackintosh/tree/main/graphics)
-- [Accelerated/control EFI examples](https://github.com/yankedi/HP-Elite-Dragonfly-G2-Hackintosh/tree/main/EFI)
-- [Complete panic texts and hash manifest](https://github.com/yankedi/HP-Elite-Dragonfly-G2-Hackintosh/tree/main/evidence)
-- [Detailed comparison](https://github.com/yankedi/HP-Elite-Dragonfly-G2-Hackintosh/blob/main/docs/GRAPHICS-STABILITY.md)
+- **Published source/evidence revision:** [`20b790a31bd4bb3e180ce622cbc32d2daffe02e8`](https://github.com/yankedi/HP-Elite-Dragonfly-G2-Hackintosh/commit/20b790a31bd4bb3e180ce622cbc32d2daffe02e8)
+- [Graphics source and provenance](https://github.com/yankedi/HP-Elite-Dragonfly-G2-Hackintosh/tree/20b790a31bd4bb3e180ce622cbc32d2daffe02e8/graphics)
+- [Accelerated/control EFI examples](https://github.com/yankedi/HP-Elite-Dragonfly-G2-Hackintosh/tree/20b790a31bd4bb3e180ce622cbc32d2daffe02e8/EFI)
+- [Complete panic texts, loaded-kext inventories and hash manifests](https://github.com/yankedi/HP-Elite-Dragonfly-G2-Hackintosh/tree/20b790a31bd4bb3e180ce622cbc32d2daffe02e8/evidence)
+- [Detailed comparison](https://github.com/yankedi/HP-Elite-Dragonfly-G2-Hackintosh/blob/20b790a31bd4bb3e180ce622cbc32d2daffe02e8/docs/GRAPHICS-STABILITY.md)
+
+To inspect exactly this published snapshot:
+
+```sh
+git clone https://github.com/yankedi/HP-Elite-Dragonfly-G2-Hackintosh.git
+cd HP-Elite-Dragonfly-G2-Hackintosh
+git checkout 20b790a31bd4bb3e180ce622cbc32d2daffe02e8
+```
 
 **This is a locally modified HP port, not a clean reproduction of current upstream HEAD or an unmodified EFI for another laptop.** The control strongly implicates the accelerated configuration as a group; it does not yet isolate the first memory corruptor or prove a bug in an unmodified upstream component.
 
