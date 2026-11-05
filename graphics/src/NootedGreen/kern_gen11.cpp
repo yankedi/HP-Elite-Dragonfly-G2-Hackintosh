@@ -1348,12 +1348,17 @@ static void fbTimingsWorker(thread_call_param_t, thread_call_param_t) {
 static mach_vm_address_t gHpBtOrgSubmitBb = 0;
 static mach_vm_address_t gHpBtOrgSubmitCh = 0;
 static mach_vm_address_t gHpBtOrgHang = 0;
+static mach_vm_address_t gHpBtOrgComputeExec = 0;
 static volatile uint32_t gHpBtBbSeq = 0;
 static volatile uint32_t gHpBtCopySeq = 0;
 static volatile uint32_t gHpBtCdSeq = 0;
 static volatile uint32_t gHpBtHangSeq = 0;
 static volatile uint32_t gHpBtRcsHangSeq = 0;
 static volatile uint32_t gHpBtDumpBusy = 0;
+static volatile uint32_t gHpPcFixEncoders = 0;
+static volatile uint32_t gHpPcFixPreamble = 0;
+static volatile uint32_t gHpPcFixPipeFlush = 0;
+static volatile uint32_t gHpPcFixReadFlush = 0;
 
 struct HpBtBb {
 	void *ring;
@@ -1419,9 +1424,78 @@ static uint32_t hpBtCopyBatch(uint64_t addr, const uint32_t *hdr) {
 	return slot + 1; // zero means no copy
 }
 
-// R30: only scalar call arguments; never dereference ring, hdr or descriptor.
-// This is a diagnostic candidate, not proof of execution or address-space identity.
-struct HpR30Entry { void *ring; uint64_t gpu; uint64_t ticket; uint32_t ndwArg; uint32_t stamp; };
+static void hpSanitizeComputeEncoder(uint32_t *enc, uint32_t endOffDw, uint32_t totalDw, uint16_t sigCnt) {
+    if (!hpBtKernelPtr(enc) || (reinterpret_cast<uintptr_t>(enc) & 3) != 0) return;
+    if (endOffDw < 33 || endOffDw > 4096 || totalDw < endOffDw) return;
+    bool touched = false;
+    for (uint32_t i = 0; i + 6 <= endOffDw; ) {
+        if (i + 33 <= endOffDw &&
+            enc[i + 0] == 0x7a000004U &&
+            enc[i + 6] == 0x7a000004U &&
+            enc[i + 12] == 0x69041310U &&
+            enc[i + 30] == 0x69041302U) {
+            if (enc[i + 7] == 0x00000480U || enc[i + 7] == 0x00000c80U) enc[i + 7] |= 0x00100000U;
+            if (enc[i + 15] == 0x11000001U && enc[i + 16] == 0x0000b134U) {
+                enc[i + 15] = 0;
+                enc[i + 16] = 0;
+                enc[i + 17] = 0;
+            }
+            if (enc[i + 24] == 0x7a000004U && (enc[i + 25] == 0x00000480U || enc[i + 25] == 0x00000c80U)) {
+                enc[i + 25] |= 0x00100000U;
+            }
+            __sync_fetch_and_add(&gHpPcFixPreamble, 1);
+            touched = true;
+            i += 33;
+            continue;
+        }
+        if (enc[i] == 0x7a000004U) {
+            if ((enc[i + 1] == 0x00000480U || enc[i + 1] == 0x00000c80U) &&
+                enc[i + 2] == 0 && enc[i + 3] == 0 && enc[i + 4] == 0 && enc[i + 5] == 0) {
+                enc[i + 1] |= 0x00100000U;
+                __sync_fetch_and_add(&gHpPcFixReadFlush, 1);
+                touched = true;
+                i += 6;
+                continue;
+            }
+            if (enc[i + 1] == 0x001044a0U && (enc[i + 2] & 0xfffU) == 0x010U &&
+                enc[i + 3] == 0 && enc[i + 4] == 0 && enc[i + 5] == 0) {
+                enc[i + 1] = 0x001004a0U;
+                enc[i + 2] = 0;
+                enc[i + 3] = 0;
+                __sync_fetch_and_add(&gHpPcFixPipeFlush, 1);
+                touched = true;
+                i += 6;
+                continue;
+            }
+        }
+        ++i;
+    }
+    if (touched) {
+        uint32_t n = __sync_fetch_and_add(&gHpPcFixEncoders, 1) + 1;
+        if (n <= 8 || (n & 255) == 0) {
+            IOLog("HP-PCFIX: enc#%u endOffDw=%u totalDw=%u sigCnt=%u pre=%u pf=%u rf=%u\n",
+                  n, endOffDw, totalDw, sigCnt, gHpPcFixPreamble, gHpPcFixPipeFlush, gHpPcFixReadFlush);
+        }
+    }
+}
+
+static uint32_t hpBtComputeExecute(uint32_t eToken, void *queue, void *resList, const void *cmd,
+                                   void *desc, void *accel, void *ctx, void *event) {
+    if (eToken == 0x40001U && hpBtKernelPtr(cmd) && hpBtKernelPtr(desc)) {
+        auto *c = static_cast<const uint8_t *>(cmd);
+        auto *d = static_cast<const uint8_t *>(desc);
+        uint32_t *enc = *reinterpret_cast<uint32_t *const *>(d + 0x20);
+        uint32_t endOffDw = *reinterpret_cast<const uint32_t *>(c + 0x08);
+        uint32_t totalDw = *reinterpret_cast<const uint32_t *>(c + 0x0c);
+        uint16_t sigCnt = *reinterpret_cast<const uint16_t *>(c + 0x1a);
+        hpSanitizeComputeEncoder(enc, endOffDw, totalDw, sigCnt);
+    }
+    return FunctionCast(hpBtComputeExecute, gHpBtOrgComputeExec)(
+        eToken, queue, resList, cmd, desc, accel, ctx, event);
+}
+
+// R30: scalar call arguments plus optional compute page copy slot.
+struct HpR30Entry { void *ring; uint64_t gpu; uint64_t ticket; uint32_t ndwArg; uint32_t stamp; uint32_t copySlot; };
 static HpR30Entry gHpR30Entries[256] {};
 static volatile uint32_t gHpR30Lock = 0;
 static volatile uint64_t gHpR30Drops = 0;
@@ -1430,6 +1504,13 @@ static uint32_t gHpR30Count = 0;
 
 static bool hpBtSubmitBatchBuffer(void *ring, uint64_t addr, uint32_t seq, uint32_t *hdr, uint32_t flags,
                                  bool b1, bool b2) {
+    uint32_t copySlot = 0;
+    if (hpBtKernelPtr(hdr) && (reinterpret_cast<uintptr_t>(hdr) & 3) == 0) {
+        const uint32_t *pageBase = reinterpret_cast<const uint32_t *>(reinterpret_cast<uintptr_t>(hdr) & ~0xfffULL);
+        if (pageBase[0] == 0x7a000004U && pageBase[12] == 0x69041310U) {
+            copySlot = hpBtCopyBatch(addr & ~0xfffULL, pageBase);
+        }
+    }
     if (!__sync_lock_test_and_set(&gHpR30Lock, 1)) {
         uint64_t ticket = gHpR30Next++;
         HpR30Entry &e = gHpR30Entries[ticket & 255];
@@ -1438,6 +1519,7 @@ static bool hpBtSubmitBatchBuffer(void *ring, uint64_t addr, uint32_t seq, uint3
         e.ticket = ticket;
         e.ndwArg = flags;
         e.stamp = seq;
+        e.copySlot = copySlot;
         if (gHpR30Count < 256) ++gHpR30Count;
         __sync_lock_release(&gHpR30Lock);
     } else {
@@ -1479,9 +1561,26 @@ static void hpR30Dump(void *ring, uint64_t target, uint32_t hang) {
     uint64_t drops = __sync_fetch_and_add(&gHpR30Drops, 0);
     for (uint32_t i = 0; i < hits && i < 8; ++i) {
         const HpR30Entry &e = matches[i];
-        IOLog("HP-R30: hang=%u ticket=%llu gpu=%llx ndwArg=%u offset=%llx stamp=%u\n", hang,
+        uint64_t offBytes = target - e.gpu;
+        IOLog("HP-R30: hang=%u ticket=%llu gpu=%llx ndwArg=%u offset=%llx stamp=%u copySlot=%u\n", hang,
               (unsigned long long)e.ticket, (unsigned long long)e.gpu, e.ndwArg,
-              (unsigned long long)(target - e.gpu), e.stamp);
+              (unsigned long long)offBytes, e.stamp, e.copySlot);
+        if (i == 0 && e.copySlot > 0 && e.copySlot <= 64 && offBytes < 0x1000ULL) {
+            const HpBtCopy &c = gHpBtCopies[e.copySlot - 1];
+            if (c.valid && c.addr == (e.gpu & ~0xfffULL) && c.n == 1024) {
+                uint32_t offDw = static_cast<uint32_t>(offBytes >> 2);
+                uint32_t s = offDw >= 12 ? offDw - 12 : 0;
+                if (s + 16 > 1024) s = 1008;
+                IOLog("HP-R30-BB: hang=%u baseDw=%u (+0x%03x): %08x %08x %08x %08x %08x %08x %08x %08x\n",
+                      hang, s, s * 4,
+                      c.dw[s+0], c.dw[s+1], c.dw[s+2], c.dw[s+3],
+                      c.dw[s+4], c.dw[s+5], c.dw[s+6], c.dw[s+7]);
+                IOLog("HP-R30-BB: hang=%u baseDw=%u (+0x%03x): %08x %08x %08x %08x %08x %08x %08x %08x\n",
+                      hang, s + 8, (s + 8) * 4,
+                      c.dw[s+8], c.dw[s+9], c.dw[s+10], c.dw[s+11],
+                      c.dw[s+12], c.dw[s+13], c.dw[s+14], c.dw[s+15]);
+            }
+        }
     }
     for (uint32_t i = 0; i < recentCount; ++i) {
         const HpR30Entry &e = recentSameRing[i];
@@ -1847,6 +1946,9 @@ static void hpBtDump(void *ring) {
     }
     IOLog("HP-BBTRACE: HANG #%u ring=%p ACTHD=%08x ACTHD_HI=%08x BB=%08x BB_HI=%08x IPEHR=%08x HEAD=%08x TAIL=%08x BB_STATE=%08x\n",
         hang, ring, acthd, acthdHi, bb, bbHi, ipehr, head, tail, bbState);
+    IOLog("HP-CSFL: hang=%u INSTDONE=%08x CSFLDONE=%08x CSFLTRK=%08x CSFLFLAG=%08x PCFIX(enc=%u pre=%u pf=%u rf=%u)\n",
+        hang, hpBtRd(mmio, 0x206c), hpBtRd(mmio, 0x20f4), hpBtRd(mmio, 0x20f8), hpBtRd(mmio, 0x20fc),
+        gHpPcFixEncoders, gHpPcFixPreamble, gHpPcFixPipeFlush, gHpPcFixReadFlush);
     hpR30Dump(ring, (static_cast<uint64_t>(bbHi) << 32) | (bb & ~3U), hang);
     IOLog("HP-CCS: hang=%u HEAD=%08x TAIL=%08x ACTHD=%08x:%08x BB=%08x:%08x IPEHR=%08x EL_ST=%08x:%08x CSP=%08x\n",
         hang, hpBtRd(mmio, 0x1a034), hpBtRd(mmio, 0x1a030), hpBtRd(mmio, 0x1a05c), hpBtRd(mmio, 0x1a074),
@@ -1871,6 +1973,12 @@ static void hpBtInstall(KernelPatcher &patcher, size_t index, mach_vm_address_t 
     };
     bool submitOk = RouteRequestPlus::routeAll(patcher, index, submit, address, size);
     if (!submitOk) { patcher.clearError(); gHpBtOrgSubmitBb = 0; }
+    RouteRequestPlus compExec[] = {
+        {"__ZN24IntelMTLComputeFunctions7executeEN15IntelMTLCompute7eTokensER19IGAccelCommandQueueR26IGAccelSegmentResourceListRK20IOAccelKernelCommandR24IGAccelCommandDescriptorR22IOGraphicsAccelerator2R17IGHardwareContextR12IOAccelEvent",
+         hpBtComputeExecute, gHpBtOrgComputeExec},
+    };
+    bool compOk = RouteRequestPlus::routeAll(patcher, index, compExec, address, size);
+    if (!compOk) { patcher.clearError(); gHpBtOrgComputeExec = 0; }
     RouteRequestPlus req[] = {
         {"__ZN20IGHardwareRingBuffer14doHangAnalysisEv", hpBtDoHangAnalysis, gHpBtOrgHang},
     };
@@ -1879,8 +1987,8 @@ static void hpBtInstall(KernelPatcher &patcher, size_t index, mach_vm_address_t 
         patcher.clearError();
         gHpBtOrgHang = 0;
     }
-    IOLog("HP-BBTRACE: %s hang=%d submit=%d scope=mmio-submit\n",
-          ok && submitOk ? "ready" : "partial", ok, submitOk);
+    IOLog("HP-BBTRACE: %s hang=%d submit=%d scope=mmio-submit compExec=%d\n",
+          ok && submitOk && compOk ? "ready" : "partial", ok, submitOk, compOk);
 }
 
 bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
@@ -9941,7 +10049,33 @@ static void v45DelayedChildCheck(thread_call_param_t p0, thread_call_param_t p1)
 
 	auto *svc = static_cast<IOService *>(p0);
 	unsigned delayMs = (unsigned)(uintptr_t)p1;
-	
+	//(*reinterpret_cast<uintptr_t **>(that))[35] = reinterpret_cast<uintptr_t>(wrapSystemWillSleep);
+	//(*reinterpret_cast<uintptr_t **>(that))[36] = reinterpret_cast<uintptr_t>(wrapSystemDidWake);
+	return FunctionCast(wrapLoadFirmware, callback->orgLoadFirmware)(that);
+}
+
+void Gen11::wrapSystemWillSleep(void *that) {
+	DBGLOG("ngreen", "systemWillSleep GuC callback");
+}
+
+void Gen11::wrapSystemDidWake(void *that) {
+	DBGLOG("ngreen", "systemDidWake GuC callback");
+
+	// This is IGHardwareGuC class instance.
+	auto &GuC = (reinterpret_cast<OSObject **>(that))[76];
+
+	if (GuC)
+	if (GuC->metaCast("IGHardwareGuC")) {
+		DBGLOG("igfx", "reloading firmware on wake; discovered IGHardwareGuC - releasing");
+		GuC->release();
+		GuC = nullptr;
+	}
+
+	FunctionCast(wrapLoadFirmware, callback->orgLoadFirmware)(that);
+}
+
+bool Gen11::wrapInitSchedControl(void *that) {
+	DBGLOG("ngreen", "attempting to init sched control with loa
 	uint64_t state = svc->getState();
 	OSIterator *iter = svc->getClientIterator();
 	int count = 0;

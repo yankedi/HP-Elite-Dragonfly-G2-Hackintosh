@@ -4,7 +4,7 @@
 
 这是 HP Elite Dragonfly G2 的长期 macOS 移植与研究项目，整合了安装/外围适配工程 `mac-for-elitebook` 和 Tiger Lake 图形研究工程 `tgl26-usb`。
 
-**当前状态（2026-11-05）：macOS Tahoe 26.6.2 / 25G83 已安装并进入桌面，Iris Xe 80 EU Metal 加速已启用；2026-11-05 最新进展首次在实机上 100% 跑通此前必挂的 Geekbench 6.5.0 Metal `Horizon Detection` 子项并推进到 `Edge Detection`。** 详见 [`mac-for-elitebook/docs/repair32-elsqwait-20261105.md`](mac-for-elitebook/docs/repair32-elsqwait-20261105.md) 与 [`graphics/patches/nootedgreen-elsqwait-20261105.patch`](graphics/patches/nootedgreen-elsqwait-20261105.patch)。
+**当前状态（2026-11-05）：macOS Tahoe 26.6.2 / 25G83 已安装并进入桌面，Iris Xe 80 EU Metal 加速已启用并完成计算稳定性突破：2026-11-05 在实机上 100% 跑通 Geekbench 6.5.0 Metal 全部 8 项工作负载（`Background Blur`、`Face Detection`、`Horizon Detection`、`Edge Detection`、`Gaussian Blur`、`Feature Matching`、`Stereo Matching`、`Particle Physics`），全程 0 次 `GPU hang:`、0 次 `GPURestart`！** 详见 [`mac-for-elitebook/docs/repair32-pcfix2-20261105.md`](mac-for-elitebook/docs/repair32-pcfix2-20261105.md)、[`graphics/patches/nootedgreen-pcfix2-20261105.patch`](graphics/patches/nootedgreen-pcfix2-20261105.patch) 以及此前的 [`mac-for-elitebook/docs/repair32-elsqwait-20261105.md`](mac-for-elitebook/docs/repair32-elsqwait-20261105.md)。
 
 ## 项目入口
 

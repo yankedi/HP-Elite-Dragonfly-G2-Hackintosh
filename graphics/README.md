@@ -59,7 +59,9 @@ See [Source index](provenance/SOURCE-INDEX.md),
 directory, verify the recorded files with `sha256sum -c provenance/SHA256SUMS`.
 That checksum list intentionally excludes itself.
 
-## 2026-11-05 Update (Horizon Detection Breakthrough)
+## 2026-11-05 Update (Complete 8/8 Geekbench 6.5.0 Metal Breakthrough)
 
-- `src/NootedGreen/` has been updated to the 2026-11-05 snapshot (`kern_gen11.cpp` SHA-256 `fb6ccf60b0c11df4e243cbb22cf474a6a113a785c32367bb26c0817ee2288c78`, `hp_repair_policy.hpp` SHA-256 `bc125aa5492eb8742f59e06480c980cfbc0a34922f18a08dc5aa433df895c682`, tested `NootedGreen` UUID `4C4C440C-5555-3144-A1CF-CF98321C87D2`, binary SHA-256 `e0d6fe75c2d4f4e488d3ff936f70f3551f71d5ea10a29158d364fd194139ad7c`).
-- Incremental patch: [`patches/nootedgreen-elsqwait-20261105.patch`](patches/nootedgreen-elsqwait-20261105.patch).
+- `src/NootedGreen/` has been updated to the 2026-11-05 `R32-PCFIX2` snapshot (`kern_gen11.cpp` SHA-256 `4cc3e23bae8dcdfc7cec9ed0f26741c70838b7d6095d37f67cba491f1a6e3fd0`, `hp_repair_policy.hpp` SHA-256 `8afdeeb24873cca2d6662dfd66634ce0a80ad50d3ea56f88e2fc3fcadeb91d3a`, tested `NootedGreen` UUID `4C4C447B-5555-3144-A110-ECC448277D0A`, binary SHA-256 `f52f0d44d304e55e95b9875adb2c198b0950578b0ce4cc07191cc534962b1a54`).
+- Incremental patches:
+  - [`patches/nootedgreen-elsqwait-20261105.patch`](patches/nootedgreen-elsqwait-20261105.patch) (`Horizon Detection` fix)
+  - [`patches/nootedgreen-pcfix2-20261105.patch`](patches/nootedgreen-pcfix2-20261105.patch) (Complete 8/8 Geekbench 6.5.0 Metal fix via compute encoder `PIPE_CONTROL` / `L3ALLOC` sanitization)

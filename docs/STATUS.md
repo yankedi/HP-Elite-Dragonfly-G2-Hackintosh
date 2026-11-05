@@ -26,13 +26,18 @@ Snapshot: **2026-10-27**. Machine: HP Elite Dragonfly G2 / i5-1135G7 / Iris Xe 8
 
 ## Graphics configuration identities
 
-## 2026-11-05 Horizon Detection breakthrough update
+## 2026-11-05 Complete Geekbench 6.5.0 Metal (8/8 Workloads) Breakthrough Update
 
-On 2026-11-05, building on the native 80-EU/L3=6 topology, NOAUX/NOCCS3, `FF_DOP_CLOCK_GATE_DISABLE` (`0x20ec = 0x13`), `CS_CHICKEN1` (`0x2580 = 0x00020002`, thread-group preemption), and `IOAccelCommandBufferPool2` end-of-buffer guard, we added:
-1. Unconditional `EXECLIST_STATUS` (`0x2234`) bit 30 wait (`elsqWait`, polling up to 2000 µs in 5 µs steps whenever `(EXECLIST_STATUS_LO & 0x40000000) != 0` before writing ELSP/ELKICK in `submitToRing` and `prepareExecListAndSubmit`), plus skipping empty `prepareExecListAndSubmit` calls when both `port0` and `port1` are null.
-2. Masked write `0xc100c100` (enabling bits 8, 14, 15: `DISABLE_PARTIAL_INSTRUCTION_SHOOTDOWN`, `DISABLE_DOP_GATING`, `DISABLE_EARLY_READ`) to `GEN8_ROW_CHICKEN2` (`0xe4f4`) in the native engine startup sequence (verified runtime readback `0xffffc100`).
+On 2026-11-05, building on the native 80-EU/L3=6 topology, NOAUX/NOCCS3, `FF_DOP_CLOCK_GATE_DISABLE` (`0x20ec = 0x13`), `CS_CHICKEN1` (`0x2580 = 0x00020002`, thread-group preemption), and `IOAccelCommandBufferPool2` end-of-buffer guard, we resolved both the `Horizon Detection` and `Edge Detection` RCS GPU hangs:
+1. **Execlist Submission & Row Chicken Fixes (`elsqWait` + `GEN8_ROW_CHICKEN2`)**:
+   - Unconditional `EXECLIST_STATUS` (`0x2234`) bit 30 wait (`elsqWait`, polling up to 2000 µs in 5 µs steps whenever `(EXECLIST_STATUS_LO & 0x40000000) != 0` before writing ELSP/ELKICK in `submitToRing` and `prepareExecListAndSubmit`), plus skipping empty `prepareExecListAndSubmit` calls when both `port0` and `port1` are null.
+   - Masked write `0xc100c100` (enabling bits 8, 14, 15: `DISABLE_PARTIAL_INSTRUCTION_SHOOTDOWN`, `DISABLE_DOP_GATING`, `DISABLE_EARLY_READ`) to `GEN8_ROW_CHICKEN2` (`0xe4f4`) in the native engine startup sequence (verified runtime readback `0xffffc100`).
+2. **Gen8 Compute Encoder `PIPE_CONTROL` / `L3ALLOC` Sanitization (`hpSanitizeComputeEncoder`)**:
+   - Hooked `IntelMTLComputeFunctions::execute` (`0x6bf20`) to sanitize `COCLGen8CommandTransport` compute encoders (`IGAccelComputeCommandEncoder`) in-place before submission:
+     - Adds `CS Stall` (`0x00100000`) to the two un-stalled `0x00000480` (`Texture Cache Invalidate`) `PIPE_CONTROL`s in `ResetPreambleCmds` (`-> 0x00100480`) and NOPs the nonexistent Gen8 `L3ALLOC` `MI_LOAD_REGISTER_IMM 0xb134` (`dw[15..17] -> 0`).
+     - Clears only `bit 14` (`0x00004000`, the dummy Gen8 `Post-Sync Write Immediate` to `m_pScratchPage + 0x10`) and `dw[2..3] = 0` in `AddPipeFlushCmd` (`0x001044a0 -> 0x001004a0`), preserving `CS Stall | Texture Cache Invalidate | Pipe Control Flush Enable | DC Flush` without clearing Media VFE state mid-encoder.
 
-With this configuration (`NootedGreen` UUID `4C4C440C-5555-3144-A1CF-CF98321C87D2`, binary SHA-256 `e0d6fe75c2d4f4e488d3ff936f70f3551f71d5ea10a29158d364fd194139ad7c`), Geekbench 6.5.0 Metal completed `Background Blur`, `Face Detection`, and **`Horizon Detection` (100%)** with zero GPU resets during those three workloads, before encountering a separate RCS compute hang in `Edge Detection` (`ACTHD = 0x4ecfe3a8`, `IPEHR = 0x7a000004`). See [repair32-elsqwait-20261105.md](../mac-for-elitebook/docs/repair32-elsqwait-20261105.md) and [nootedgreen-elsqwait-20261105.patch](../graphics/patches/nootedgreen-elsqwait-20261105.patch).
+With this configuration (`NootedGreen` UUID `4C4C447B-5555-3144-A110-ECC448277D0A`, binary SHA-256 `f52f0d44d304e55e95b9875adb2c198b0950578b0ce4cc07191cc534962b1a54`), **Geekbench 6.5.0 Metal completed ALL 8 WORKLOADS (`Background Blur`, `Face Detection`, `Horizon Detection`, `Edge Detection`, `Gaussian Blur`, `Feature Matching`, `Stereo Matching`, `Particle Physics`) to 100% completion (`run_finished`, `stress_loop_completed`) with ZERO `GPU hang:` or `GPURestart` events** (over 25,088 compute encoders sanitized). See [repair32-pcfix2-20261105.md](../mac-for-elitebook/docs/repair32-pcfix2-20261105.md) and [nootedgreen-pcfix2-20261105.patch](../graphics/patches/nootedgreen-pcfix2-20261105.patch).
 
 2026-10-29 experiment update: the clean-upstream BASE trial was reported stuck
 and its recovered log records NootedGreen injection failure. The new
