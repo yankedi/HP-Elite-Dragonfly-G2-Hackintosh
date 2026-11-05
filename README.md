@@ -4,7 +4,7 @@
 
 这是 HP Elite Dragonfly G2 的长期 macOS 移植与研究项目，整合了安装/外围适配工程 `mac-for-elitebook` 和 Tiger Lake 图形研究工程 `tgl26-usb`。
 
-**当前状态（2026-10-27）：macOS Tahoe 26.6.2 / 25G83 已安装并进入桌面；实验 GPU 加速存在严重稳定性问题。** 软件显示对照可进入可用桌面并完成约 62 分钟观察，尚不能据此宣称长期稳定。
+**当前状态（2026-11-05）：macOS Tahoe 26.6.2 / 25G83 已安装并进入桌面，Iris Xe 80 EU Metal 加速已启用；2026-11-05 最新进展首次在实机上 100% 跑通此前必挂的 Geekbench 6.5.0 Metal `Horizon Detection` 子项并推进到 `Edge Detection`。** 详见 [`mac-for-elitebook/docs/repair32-elsqwait-20261105.md`](mac-for-elitebook/docs/repair32-elsqwait-20261105.md) 与 [`graphics/patches/nootedgreen-elsqwait-20261105.patch`](graphics/patches/nootedgreen-elsqwait-20261105.patch)。
 
 ## 项目入口
 
@@ -14,6 +14,7 @@
 | OpenCore 配置与 ACPI | [EFI 配置示例](EFI/README.md) |
 | 实测图形源码、本地补丁与构建来源 | [graphics](graphics/README.md) |
 | 加速 panic 与软件显示对照 | [实验报告](docs/GRAPHICS-STABILITY.md) |
+| 作者建议的上游对照准备 | [上游对照准备](docs/UPSTREAM-CONTROL-PREPARATION.md) |
 | 四次 panic 文本和公开证据索引 | [evidence](evidence/README.md) |
 | 安装、ACPI、外围、诊断脚本 | [mac-for-elitebook](mac-for-elitebook/README.md) |
 | 历代图形实验与自研工具 | [tgl26-usb](tgl26-usb/README.md) |

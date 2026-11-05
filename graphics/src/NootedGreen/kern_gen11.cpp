@@ -1,6 +1,7 @@
 //  Copyright © 2026 Stezza @ inc. Licensed under the Thou Shalt Not Profit License version 1.0. See LICENSE for
 //  details.
 #include "kern_gen11.hpp"
+#include "hp_repair_policy.hpp"
 static bool xeFixEnabled();  // xe/xefix, definido junto do FastWriteRegister32
 #include "AppleIntelParams.hpp"
 #include <Headers/kern_api.hpp>
@@ -8,6 +9,7 @@ static bool xeFixEnabled();  // xe/xefix, definido junto do FastWriteRegister32
 #include "kern_green.hpp"
 #include "IntelDPLinkTraining.hpp"
 #include <IOKit/IOBufferMemoryDescriptor.h>
+#include <IOKit/IOMemoryDescriptor.h>
 #include <IOKit/IOCatalogue.h>
 #include <IOKit/IOLib.h>
 #include <kern/thread_call.h>
@@ -20,22 +22,66 @@ static volatile uint32_t gXeResFreeFix = 0;  // XE-RESFREE: entradas inválidas 
 extern volatile uint32_t gXeOrphanMiss;  // XE-NOORPHAN (kern_green.cpp)
 extern bool gXeLockRouted;
 
-// GA414: exact-match guard only; the NOAUX byte patch remains upstream's.
-static size_t hpGa414PatternCount(const uint8_t *data, size_t length,
-	const uint8_t *pattern, size_t patternSize) {
-	if (!data || !pattern || !patternSize || length < patternSize) return 0;
-	size_t count = 0;
-	for (size_t offset = 0; offset <= length - patternSize; offset++)
-		if (memcmp(data + offset, pattern, patternSize) == 0) count++;
-	return count;
+// ─── xe/topo4/5 (24/10): topologia escolhida por boot-arg, sem ler fusíveis ──────────────────────────────────────
+// topo/topo2/topo3 liam os fusíveis no boot e todos travaram o boot (23/10), mesmo calculando 96 EU aqui. Agora o
+// layout só muda com ngreen-eu=80 (ou 64/48) e, opcional, ngreen-l3=N. Sem os args: 12 SS × 8 EU, L3 8, como antes.
+// Dados de 80 EU (Linux, issue #3): i5-1340P = 5 DSS × 16 EU (máscara 0x1f, DSS0 presente) -> 10 SS × 8 EU.
+// O steering MCR continua no DSS0 (presente nos chips de 80 EU vistos). ioreg: xe-topo = eu<<8 | l3 (no acelerador).
+static uint32_t gTopoSs = 12, gTopoL3 = 8;
+static bool gTopoParsed = false;
+static void xeTopoArgs() {
+	if (gTopoParsed) return;
+	gTopoParsed = true;
+	uint32_t eu = 0, l3 = 0;
+	if (PE_parse_boot_argn("ngreen-eu", &eu, sizeof(eu)) && (eu == 48 || eu == 64 || eu == 80 || eu == 96)) gTopoSs = eu / 8;
+	if (PE_parse_boot_argn("ngreen-l3", &l3, sizeof(l3)) && l3 >= 2 && l3 <= 16 && !(l3 & 1)) gTopoL3 = l3;
 }
-
-static bool hpGa414NoAuxIdentity(bool realTgl, uint32_t cpuModel, uint32_t vendor,
-	uint32_t device, uint32_t subVendor, uint32_t subDevice, bool tahoe, const char *build) {
-	return realTgl && cpuModel == 0x8c && vendor == 0x8086 && device == 0x9a49 &&
-		subVendor == 0x103c && subDevice == 0x8716 && tahoe && build &&
-		strncmp(build, "25G83", sizeof("25G83")) == 0;
+static void *volatile gTopoAcc = nullptr;
+static volatile uint32_t gRc2Pre = 0xFFFFFFFFU, gRc2Post = 0xFFFFFFFFU, gRc2N = 0;   // xe/rowchk: 0xe4f4 before/after (last start)
+static volatile uint32_t hpNativeRowState[6] = {};
+alignas(8) static uint64_t hpR32Readback = 0;
+// xe/auxbl (#15): backlight over eDP AUX for panels that ignore the PWM pin (OLED). Off by default.
+//   ngreenauxbl=1  VESA eDP (DPCD 0x720-0x723, like Linux drm_edp_backlight); =2 same and PWM duty pinned at 100% (test)
+//   ngreenauxbl=3  Intel HDR TCON (Linux intel_dp_aux_hdr_*: 0x344 bit 4 AUX enable, nits at 0x354); =4 same + PWM pinned
+//   ngreenauxnits=N  panel maximum in nits for 3/4 (default 400, minimum sent 2)
+// Apple's duty write (BLC_PWM_PCH_CTL2) sets the level; the AUX writes run on a thread call with Apple's own
+// AppleIntelPort::readAUX/writeAUX. Arms only if the panel advertises the interface: VESA needs 0x701 bit 2 and 0x702
+// bit 1, Intel HDR needs 0x341 bit 4. ioreg on IntelAccelerator: xe-dpcd700-0..3 / xe-dpcd340 (caps, little-endian),
+// xe-auxbl-n (writes), -ret, -lvl (last level or nits), -rb (read back).
+static volatile uint32_t gXeDpcd700[4] = {0, 0, 0, 0}, gXeDpcd700Ret = 0xFFFFFFFFU, gXeDpcd340 = 0, gXeDpcd340Ret = 0xFFFFFFFFU;
+static void *volatile gXeAuxBlPort = nullptr;
+static mach_vm_address_t gXeAuxBlWr = 0, gXeAuxBlRd = 0;
+static thread_call_t gXeAuxBlTc = nullptr;
+static volatile uint32_t gXeAuxBlLevel = 0, gXeAuxBlN = 0, gXeAuxBlRet = 0xFFFFFFFFU, gXeAuxBlRb = 0, gXeAuxBlDone = 0;
+static int xeAuxBlMode() {
+	static int m = -1;
+	if (m < 0) { int v = 0; m = PE_parse_boot_argn("ngreenauxbl", &v, sizeof(v)) && v > 0 && v < 5 ? v : 0; }
+	return m;
 }
+static bool xeAuxBlHdr() { return xeAuxBlMode() >= 3; }
+static void xeTopoPublish(thread_call_param_t, thread_call_param_t) {
+	auto *svc = OSDynamicCast(IOService, reinterpret_cast<OSObject *>(gTopoAcc));
+	if (svc) svc->setProperty("xe-topo", (gTopoSs * 8) << 8 | gTopoL3, 32);
+	if (svc && gXeDpcd700Ret != 0xFFFFFFFFU) {
+		char k[20];
+		for (int i = 0; i < 4; i++) { snprintf(k, sizeof(k), "xe-dpcd700-%d", i); svc->setProperty(k, gXeDpcd700[i], 32); }
+		svc->setProperty("xe-dpcd700-ret", gXeDpcd700Ret, 32);
+		svc->setProperty("xe-dpcd340", gXeDpcd340, 32);
+		svc->setProperty("xe-dpcd340-ret", gXeDpcd340Ret, 32);
+	}
+	if (svc && gXeAuxBlN) {
+		svc->setProperty("xe-auxbl-n", gXeAuxBlN, 32);
+		svc->setProperty("xe-auxbl-ret", gXeAuxBlRet, 32);
+		svc->setProperty("xe-auxbl-lvl", gXeAuxBlDone, 32);
+		svc->setProperty("xe-auxbl-rb", gXeAuxBlRb, 32);
+	}
+	if (svc && gRc2N) {
+		svc->setProperty("xe-rowchk-pre", gRc2Pre, 32);
+		svc->setProperty("xe-rowchk-post", gRc2Post, 32);
+		svc->setProperty("xe-rowchk-n", gRc2N, 32);
+	}
+}
+static thread_call_t gTopoTc = nullptr;
 
 // ==== 6 kextInfos: ICL fallback + dual TGL identities (com.xxxxx and com.apple) from /Library/Extensions ====
 //trivial
@@ -84,6 +130,85 @@ static KernelPatcher::KextInfo kextG11HWTA {"com.apple.driver.AppleIntelTGLGraph
 // No separate kextIOAF2 registration needed here.
 
 Gen11 *Gen11::callback = nullptr;
+
+// The real-TGL resolve path is active only after the entire checked route set
+// is installed. It preserves the upstream compression/AUX policy.
+static bool hpCCSActive=false;
+static mach_vm_address_t hpResolveOriginal=0, hpIntelCCSOriginal=0, hpResourceCCSOriginal=0;
+struct HpCCSRects { uint64_t count, capacity; const uint8_t *data; };
+
+static bool hpResolveCCS(void *pool,void *program,void *params,bool global,const HpCCSRects &rects) {
+    using Native=bool (*)(void *,void *,void *,bool,const HpCCSRects &);
+    if (!hpCCSActive) return reinterpret_cast<Native>(hpResolveOriginal)(pool,program,params,global,rects);
+    if (!program || !params || rects.count>rects.capacity || (rects.count && !rects.data) || rects.count>UINT32_MAX/16) {
+        hpTglResolveFailed();return false;
+    }
+    for(uint64_t first=0;first<rects.count;) {
+        uint32_t n=uint32_t(rects.count-first);
+        if(n>HpTglRepair::CCSMaxRects) n=HpTglRepair::CCSMaxRects;
+        HpCCSRects chunk={n,n,rects.data+16*first};
+        HpTglCCSScope scope;
+        if (!hpTglCCSBegin(scope,pool,n)) {hpTglResolveFailed();return false;}
+        bool result=reinterpret_cast<Native>(hpResolveOriginal)(pool,program,params,global,chunk);
+        bool committed=hpTglCCSEnd(scope);
+        if (!result || !committed) {hpTglResolveFailed();return false;}
+        first+=n;
+    }
+    return true;
+}
+
+static bool hpIntelCCS(void *accel,void *resource,void *params,const HpCCSRects &rects,void *task) {
+    using Native=void (*)(void *,void *,void *,const HpCCSRects &,void *);
+    if (!hpCCSActive) {reinterpret_cast<Native>(hpIntelCCSOriginal)(accel,resource,params,rects,task);return true;}
+    if (!accel || !(*reinterpret_cast<uint8_t *>(static_cast<uint8_t *>(accel)+0xc78)&2)) {
+        hpTglResolveFailed();return false;
+    }
+    HpTglBlitScope scope;hpTglBeginBlit(scope);
+    reinterpret_cast<Native>(hpIntelCCSOriginal)(accel,resource,params,rects,task);
+    return !hpTglEndBlit(scope);
+}
+
+static bool hpResourceCCS(void *resource,void *entry,void *accel,void *task,uint32_t type,uint8_t level,uint8_t slice) {
+    using Native=bool (*)(void *,void *,void *,void *,uint32_t,uint8_t,uint8_t);
+    HpTglBlitScope scope;hpTglBeginBlit(scope);
+    bool result=reinterpret_cast<Native>(hpResourceCCSOriginal)(resource,entry,accel,task,type,level,slice);
+    bool failed=hpTglEndBlit(scope);
+    return result && !failed;
+}
+
+static bool hpInstallCCS(KernelPatcher &patcher,size_t index,mach_vm_address_t address,size_t size) {
+    mach_vm_address_t resolve=0,intel=0,resource=0;
+    SolveRequestPlus symbols[]={
+        {"__Z11resolve_ccsP25IOAccelCommandBufferPool2P14IGMappedBufferP22color_resolve_params_tbRK8IGVectorI11blit_rect_t25IGIOMallocAllocatorPolicyE",resolve},
+        {"__ZN16IntelAccelerator16submitCCSResolveEP15IGAccelResourceP22color_resolve_params_tRK8IGVectorI11blit_rect_t25IGIOMallocAllocatorPolicyEP11IGAccelTask",intel},
+        {"__ZN15IGAccelResource16submitCCSResolveEPNS_17ResourceInfoEntryER16IntelAcceleratorP11IGAccelTask20EIntelCCSResolveTypehh",resource},
+    };
+    if (!hpTglCCSPoolReady() || !SolveRequestPlus::solveAll(patcher,index,symbols,address,size)) return false;
+    static const uint8_t entry[]={0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56,0x41,0x55,0x41,0x54,0x53};
+    static const uint8_t probe[]={0xbe,2,0,0,0,0xe8};
+    static const uint8_t commit[]={0x48,0x8b,0xbd,0xb0,0xfe,0xff,0xff,0x48,0x89,0xde,0xe8};
+    static const uint8_t dirty[]={0x41,0x0f,0xb6,0xcd,0x01,0xc9,0xb8,3,0,0,0,0xd3,0xe0,0xf7,0xd0};
+    static const uint8_t cleanup[]={0x49,0x8b,0x7f,0x10,0x48,0x85,0xff};
+    if (memcmp(reinterpret_cast<void *>(resolve),entry,sizeof(entry)) ||
+        memcmp(reinterpret_cast<void *>(intel),entry,sizeof(entry)) ||
+        memcmp(reinterpret_cast<void *>(resource),entry,sizeof(entry)) ||
+        memcmp(reinterpret_cast<void *>(resolve+0x56),probe,sizeof(probe)) ||
+        memcmp(reinterpret_cast<void *>(resolve+0x984),commit,sizeof(commit)) ||
+        memcmp(reinterpret_cast<void *>(resource+0x47e),dirty,sizeof(dirty)) ||
+        memcmp(reinterpret_cast<void *>(resource+0x49e),cleanup,sizeof(cleanup))) return false;
+    uint8_t guard[18];HpTglRepair::ccsFailureGuard(guard,resource+0x49e);
+    auto trampoline=patcher.routeBlock(resource+0x47e,guard,sizeof(guard),true);
+    if (!trampoline || patcher.getError()!=KernelPatcher::Error::NoError) return false;
+    RouteRequestPlus routes[]={
+        {symbols[0].symbol,hpResolveCCS,hpResolveOriginal},
+        {symbols[1].symbol,hpIntelCCS,hpIntelCCSOriginal},
+        {symbols[2].symbol,hpResourceCCS,hpResourceCCSOriginal},
+    };
+    if (!RouteRequestPlus::routeAll(patcher,index,routes,address,size)) return false;
+    hpTglCCSArm(resolve+0x993);
+    hpCCSActive=true;
+    return true;
+}
 
 // xe/bootmode: contadores do hook getCurrentDisplayMode, impressos junto do HANGCHECK (os SYSLOGs do load do kext
 // são sobrescritos no msgbuf pelo log do IGFB antes de o logd drenar).
@@ -337,6 +462,28 @@ static void applyFixBootMode(KernelPatcher &patcher, KernelPatcher::KextInfo *ke
 // retido esperando algo (provavelmente a conclusão da transação de display). Contadores no caminho de conclusão
 // (TGL: submit/isComplete/signalComplete/signalDisplayStampUpdate), com IOLog nas primeiras chamadas e a cada 64.
 static void xeEv(uint32_t tag, uint32_t a, uint32_t b, uint32_t c);
+// xe/rc6fw (22/10): state shared by forceWake, xeSafeForceWake, the idle watchdog and the route code
+static IOSimpleLock *gFwLock = nullptr;     // forceWake's FWREF lock (was a static local in forceWake)
+static uint32_t gFwRef[8][4];               // forceWake's per-(domain, ctx) reference counts
+static mach_vm_address_t gOrgSafeForceWake = 0;
+static mach_vm_address_t gFwSymAddr = 0;    // runtime address of Apple's SafeForceWake(bool, uint)
+static int gRc6FwOn = 0;                    // 1 = route installed and active
+static int gRc6FwDrop = 1;                  // 0 = -ngreenrc6fwnodrop
+static uint32_t gRc6IdleMs = 500;
+static void *gFwAccel = nullptr;
+static thread_call_t gFwIdleTc = nullptr;
+static volatile uint32_t gFwActSeq = 0;     // bumped by every SafeForceWake call (multi path)
+static volatile uint32_t gFwUnderflow = 0;  // puts at count 0 (ignored) + negative counts repaired
+static volatile uint32_t gFwLeakDrops = 0;  // times the watchdog released a leaked hold
+static volatile uint32_t gFwLeakDom = 0;    // OR of the domains released
+static volatile uint64_t gFwLastGetCaller[3] = {};  // file offset of the last 0->1 get, per domain
+static volatile uint64_t gFwLeakCaller = 0;         // file offset of the get that leaked (last drop)
+static volatile uint64_t gFwUnderflowCaller = 0;    // file offset of the last ignored put
+
+static void xeSafeForceWake(void *that, bool set, uint32_t dom);
+static void xeRc6FwStart(void *accel);
+static void xeGpuRecInstall(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size);  // xe/gpurec (22/10)
+static bool xeBlitFixInstall(KernelPatcher &patcher, KernelPatcher::KextInfo *kext, mach_vm_address_t address, size_t size, const uint8_t *v2, size_t v2Size);  // xe/blitfix (23/10)
 static uint8_t *volatile gAccelObj = nullptr;  // xe/csstate: IntelAccelerator (capturado em signalDisplayStampUpdate)
 static mach_vm_address_t gOrgDpSubmit = 0, gOrgDpIsComplete = 0, gOrgDpSignal = 0, gOrgDispStamp = 0;
 static volatile uint32_t gDpSubmitN = 0, gDpIsCompN = 0, gDpIsCompTrue = 0, gDpSignalN = 0, gDispStampN = 0;
@@ -371,6 +518,7 @@ static volatile uint32_t gS5PushN = 0, gS5NotifyN = 0, gCs5SubmitN = 0, gS5Pause
 static uint32_t gThrtN = 0, gThrtSimN = 0;
 static volatile uint32_t gCsbResyncN = 0;  // 21/10: active->idle salvos pelo xeCsbResync (CSBR)
 static volatile uint32_t gCsbSkipN = 0;  // 19/10: eventos active->idle descartados pelo xeCsbA2I
+static volatile uint32_t gSubSkipN = 0;  // 05/11: prepareExecListAndSubmit vazios ignorados pelo xePrepSubmit
 // 20/10: brilho (PWM sul 0xC8254 período / 0xC8258 duty), estilo BacklightRegistersFix do WhateverGreen
 static volatile uint32_t gBlHwFreq = 0, gBlAppleFreq = 0, gBlLastDuty = 0, gBlMaxDuty = 0, gBlLastOut = 0, gBlFreqWrites = 0;
 static volatile uint32_t gIdlwN = 0, gIdlwMax = 0, gIdlwTimeout = 0;  // 19/10: esperas do IDLW (medir travadas)
@@ -400,6 +548,15 @@ struct XeCsbEnt;
 static void xeCsbFlush();
 static void xeEvFlush();
 static void xeEvDumpRecent(uint32_t count, int seq);
+static inline bool xeKptr(uint64_t p) { return (p >> 47) == 0x1ffff; }
+static inline uint32_t xeCsMmioBase(const uint8_t *c28) {
+	if (!xeKptr((uint64_t)c28)) return 0x2000;
+	uint32_t cspReg = *reinterpret_cast<const uint32_t *>(c28 + 0x25);
+	if ((cspReg & 0xfff) == 0x3a0 && cspReg >= 0x23a0 && cspReg < 0x200000) {
+		return cspReg & ~0xfffU;
+	}
+	return c28[0] == 0 ? 0x2000 : (c28[0] == 1 ? 0x1a000 : 0x22000);
+}
 static void xeCsStateWorker(thread_call_param_t, thread_call_param_t) {
 	static uint32_t tick = 0;
 	tick++;
@@ -423,14 +580,16 @@ static void xeCsStateWorker(thread_call_param_t, thread_call_param_t) {
 		uint8_t *c = gCs5Obj[i];
 		if (!c) continue;
 		uint32_t cur = *reinterpret_cast<volatile uint32_t *>(c + 0x50);
-		IOLog("XeNG CS t=%u cs%d cur=%u p0=%d/%d p1=%d/%d f1c00=%u f1c38=%u f1c3c=%u\n", tick, i, cur,
+		auto *c28 = *reinterpret_cast<uint8_t *volatile *>(c + 0x28);
+		uint32_t engId = xeKptr((uint64_t)c28) ? c28[0] : 99;
+		IOLog("XeNG CS t=%u cs%d id=%u cur=%u p0=%d/%d p1=%d/%d f1c00=%u f1c38=%u f1c3c=%u\n", tick, i, engId, cur,
 			  *reinterpret_cast<void *volatile *>(c + 0x30) != nullptr, *reinterpret_cast<void *volatile *>(c + 0x38) != nullptr,
 			  *reinterpret_cast<void *volatile *>(c + 0x40) != nullptr, *reinterpret_cast<void *volatile *>(c + 0x48) != nullptr,
 			  c[0x1c00], *reinterpret_cast<volatile uint32_t *>(c + 0x1c38), c[0x1c3c]);
 	}
 	if (gAccelObj && tick % 8 == 0)
-		IOLog("XeNG CS t=%u dpsm1458=0x%x cfg1190=0x%x (push %u exec %u) thrt=%u thrtSim=%u csbx=%u csbr=%u idlw=%u/%llums max=%uus to=%u pgoff=%u pgon=%u pgfix=%u stail=%u resfix=%u orf=%u dpms=%u fbdpms=%u gtf=%u/0x%x bl hw=%u apple=%u fw=%u duty=%u max=%u out=%u rc1474=%u\n", tick, *reinterpret_cast<volatile uint32_t *>(gAccelObj + 0x1458),
-			  *reinterpret_cast<volatile uint32_t *>(gAccelObj + 0x1190), gS5PushN, gCs5SubmitN, gThrtN, gThrtSimN, gCsbSkipN, gCsbResyncN, gIdlwN, (unsigned long long)(gIdlwUs / 1000), gIdlwMax, gIdlwTimeout, gPageoffN, gPageonN, gPageonFix, gSameTailForced, gXeResFreeFix, gXeOrphanMiss, gXeDpmsBlocked, gXeFbDpmsN, gXeGtFreqN, gXeGtFreqApple, gBlHwFreq, gBlAppleFreq, gBlFreqWrites, gBlLastDuty, gBlMaxDuty, gBlLastOut,
+		IOLog("XeNG CS t=%u dpsm1458=0x%x cfg1190=0x%x (push %u exec %u) thrt=%u thrtSim=%u csbx=%u csbr=%u subsk=%u idlw=%u/%llums max=%uus to=%u pgoff=%u pgon=%u pgfix=%u stail=%u resfix=%u orf=%u dpms=%u fbdpms=%u gtf=%u/0x%x bl hw=%u apple=%u fw=%u duty=%u max=%u out=%u rc1474=%u\n", tick, *reinterpret_cast<volatile uint32_t *>(gAccelObj + 0x1458),
+			  *reinterpret_cast<volatile uint32_t *>(gAccelObj + 0x1190), gS5PushN, gCs5SubmitN, gThrtN, gThrtSimN, gCsbSkipN, gCsbResyncN, gSubSkipN, gIdlwN, (unsigned long long)(gIdlwUs / 1000), gIdlwMax, gIdlwTimeout, gPageoffN, gPageonN, gPageonFix, gSameTailForced, gXeResFreeFix, gXeOrphanMiss, gXeDpmsBlocked, gXeFbDpmsN, gXeGtFreqN, gXeGtFreqApple, gBlHwFreq, gBlAppleFreq, gBlFreqWrites, gBlLastDuty, gBlMaxDuty, gBlLastOut,
 			  (unsigned)*reinterpret_cast<volatile uint8_t *>(gAccelObj + 0x1474));
 	if (tick < 2400 && gCsStateTc) {  // a cada 250 ms por ~10 min
 		uint64_t deadline;
@@ -455,7 +614,7 @@ static void xeRetryWorker(thread_call_param_t, thread_call_param_t) {
 		st = cb->readReg32(0x2234);
 		if (!(st & 0x40000000)) { resultado = 1; break; }  // o hardware aceitou sozinho
 		if (cb->readReg32(0x2510) != gRetryQ[0] || cb->readReg32(0x2514) != gRetryQ[1]) { resultado = 2; break; }  // driver escreveu outra
-		if ((st & 0xff) == 0x01 || !(st & 0x18)) {  // ocioso: repete a carga
+		if ((st & 0x0007c000) == 0 || !(st & 0x18)) {  // ocioso (NO ACTIVE ELEMENTS): repete a carga
 			cb->writeReg32(0x2550, 1);
 			IODelay(20);
 			resultado = 3; st = cb->readReg32(0x2234);
@@ -472,35 +631,79 @@ static void xeRetryWorker(thread_call_param_t, thread_call_param_t) {
 // one-shot de restauração forçada do contexto da Apple (ctx+0xc9; o código em 0x3a7b6 o converte em FORCE_RESTORE no
 // descritor). Layout conferido com o mesmo driver 16.0.32. -ngreennosametail desliga.
 struct XeSameTailEnt { uint64_t item, ctx, desc, image; uint32_t tail; };
-static XeSameTailEnt gSameTailPrev = {};
-static inline bool xeKptr(uint64_t p) { return (p >> 47) == 0x1ffff; }
+static XeSameTailEnt gSameTailPrev[3] = {};
+static void xeRepairSlotTail(uint64_t item, uint64_t *outCtx, uint64_t *outDesc, uint64_t *outImage, uint32_t *outItemTail, bool *outClobbered) {
+	if (outCtx) *outCtx = 0;
+	if (outDesc) *outDesc = 0;
+	if (outImage) *outImage = 0;
+	if (outItemTail) *outItemTail = 0;
+	if (outClobbered) *outClobbered = false;
+	if (!xeKptr(item)) return;
+	uint64_t ctx = *reinterpret_cast<uint64_t *>(item);
+	if (!xeKptr(ctx)) return;
+	uint8_t engId = *reinterpret_cast<uint8_t *>(ctx + 0x6c);
+	if (engId > 2) return;
+	uint64_t desc = 0;
+	memcpy(&desc, reinterpret_cast<void *>(ctx + 0x89), 8);
+	uint64_t buf = *reinterpret_cast<uint64_t *>(ctx + 0x98);
+	uint64_t bsz = xeKptr(buf) ? *reinterpret_cast<uint64_t *>(buf + 0x20) : 0;
+	if (!(desc & 1) || (bsz != 81920 && bsz != 8192)) return;
+	uint64_t image = *reinterpret_cast<uint64_t *>(buf + 0x38);
+	if (!xeKptr(image)) return;
+	uint32_t itemTail = *reinterpret_cast<uint32_t *>(item + 0x8);
+	uint32_t lrcaTail = *reinterpret_cast<volatile uint32_t *>(image + 0x101c);
+	if ((itemTail & 7) == 0 && itemTail < 0x20000 && lrcaTail != itemTail) {
+		*reinterpret_cast<volatile uint32_t *>(image + 0x101c) = itemTail;
+		__asm__ volatile("mfence" ::: "memory");
+		uint32_t ctxId = *reinterpret_cast<uint32_t *>(ctx + 0x7c);
+		xeEv('TCLB', lrcaTail, itemTail, (static_cast<uint32_t>(engId) << 16) | (ctxId & 0xffff));
+		if (outClobbered) *outClobbered = true;
+	}
+	if (outCtx) *outCtx = ctx;
+	if (outDesc) *outDesc = desc;
+	if (outImage) *outImage = image;
+	if (outItemTail) *outItemTail = itemTail;
+}
 static void xeSameTail(void *that) {
 	static int on = -1;
 	if (on < 0) on = checkKernelArgument("-ngreennosametail") ? 0 : 1;
 	if (on != 1 || !that) return;
 	auto *st = static_cast<uint8_t *>(that);
 	auto *desc = *reinterpret_cast<uint8_t **>(st + 0x28);
-	if (!xeKptr((uint64_t)desc) || desc[0] != 0) return;  // só o RCS
+	if (!xeKptr((uint64_t)desc) || desc[0] > 2) return;
+	uint8_t engId = desc[0];
+	uint32_t eb = xeCsMmioBase(desc);
 	uint32_t bank = *reinterpret_cast<uint32_t *>(st + 0x50);
-	if (bank >= 2) { gSameTailPrev = {}; return; }
+	if (bank >= 2) { gSameTailPrev[engId] = {}; return; }
 	uint64_t active = *reinterpret_cast<uint64_t *>(st + 0x30 + bank * 16);
 	uint64_t next = *reinterpret_cast<uint64_t *>(st + 0x30 + (1 - bank) * 16);
+	uint64_t next1 = *reinterpret_cast<uint64_t *>(st + 0x38 + (1 - bank) * 16);
 	XeSameTailEnt e = {};
 	e.item = next;
-	if (!xeKptr(next)) { gSameTailPrev = {}; return; }
-	e.ctx = *reinterpret_cast<uint64_t *>(next);
-	if (!xeKptr(e.ctx) || *reinterpret_cast<uint8_t *>(e.ctx + 0x6c) != 0) { gSameTailPrev = {}; return; }
-	memcpy(&e.desc, reinterpret_cast<void *>(e.ctx + 0x89), 8);
-	uint64_t buf = *reinterpret_cast<uint64_t *>(e.ctx + 0x98);
-	if (!(e.desc & 1) || !xeKptr(buf) || *reinterpret_cast<uint64_t *>(buf + 0x20) != 81920) { gSameTailPrev = {}; return; }
-	e.image = *reinterpret_cast<uint64_t *>(buf + 0x38);
-	if (!xeKptr(e.image)) { gSameTailPrev = {}; return; }
-	e.tail = *reinterpret_cast<uint32_t *>(e.image + 0x101c);
-	if (active == next && !memcmp(&e, &gSameTailPrev, sizeof(e))) {
+	bool clobbered0 = false, clobbered1 = false;
+	xeRepairSlotTail(next, &e.ctx, &e.desc, &e.image, &e.tail, &clobbered0);
+	if (!e.ctx || !e.image) { gSameTailPrev[engId] = {}; return; }
+	if (xeKptr(next1)) {
+		uint64_t ctx1 = 0;
+		xeRepairSlotTail(next1, &ctx1, nullptr, nullptr, nullptr, &clobbered1);
+		if (clobbered1 && ctx1) {
+			auto *forced1 = reinterpret_cast<volatile uint8_t *>(ctx1 + 0xc9);
+			if (!*forced1) { *forced1 = 1; gSameTailForced++; }
+		}
+	}
+	uint32_t ctxId = *reinterpret_cast<uint32_t *>(e.ctx + 0x7c);
+	uint32_t st234 = NGreen::callback ? NGreen::callback->readReg32(eb + 0x234) : 0;
+	uint32_t hwCtxId = NGreen::callback ? ((NGreen::callback->readReg32(eb + 0x238) >> 5) & 0x7ff) : 0;
+	bool engineIdle = (st234 & 0x18001) == 0x18001;
+	bool samePrev = (active == next && e.ctx == gSameTailPrev[engId].ctx && e.desc == gSameTailPrev[engId].desc &&
+	                 e.image == gSameTailPrev[engId].image && e.tail == gSameTailPrev[engId].tail);
+	static int forceSame = -1;
+	if (forceSame < 0) forceSame = checkKernelArgument("-ngreensametailforce") ? 1 : 0;
+	if (clobbered0 || (forceSame == 1 && (samePrev || (engineIdle && ctxId != 0 && ctxId == hwCtxId)))) {
 		auto *forced = reinterpret_cast<volatile uint8_t *>(e.ctx + 0xc9);
 		if (!*forced) { *forced = 1; gSameTailForced++; }
 	}
-	gSameTailPrev = e;
+	gSameTailPrev[engId] = e;
 }
 static uint64_t xeCs5Submit(void *that, uint32_t x) {
 	for (int i = 0; i < 4; i++) {
@@ -513,17 +716,60 @@ static uint64_t xeCs5Submit(void *that, uint32_t x) {
 	}
 	uint32_t n = ++gCs5SubmitN;
 	xeEv('EXEC', n, x, gS5PushN);
+	uint64_t sub0 = 0, sub1 = 0;
+	if (that) {
+		auto *st = static_cast<uint8_t *>(that);
+		uint32_t bank = *reinterpret_cast<uint32_t *>(st + 0x50);
+		if (bank < 2) {
+			sub0 = *reinterpret_cast<uint64_t *>(st + 0x30 + (1 - bank) * 16);
+			sub1 = *reinterpret_cast<uint64_t *>(st + 0x38 + (1 - bank) * 16);
+		}
+	}
+	auto *c28 = *reinterpret_cast<uint8_t **>(static_cast<uint8_t *>(that) + 0x28);
+	uint32_t eb = xeCsMmioBase(c28);
+	static int elsqWaitCs5 = -1;
+	if (elsqWaitCs5 < 0) elsqWaitCs5 = checkKernelArgument("-ngreennoelsqwait") ? 0 : 1;
+	if (elsqWaitCs5 == 1 && NGreen::callback && c28) {
+		uint32_t st0 = NGreen::callback->readReg32(eb + 0x234), st = st0, us = 0;
+		while ((st & 0x40000000) && us < 2000) { IODelay(5); us += 5; st = NGreen::callback->readReg32(eb + 0x234); }
+		if (st0 & 0x40000000) xeEv('WAI2', st0, st, us);
+	}
 	xeSameTail(that);
 	uint64_t r = FunctionCast(xeCs5Submit, gOrgCs5Submit)(that, x);
-	// xe/elsq (19/10): o que foi escrito na fila de submissão. Base do motor pelo tipo do CS (cs+0x28 -> byte 0: 0=RCS)
-	auto *c28 = *reinterpret_cast<uint8_t **>(static_cast<uint8_t *>(that) + 0x28);
-	uint32_t eb = (c28 && c28[0] != 0) ? 0x22000 : 0x2000;
+	// xe/elsq (19/10): o que foi escrito na fila de submissão. Base do motor pelo descritor em cs+0x28
 	if (NGreen::callback) {
 		auto rr = [&](uint32_t o) { return NGreen::callback->readReg32(eb + o); };
-		uint32_t tag = eb == 0x2000 ? 'ELR0' : 'ELB0';
+		uint32_t tag = eb == 0x2000 ? 'ELR0' : (eb == 0x1a000 ? 'ELC0' : 'ELB0');
 		xeEv(tag, rr(0x510), rr(0x514), rr(0x518));
 		xeEv(tag + 1, rr(0x51c), rr(0x550), rr(0x234));
 		xeEv(tag + 2, rr(0x238), rr(0x3a0), rr(0x034) | (rr(0x030) << 16));
+		bool clob0 = false, clob1 = false;
+		if (xeKptr(sub0)) xeRepairSlotTail(sub0, nullptr, nullptr, nullptr, nullptr, &clob0);
+		if (xeKptr(sub1)) xeRepairSlotTail(sub1, nullptr, nullptr, nullptr, nullptr, &clob1);
+		static int rlodArg = -1;
+		if (rlodArg < 0) rlodArg = checkKernelArgument("-ngreenelsqrlod") ? 1 : 0;
+		if (rlodArg == 1 && (eb == 0x2000 || eb == 0x1a000)) {
+			uint32_t stAfter = rr(0x234);
+			int maxW = (clob0 || clob1) ? 10 : 5;
+			for (int w = 0; w < maxW && ((clob0 || clob1) ? ((stAfter & 0x0007c000) != 0) : ((stAfter & 0x40000000) && (stAfter & 0x0007c000) == 0)); w++) {
+				IODelay(5);
+				stAfter = rr(0x234);
+			}
+			if ((stAfter & 0x0007c000) == 0 && ((clob0 || clob1) || (stAfter & 0x40000000))) {
+				if (xeKptr(sub0)) xeRepairSlotTail(sub0, nullptr, nullptr, nullptr, nullptr, nullptr);
+				if (xeKptr(sub1)) xeRepairSlotTail(sub1, nullptr, nullptr, nullptr, nullptr, nullptr);
+				uint32_t q0 = rr(0x510), q1 = rr(0x514);
+				if (q0 & 1) {
+					if (!(q0 & 4)) {
+						NGreen::callback->writeReg32(eb + 0x510, q0 | 4);
+						NGreen::callback->writeReg32(eb + 0x514, q1);
+					}
+					NGreen::callback->writeReg32(eb + 0x550, 1);
+					IODelay(5);
+					xeEv('RLOD', stAfter, rr(0x234), n);
+				}
+			}
+		}
 		static int retryArg = -1;
 		// 19/10: desligado por padrão (suspeito do pânico "EL[0] was invalidated!!": recarregar 0x2550 com a lista já
 		// aceita invalida o elemento 0); -ngreenelsqretry religa
@@ -749,7 +995,25 @@ static bool xeCsbEventoInvalido(void *that, const uint32_t *e, bool exigeEl1, ui
 // Em vez de descartar: se EL[cur] está vazio e o slot pendente tem exatamente esse contexto, sintetiza o
 // idle->active que faltou (csbProcessIdleToActive original: troca cur e limpa o slot velho) e processa o evento.
 // Eventos realmente repetidos/atrasados (nenhum slot bate) continuam descartados. -ngreennocsbresync desliga.
-static mach_vm_address_t gOrgCsbI2A = 0;  // só resolvido, não roteado
+static mach_vm_address_t gOrgCsbI2A = 0;
+static void xeCsbI2A(void *that, const uint32_t *e) {
+	static int guard = -1;
+	if (guard < 0) guard = checkKernelArgument("-ngreennocsbguard") ? 0 : 1;
+	if (guard == 1 && that && e) {
+		auto *cs = static_cast<uint8_t *>(that);
+		uint32_t idx = *reinterpret_cast<uint32_t *>(cs + 0x50);
+		if (idx <= 1) {
+			uint32_t pend = 1 - idx;
+			auto *elPend = *reinterpret_cast<uint8_t **>(cs + 0x30 + (uint64_t)pend * 16);
+			if (!elPend) {
+				uint32_t id = (e[1] >> 5) & 0x7ff;
+				xeEv('CSBI', idx, id, ++gCsbSkipN);
+				return;
+			}
+		}
+	}
+	FunctionCast(xeCsbI2A, gOrgCsbI2A)(that, e);
+}
 static bool xeCsbResync(void *that, const uint32_t *e) {
 	static int on = -1;
 	if (on < 0) on = checkKernelArgument("-ngreennocsbresync") ? 0 : 1;
@@ -763,6 +1027,26 @@ static bool xeCsbResync(void *that, const uint32_t *e) {
 	auto *ctxPend = elPend ? *reinterpret_cast<uint8_t **>(elPend) : nullptr;
 	uint32_t id = (e[1] >> 5) & 0x7ff;
 	if (elCur || !ctxPend || *reinterpret_cast<uint32_t *>(ctxPend + 0x7c) != id) return false;
+	uint32_t csbIdx = *reinterpret_cast<uint32_t *>(cs + 0x1c04);
+	uint32_t writePtr = 0xff;
+	auto *acc = *reinterpret_cast<uint8_t **>(cs + 0x10);
+	auto *c28 = *reinterpret_cast<uint8_t **>(cs + 0x28);
+	if (acc) {
+		if (static_cast<int8_t>(acc[0x1190]) < 0) {
+			auto *base = *reinterpret_cast<uint8_t **>(acc + 0x1240);
+			if (base && c28) writePtr = *reinterpret_cast<volatile uint32_t *>(base + *reinterpret_cast<uint32_t *>(c28 + 0x25)) & 0xf;
+		} else {
+			auto *b68 = *reinterpret_cast<uint8_t **>(cs + 0x68);
+			if (b68) writePtr = *reinterpret_cast<volatile uint32_t *>(b68 + 0xbc) & 0xf;
+		}
+	}
+	if (writePtr <= 5 && csbIdx != writePtr) return false;
+	if (NGreen::callback && c28) {
+		uint32_t eb = xeCsMmioBase(c28);
+		uint32_t hwCsp = NGreen::callback->readReg32(eb + 0x3a0) & 0x7;
+		uint32_t st234 = NGreen::callback->readReg32(eb + 0x234);
+		if ((hwCsp <= 5 && csbIdx != hwCsp) || (st234 & 0x18001) != 0x18001) return false;
+	}
 	reinterpret_cast<void (*)(void *, const uint32_t *)>(gOrgCsbI2A)(that, e);  // não lê 'e'; cur := pend
 	xeEv('CSBR', idx, id, ++gCsbResyncN);
 	return true;
@@ -772,10 +1056,43 @@ static void xeCsbA2I(void *that, const uint32_t *e) {
 		if (!xeCsbResync(that, e)) return;
 		if (xeCsbEventoInvalido(that, e, false, 'CSBY')) return;  // não deveria acontecer
 	}
+	if (that) {
+		auto *cs = static_cast<uint8_t *>(that);
+		uint32_t idx = *reinterpret_cast<uint32_t *>(cs + 0x50);
+		if (idx <= 1) {
+			uint64_t next0 = *reinterpret_cast<uint64_t *>(cs + 0x30 + (1 - idx) * 16);
+			uint64_t next1 = *reinterpret_cast<uint64_t *>(cs + 0x38 + (1 - idx) * 16);
+			if (xeKptr(next0)) xeRepairSlotTail(next0, nullptr, nullptr, nullptr, nullptr, nullptr);
+			if (xeKptr(next1)) xeRepairSlotTail(next1, nullptr, nullptr, nullptr, nullptr, nullptr);
+		}
+	}
 	FunctionCast(xeCsbA2I, gOrgCsbA2I)(that, e);
+	if (that) {
+		auto *cs = static_cast<uint8_t *>(that);
+		uint32_t idx = *reinterpret_cast<uint32_t *>(cs + 0x50);
+		if (idx <= 1 && cs[0x1c3c] && *reinterpret_cast<uint64_t *>(cs + 0x30 + (uint64_t)idx * 16) == 0) {
+			*reinterpret_cast<uint64_t *>(cs + 0x30 + (uint64_t)(1 - idx) * 16) = 0;
+			*reinterpret_cast<uint64_t *>(cs + 0x38 + (uint64_t)(1 - idx) * 16) = 0;
+		}
+	}
 }
 static void xeCsbPreempt(void *that, const uint32_t *e) {
 	if (xeCsbEventoInvalido(that, e, false, 'CSBP')) return;
+	static int guard = -1;
+	if (guard < 0) guard = checkKernelArgument("-ngreennocsbguard") ? 0 : 1;
+	if (guard == 1 && that && e) {
+		auto *cs = static_cast<uint8_t *>(that);
+		uint32_t idx = *reinterpret_cast<uint32_t *>(cs + 0x50);
+		if (idx <= 1) {
+			uint32_t pend = 1 - idx;
+			auto *elPend = *reinterpret_cast<uint8_t **>(cs + 0x30 + (uint64_t)pend * 16);
+			if (!elPend) {
+				uint32_t id = (e[1] >> 5) & 0x7ff;
+				xeEv('CSBP', idx, id, ++gCsbSkipN);
+				return;
+			}
+		}
+	}
 	FunctionCast(xeCsbPreempt, gOrgCsbPreempt)(that, e);
 }
 static void xeCsbElSwitch(void *that, const uint32_t *e) {
@@ -798,7 +1115,26 @@ static uint64_t xeVerifyThr(void *that, bool *out) {
 // xe/fwsubmit (19/10): a execlist escrita logo depois do fim do CSB se perdia (motor recém-ocioso em RC6). Segura o
 // forcewake de Render+Blitter num bit próprio (ctx=3) em volta da submissão. Desliga com -ngreennofwsubmit.
 static uint64_t xePrepSubmit(void *that, uint32_t a, uint32_t b, const uint32_t *c) {
-	xeEv('SUBM', (uint32_t)(uintptr_t)that & 0xfff0, a, b);
+	uint32_t c0 = c ? c[0] : 0xffffu, c1 = c ? c[1] : 0xffffu;
+	static int skipEmpty = -1;
+	if (skipEmpty < 0) skipEmpty = checkKernelArgument("-ngreennoskipempty") ? 0 : 1;
+	if (skipEmpty == 1 && that && (b & 0x60u) == 0 && c && c0 == 0 && c1 == 0) {
+		auto *st = static_cast<uint8_t *>(that);
+		uint32_t bank = *reinterpret_cast<uint32_t *>(st + 0x50);
+		if (bank <= 1) {
+			uint64_t cur0 = *reinterpret_cast<uint64_t *>(st + 0x30 + (uint64_t)bank * 16);
+			uint64_t cur1 = *reinterpret_cast<uint64_t *>(st + 0x38 + (uint64_t)bank * 16);
+			uint64_t pend0 = *reinterpret_cast<uint64_t *>(st + 0x30 + (uint64_t)(1 - bank) * 16);
+			uint64_t pend1 = *reinterpret_cast<uint64_t *>(st + 0x38 + (uint64_t)(1 - bank) * 16);
+			if (cur0 == pend0 && cur1 == pend1) {
+				*reinterpret_cast<uint64_t *>(st + 0x30 + (uint64_t)(1 - bank) * 16) = 0;
+				*reinterpret_cast<uint64_t *>(st + 0x38 + (uint64_t)(1 - bank) * 16) = 0;
+				xeEv('SUBS', ((uint32_t)(uintptr_t)that & 0xfff0u) | (a & 0xffu), b, ++gSubSkipN);
+				return 0;
+			}
+		}
+	}
+	xeEv('SUBM', ((uint32_t)(uintptr_t)that & 0xfff0u) | (a & 0xffu), b, (c0 & 0xffffu) | ((c1 & 0xffffu) << 16));
 	static int fwSub = -1;
 	if (fwSub < 0) fwSub = checkKernelArgument("-ngreennofwsubmit") ? 0 : 1;
 	auto *acc = *reinterpret_cast<void **>(static_cast<uint8_t *>(that) + 0x10);
@@ -810,46 +1146,31 @@ static uint64_t xePrepSubmit(void *that, uint32_t a, uint32_t b, const uint32_t 
 	if (elsqWait < 0) elsqWait = checkKernelArgument("-ngreennoelsqwait") ? 0 : 1;
 	auto *c28 = *reinterpret_cast<uint8_t **>(static_cast<uint8_t *>(that) + 0x28);
 	if (elsqWait == 1 && NGreen::callback && c28) {
-		uint32_t eb = c28[0] == 0 ? 0x2000 : 0x22000;
+		uint32_t eb = xeCsMmioBase(c28);
 		uint32_t st0 = NGreen::callback->readReg32(eb + 0x234), st = st0, us = 0;
 		while ((st & 0x40000000) && us < 2000) { IODelay(5); us += 5; st = NGreen::callback->readReg32(eb + 0x234); }
 		if (st0 & 0x40000000) xeEv('WAIT', st0, st, us);
-		// xe/elsqdelay (19/10): a submissão escrita no mesmo instante em que o contexto anterior termina se perde
-		// (com ctx7 também, não só ctx16). Atraso curto antes de cada submissão do RCS; ngreenelsqdelay=N (us), 0 desliga.
+		// xe/elsqdelay (19/10): desligado por padrão (atrasar entre evalWorkQueues e submitExecList permite que a GPU
+		// termine o lote anterior e salve o tail velho por cima do LRCA+0x101c recém-atualizado); ngreenelsqdelay=N religa.
 		static int dly = -1;
-		if (dly < 0) { int v = 0; PE_parse_boot_argn("ngreenelsqdelay", &v, sizeof(v)); dly = (v >= 0 && v <= 5000) ? v : 50; }
-		if (eb == 0x2000) {
+		if (dly < 0) { int v = 0; PE_parse_boot_argn("ngreenelsqdelay", &v, sizeof(v)); dly = (v >= 0 && v <= 5000) ? v : 0; }
+		if (eb == 0x2000 || eb == 0x1a000) {
 			uint32_t pre = NGreen::callback->readReg32(eb + 0x234), preHi = NGreen::callback->readReg32(eb + 0x238);
 			uint32_t csp = NGreen::callback->readReg32(eb + 0x3a0);
-			xeEv('PRE0', pre, preHi, csp);
-			// xe/elsqidle (19/10): submissões boas encontram EXECLIST_STATUS lo = 0x...01 (ocioso, hi=0); a perdida
-			// encontrou 0x00018098 com o contexto anterior ainda atual (hi=ID), mesmo depois do CSB "terminou".
-			// Espera o motor sair desse estado (bit 0x80 ou byte baixo != 0x01), passos de 5 us, até 2 ms.
-			// Só quando havia contexto atual (hi != 0); -ngreennoelsqidle desliga.
+			xeEv(eb == 0x2000 ? 'PRE0' : 'PRC0', pre, preHi, csp);
+			// xe/elsqidle: desligado por padrão; esperar a GPU ficar ociosa dentro de prepareExecListAndSubmit (depois de
+			// evalWorkQueues já ter escrito o novo tail em LRCA+0x101c) faz o Context Save de ACTIVE_TO_IDLE sobrescrever
+			// LRCA+0x101c com o tail antigo e dessincronizar fBank. Religado apenas com -ngreenelsqidle.
 			static int idleW = -1;
-			// 20/10: DESLIGADO por padrão: com o SAMETAIL não houve mais eventos inválidos (csbx=0) e as esperas somavam
-			// 8-16 s de CPU parada em ~3 min (mouse a cada 20 s, congelamento). -ngreenelsqidle religa.
-			// 20/10 02h30: RELIGADO: sem ele voltou o hang do Blit3D lendo página scratch (c01dbead) — 2 boots seguidos,
-			// nunca com a espera ligada. Limite agora de 5 ms. -ngreennoelsqidle desliga.
-			if (idleW < 0) idleW = checkKernelArgument("-ngreennoelsqidle") ? 0 : 1;
-			// 19/10 (XE-NOPREEMPT): as recusas acontecem com arbitragem ligada (bit 16) e contexto atual — a nova
-			// submissão dispara preempção, que emperra o RCS no RPL. Espera até 50 ms (ngreenpreemptwait=us) o motor
-			// ficar ocioso (byte baixo 0x01) ou a arbitragem desligar, para nunca preemptar.
+			if (idleW < 0) idleW = checkKernelArgument("-ngreenelsqidle") ? 1 : 0;
 			static int maxw = -1;
-			// 19/10: 50 ms -> 2 ms. Medido: 1444 esperas = 5,4 s em ~3 min, 8 batendo no limite (travadas visíveis). A causa dos
-				// hangs que a espera contornava (kernels blit3d zerados, VS herdado) já foi corrigida.
-				// 19/10 23h45: 2 ms trouxe de volta artefatos (861 envios com o motor ocupado em ~3 min); meio-termo de 15 ms.
-				// 20/10: de volta a 50 ms (valor da "versão boa"); 2 e 15 ms vieram junto com glitches novos
-				if (maxw < 0) { int v = 5000; PE_parse_boot_argn("ngreenpreemptwait", &v, sizeof(v)); maxw = (v >= 0 && v <= 200000) ? v : 5000; }
-			// 19/10 (XE-IDLEANY): o hang do login começou numa submissão com o RCS ocupado SEM bit 16 (0x3098, ctx5
-			// rodando o clear) que reenviou o ctx5 (lite restore) com o ctx7 no elemento 1. Agora espera o ocioso
-			// mesmo sem arbitragem; -ngreenidlearb volta à condição antiga (só com bit 16).
+			if (maxw < 0) { int v = 5000; PE_parse_boot_argn("ngreenpreemptwait", &v, sizeof(v)); maxw = (v >= 0 && v <= 200000) ? v : 5000; }
 			static int arbOnly = -1;
 			if (arbOnly < 0) arbOnly = checkKernelArgument("-ngreenidlearb") ? 1 : 0;
-			uint32_t arbMask = arbOnly ? 0x10000 : 0;
-			if (idleW == 1 && preHi != 0 && (pre & 0xff) != 0x01 && (!arbMask || (pre & arbMask))) {
+			uint32_t arbMask = arbOnly ? 0x10000 : 0x0007c000;
+			if (idleW == 1 && (pre & 0x0007c000) != 0 && (pre & arbMask)) {
 				uint32_t st = pre, hi = preHi, us = 0;
-				while (((st & 0xff) != 0x01) && (!arbMask || (st & arbMask)) && hi != 0 && us < (uint32_t)maxw) {
+				while ((st & 0x0007c000) != 0 && (st & arbMask) && us < (uint32_t)maxw) {
 					IODelay(5); us += 5;
 					st = NGreen::callback->readReg32(eb + 0x234); hi = NGreen::callback->readReg32(eb + 0x238);
 				}
@@ -874,7 +1195,7 @@ static void xeEvDumpRecent(uint32_t count, int seq) {
 	}
 	uint32_t n = __atomic_load_n(&gEvN, __ATOMIC_RELAXED);
 	uint32_t from = n > count ? n - count : 0;
-	IOLog("XeNG CSBDUMP #%d: eventos %u..%u (skip=%u)\n", seq, from + 1, n, gCsbSkipN);
+	IOLog("XeNG CSBDUMP #%d: eventos %u..%u (skip=%u subSkip=%u)\n", seq, from + 1, n, gCsbSkipN, gSubSkipN);
 	for (uint32_t i = from; i < n; i++) {
 		auto &e = gEvLog[i % XE_EV_MAX];
 		uint64_t ns = 0; absolutetime_to_nanoseconds(e.t, &ns);
@@ -939,6 +1260,12 @@ static uint64_t xeRestoreSafe(void *that) {
 	if (!img) return r;
 	volatile uint32_t *pg1 = img + 0x400;
 	for (int k = 1; k + 1 < 0x100; k++) {
+		if (pg1[k] == 0x2244 && (pg1[k + 1] & 0x10u)) {
+			uint32_t antes = pg1[k + 1];
+			pg1[k + 1] = (antes & ~0x00100010u) | 0x00100000u;
+			static volatile uint32_t nCtrl = 0;
+			if (++nCtrl <= 32) IOLog("XeNG POSH ctx lrca=%x CTX_CTRL %x -> %x (DW%x)\n", *reinterpret_cast<uint32_t *>(ctx + 0x89) & ~0xfffu, antes, pg1[k + 1], k + 1);
+		}
 		if (pg1[k] == 0x21b0) {
 			uint32_t antes = pg1[k + 1];
 			pg1[k + 1] = 0;
@@ -1011,6 +1338,549 @@ static void fbTimingsWorker(thread_call_param_t, thread_call_param_t) {
 		clock_interval_to_deadline(50, kMillisecondScale, &deadline);
 		thread_call_enter_delayed(gFbtTc, deadline);
 	}
+}
+
+// ─── HP-BBTRACE (REPAIR8): read-only batch/hang diagnostics ───────────────────────────────────────────────
+// Diagnostic-only port of the NP550XDA batch trace. It records what the CPU submitted, copies a bounded
+// prefix of RCS batches at submit time, and prints recent state when the TGL ring reports a hang. It makes
+// no MMIO/GPU writes and does not change any R7 patch. The hang path never dereferences a stored batch CPU
+// pointer: it prints only the copy made while the submitter still owned that pointer.
+static mach_vm_address_t gHpBtOrgSubmitBb = 0;
+static mach_vm_address_t gHpBtOrgSubmitCh = 0;
+static mach_vm_address_t gHpBtOrgHang = 0;
+static volatile uint32_t gHpBtBbSeq = 0;
+static volatile uint32_t gHpBtCopySeq = 0;
+static volatile uint32_t gHpBtCdSeq = 0;
+static volatile uint32_t gHpBtHangSeq = 0;
+static volatile uint32_t gHpBtRcsHangSeq = 0;
+static volatile uint32_t gHpBtDumpBusy = 0;
+
+struct HpBtBb {
+	void *ring;
+	uint64_t addr;
+	uint64_t hdr;
+	uint64_t t;
+	void *caller;
+	uint32_t seq;
+	uint32_t hdrDw;
+	uint32_t copyDwords;
+	uint32_t copySlot;
+	int32_t pid;
+	int32_t stamp;
+	uint8_t type;
+	uint8_t valid;
+	uint8_t pad[2];
+};
+static HpBtBb gHpBtBbs[128];
+
+// 64 x 1024 dwords = 256 KiB of static diagnostic storage. A copy never crosses the 4 KiB page that
+// contains hdr, like the donor's xeBbCopy, with the requested larger bound.
+struct HpBtCopy {
+	uint64_t addr;
+	uint64_t hdr;
+	uint32_t n;
+	uint32_t pid;
+	uint32_t valid;
+	uint32_t pad;
+	uint32_t dw[1024];
+};
+static HpBtCopy gHpBtCopies[64];
+
+struct HpBtCd {
+	void *ch;
+	uint64_t gpu;
+	uint64_t cpu;
+	uint64_t t;
+	uint32_t ndw;
+	int32_t pid;
+	uint32_t valid;
+};
+static HpBtCd gHpBtCds[128];
+
+static inline bool hpBtKernelPtr(const volatile void *p) {
+	uint64_t v = reinterpret_cast<uint64_t>(const_cast<const void *>(p));
+	return p && v >= 0xffffff8000000000ULL && (v >> 48) == 0xffff;
+}
+
+static uint32_t hpBtCopyBatch(uint64_t addr, const uint32_t *hdr) {
+	if (!hpBtKernelPtr(hdr) || (reinterpret_cast<uint64_t>(hdr) & 3)) return 0;
+	uint32_t room = static_cast<uint32_t>((0x1000 - (reinterpret_cast<uint64_t>(hdr) & 0xfff)) / 4);
+	uint32_t n = room < 1024 ? room : 1024;
+	if (!n) return 0;
+	uint32_t slot = __sync_fetch_and_add(&gHpBtCopySeq, 1) % 64;
+	HpBtCopy &c = gHpBtCopies[slot];
+	c.valid = 0;
+	c.addr = addr;
+	c.hdr = reinterpret_cast<uint64_t>(hdr);
+	c.n = n;
+	c.pid = proc_selfpid();
+	for (uint32_t i = 0; i < n; ++i) c.dw[i] = hdr[i];
+	c.valid = 1;
+	return slot + 1; // zero means no copy
+}
+
+// R30: only scalar call arguments; never dereference ring, hdr or descriptor.
+// This is a diagnostic candidate, not proof of execution or address-space identity.
+struct HpR30Entry { void *ring; uint64_t gpu; uint64_t ticket; uint32_t ndwArg; uint32_t stamp; };
+static HpR30Entry gHpR30Entries[256] {};
+static volatile uint32_t gHpR30Lock = 0;
+static volatile uint64_t gHpR30Drops = 0;
+static uint64_t gHpR30Next = 0;
+static uint32_t gHpR30Count = 0;
+
+static bool hpBtSubmitBatchBuffer(void *ring, uint64_t addr, uint32_t seq, uint32_t *hdr, uint32_t flags,
+                                 bool b1, bool b2) {
+    if (!__sync_lock_test_and_set(&gHpR30Lock, 1)) {
+        uint64_t ticket = gHpR30Next++;
+        HpR30Entry &e = gHpR30Entries[ticket & 255];
+        e.ring = ring;
+        e.gpu = addr;
+        e.ticket = ticket;
+        e.ndwArg = flags;
+        e.stamp = seq;
+        if (gHpR30Count < 256) ++gHpR30Count;
+        __sync_lock_release(&gHpR30Lock);
+    } else {
+        __sync_fetch_and_add(&gHpR30Drops, 1); // modulo 2^64; sampled, not exact epoch
+    }
+    return FunctionCast(hpBtSubmitBatchBuffer, gHpBtOrgSubmitBb)(ring, addr, seq, hdr, flags, b1, b2);
+}
+
+static void hpR30Dump(void *ring, uint64_t target, uint32_t hang) {
+    HpR30Entry matches[8] {};
+    HpR30Entry recentSameRing[4] {};
+    uint32_t count = 0, scanned = 0, hits = 0;
+    uint32_t sameRing = 0, zeroLength = 0, preceding = 0, overflow = 0, recentCount = 0;
+    uint64_t next = 0;
+    if (!target || __sync_lock_test_and_set(&gHpR30Lock, 1)) {
+        IOLog("HP-R30: hang=%u status=unavailable\n", hang);
+        return;
+    }
+    count = gHpR30Count;
+    next = gHpR30Next;
+    for (uint32_t n = 0; n < count; ++n) {
+        uint64_t ticket = gHpR30Next - 1 - n;
+        const HpR30Entry &e = gHpR30Entries[ticket & 255];
+        ++scanned;
+        if (e.ticket != ticket || e.ring != ring) continue;
+        ++sameRing;
+        if (recentCount < 4) recentSameRing[recentCount++] = e;
+        uint64_t bytes = static_cast<uint64_t>(e.ndwArg) * 4;
+        if (!bytes) { ++zeroLength; continue; }
+        uint64_t window = bytes > 0x10000ULL ? bytes : 0x10000ULL;
+        if (e.gpu > UINT64_MAX - window) { ++overflow; continue; }
+        if (target < e.gpu) continue;
+        ++preceding;
+        if (target - e.gpu >= window) continue;
+        if (hits < 8) matches[hits] = e;
+        ++hits;
+    }
+    __sync_lock_release(&gHpR30Lock);
+    uint64_t drops = __sync_fetch_and_add(&gHpR30Drops, 0);
+    for (uint32_t i = 0; i < hits && i < 8; ++i) {
+        const HpR30Entry &e = matches[i];
+        IOLog("HP-R30: hang=%u ticket=%llu gpu=%llx ndwArg=%u offset=%llx stamp=%u\n", hang,
+              (unsigned long long)e.ticket, (unsigned long long)e.gpu, e.ndwArg,
+              (unsigned long long)(target - e.gpu), e.stamp);
+    }
+    for (uint32_t i = 0; i < recentCount; ++i) {
+        const HpR30Entry &e = recentSameRing[i];
+        IOLog("HP-R31: hang=%u recent=%u ticket=%llu gpu=%llx ndwArg=%u stamp=%u\n", hang, i,
+              (unsigned long long)e.ticket, (unsigned long long)e.gpu, e.ndwArg, e.stamp);
+    }
+    IOLog("HP-R31: hang=%u nextMod64=%llu sameRing=%u zeroLength=%u overflow=%u preceding=%u matches=%u\n",
+          hang, (unsigned long long)next, sameRing, zeroLength, overflow, preceding, hits);
+    IOLog("HP-R30: hang=%u status=done available=%u scanned=%u hits=%u truncated=%u dropsMod64=%llu\n",
+          hang, count, scanned, hits, hits > 8, (unsigned long long)drops);
+}
+
+static void hpBtSubmitBuffer(void *ch, void *desc) {
+	if (hpBtKernelPtr(desc)) {
+		uint32_t slot = __sync_fetch_and_add(&gHpBtCdSeq, 1) % 128;
+		HpBtCd &e = gHpBtCds[slot];
+		auto *d = static_cast<uint8_t *>(desc);
+		e.valid = 0;
+		e.ch = ch;
+		e.gpu = *reinterpret_cast<uint64_t *>(d + 0x18);
+		e.cpu = *reinterpret_cast<uint64_t *>(d + 0x20);
+		e.ndw = *reinterpret_cast<uint32_t *>(d + 0x30);
+		e.pid = proc_selfpid();
+		e.t = mach_absolute_time();
+		e.valid = 1;
+	}
+	FunctionCast(hpBtSubmitBuffer, gHpBtOrgSubmitCh)(ch, desc);
+}
+
+static volatile uint8_t *hpBtMmioFor(void *ring) {
+	if (!hpBtKernelPtr(ring)) return nullptr;
+	auto *r = static_cast<uint8_t *>(ring);
+	auto *m = *reinterpret_cast<volatile uint8_t *const *>(r + 0x50);
+	if (!hpBtKernelPtr(m) || (reinterpret_cast<uint64_t>(m) & 3)) return nullptr;
+	return m;
+}
+
+static inline uint32_t hpBtRd(volatile uint8_t *mmio, uint32_t off) {
+	return *reinterpret_cast<volatile uint32_t *>(mmio + off);
+}
+
+static HpBtCopy *hpBtFindCopy(const HpBtBb &e) {
+	HpBtCopy *fallback = nullptr;
+	if (e.copySlot < 64) {
+		HpBtCopy &c = gHpBtCopies[e.copySlot];
+		if (c.valid && c.addr == e.addr) return &c;
+	}
+	for (uint32_t i = 0; i < 64; ++i) {
+		HpBtCopy &c = gHpBtCopies[i];
+		if (c.valid && c.addr == e.addr && (!fallback || c.n > fallback->n)) fallback = &c;
+	}
+	return fallback;
+}
+
+static void hpBtDumpDwords(const char *tag, uint64_t gpu, uint64_t hdr, const uint32_t *dw, uint32_t start,
+						   uint32_t n, uint32_t limit) {
+	if (n > limit) n = limit;
+	for (uint32_t i = 0; i + 8 <= n; i += 8) {
+		IOLog("HP-BBTRACE: %s gpu=%08llx hdr=%llx +%03x: %08x %08x %08x %08x %08x %08x %08x %08x\n", tag,
+			  (unsigned long long)gpu, (unsigned long long)hdr, (start + i) * 4, dw[i], dw[i + 1], dw[i + 2],
+			  dw[i + 3], dw[i + 4], dw[i + 5], dw[i + 6], dw[i + 7]);
+	}
+}
+
+void hpBtApertureDump(const char *tag, uint32_t addr) {
+	if (!addr || !NGreen::callback) return;
+	uint32_t page = addr >> 12, off = addr & 0xfff;
+	uint32_t lo = NGreen::callback->readReg32(GGTT_PTE_LO(page));
+	uint32_t hi = NGreen::callback->readReg32(GGTT_PTE_HI(page));
+	IOLog("HP-BBTRACE: APERTURE %s addr=%08x page=%x pte=%08x:%08x present=%d\n", tag, addr, page, hi, lo, !!(lo & 1));
+	if (!(lo & 1) || off + 64 * 4 > 0x1000) return;
+	NGreen::callback->setApertureIfNecessary();
+	if (!NGreen::callback->aperturePtr || NGreen::callback->apertureLen < 0x1000) return;
+	volatile uint32_t *ap = NGreen::callback->aperturePtr;
+	uint32_t saveLo = NGreen::callback->readReg32(GGTT_PTE_LO(0));
+	uint32_t saveHi = NGreen::callback->readReg32(GGTT_PTE_HI(0));
+	NGreen::callback->writeReg32(GGTT_PTE_LO(0), lo);
+	NGreen::callback->writeReg32(GGTT_PTE_HI(0), hi);
+	NGreen::callback->writeReg32(0x101008, 0x1);
+	IOLog("HP-BBTRACE: APERTURE %s target=%08x dwords:\n", tag, addr);
+	for (uint32_t i = 0; i < 64; i += 8)
+		IOLog("HP-BBTRACE: APERTURE %s +%03x: %08x %08x %08x %08x %08x %08x %08x %08x\n", tag,
+			  off + i * 4, ap[(off / 4) + i], ap[(off / 4) + i + 1], ap[(off / 4) + i + 2], ap[(off / 4) + i + 3],
+			  ap[(off / 4) + i + 4], ap[(off / 4) + i + 5], ap[(off / 4) + i + 6], ap[(off / 4) + i + 7]);
+	NGreen::callback->writeReg32(GGTT_PTE_LO(0), saveLo);
+	NGreen::callback->writeReg32(GGTT_PTE_HI(0), saveHi);
+	NGreen::callback->writeReg32(0x101008, 0x1);
+}
+
+static uint32_t (*gHpPmapValidPage)(uint32_t) = nullptr;
+static uint32_t gHpPpgttLastDwords[4] = {};
+static bool gHpPpgttLastValid = false;
+
+// HP-PPGTT: the GPU's ACTHD/target are PPGTT addresses. This walks the
+// context PML4 and reads the translated page through the kernel's physical
+// memory descriptor. Reads are one 4 KiB page at a time and only after
+// pmap_valid_page() approves the PPN. R14 adds per-level diagnostics and the
+// live context-image PML4 (ctx+0x98 -> image+0x1000, PDP0 at dword 0x33/0x31).
+static bool hpBtPhysReadDbg(uint64_t pa, void *dst, size_t len, bool log, const char *tag, int level) {
+	if (!gHpPmapValidPage || !dst || !len || len > 0x1000 || (pa & 0xfff) + len > 0x1000) {
+		if (log) IOLog("HP-PPGTT: %s L%d pa=%llx len=%zu invalid-request pmap=%d\n", tag, level,
+			(unsigned long long)pa, len, gHpPmapValidPage != nullptr);
+		return false;
+	}
+	uint32_t ppn = static_cast<uint32_t>(pa >> 12);
+	uint32_t valid = gHpPmapValidPage(ppn);
+	if (log) IOLog("HP-PPGTT: %s L%d pa=%llx ppn=%x pmap=%u\n", tag, level,
+		(unsigned long long)pa, ppn, valid);
+	if (!valid) return false;
+	auto *md = IOMemoryDescriptor::withPhysicalAddress(static_cast<IOPhysicalAddress>(pa),
+		static_cast<IOByteCount>(len), kIODirectionOut);
+	if (!md) {
+		if (log) IOLog("HP-PPGTT: %s L%d descriptor=null\n", tag, level);
+		return false;
+	}
+	bool ok = md->readBytes(0, dst, static_cast<IOByteCount>(len)) == static_cast<IOByteCount>(len);
+	md->release();
+	if (log) IOLog("HP-PPGTT: %s L%d read=%d\n", tag, level, ok);
+	return ok;
+}
+
+static bool hpBtWalkEx(uint64_t pml4, uint32_t va, uint64_t &phys, bool log, const char *tag) {
+	uint64_t table = pml4 & 0x000ffffffffff000ULL;
+	if (log) IOLog("HP-PPGTT: %s start pml4=%llx va=%08x\n", tag, (unsigned long long)pml4, va);
+	for (int level = 3; level >= 0; --level) {
+		uint32_t shift = 12 + 9 * level; // PML4=39, PDP=30, PD=21, PT=12
+		uint32_t idx = static_cast<uint32_t>((static_cast<uint64_t>(va) >> shift) & 0x1ff);
+		uint64_t entry = 0;
+		uint64_t entryPa = table + static_cast<uint64_t>(idx) * 8;
+		if (log) IOLog("HP-PPGTT: %s L%d table=%llx idx=%u entryPa=%llx\n", tag, level,
+			(unsigned long long)table, idx, (unsigned long long)entryPa);
+		if (!hpBtPhysReadDbg(entryPa, &entry, sizeof(entry), log, tag, level)) return false;
+		if (log) IOLog("HP-PPGTT: %s L%d entry=%llx present=%d ps=%d\n", tag, level,
+			(unsigned long long)entry, !!(entry & 1), !!(entry & 0x80));
+		if (!(entry & 1)) return false;
+		if (level == 2 && (entry & 0x80)) { // 1 GiB page
+			phys = (entry & 0x000fffffc0000000ULL) | (static_cast<uint64_t>(va) & 0x3fffffffULL);
+			if (log) IOLog("HP-PPGTT: %s 1G phys=%llx\n", tag, (unsigned long long)phys);
+			return true;
+		}
+		if (level == 1 && (entry & 0x80)) { // 2 MiB page
+			phys = (entry & 0x000fffffffe00000ULL) | (static_cast<uint64_t>(va) & 0x1fffffULL);
+			if (log) IOLog("HP-PPGTT: %s 2M phys=%llx\n", tag, (unsigned long long)phys);
+			return true;
+		}
+		if (level == 0 && (entry & 0x80)) { // 64 KiB page (GEN12_PTE_PS64)
+			phys = (entry & 0x000FFFFFFFF0000ULL) | (static_cast<uint64_t>(va) & 0xffffULL);
+			if (log) IOLog("HP-PPGTT: %s 64K phys=%llx\n", tag, (unsigned long long)phys);
+			return true;
+		}
+		table = entry & 0x000ffffffffff000ULL;
+		if (level == 0) {
+			phys = table | (static_cast<uint64_t>(va) & 0xfff);
+			if (log) IOLog("HP-PPGTT: %s 4K phys=%llx\n", tag, (unsigned long long)phys);
+			return true;
+		}
+	}
+	return false;
+}
+
+static void hpBtPpgttDump(volatile uint8_t *mmio, const char *tag, uint32_t va, bool log) {
+	if (!mmio || !va || !gHpPmapValidPage) {
+		IOLog("HP-PPGTT: %s va=%08x unavailable (mmio=%d pmap=%d)\n", tag, va, mmio != nullptr, gHpPmapValidPage != nullptr);
+		return;
+	}
+	uint32_t lo = hpBtRd(mmio, 0x2270);
+	uint32_t hi = hpBtRd(mmio, 0x2274);
+	uint64_t pml4 = (static_cast<uint64_t>(hi) << 32) | (lo & 0xfffff000U);
+	IOLog("HP-PPGTT: %s va=%08x pml4=%llx pdp0=%08x:%08x\n", tag, va, (unsigned long long)pml4, hi, lo);
+	uint64_t phys = 0;
+	if (!hpBtWalkEx(pml4, va, phys, log, tag)) {
+		IOLog("HP-PPGTT: %s walk failed\n", tag);
+		return;
+	}
+	IOLog("HP-PPGTT: %s phys=%llx\n", tag, (unsigned long long)phys);
+	static uint8_t page[0x1000];
+	if (!hpBtPhysReadDbg(phys & ~0xfffULL, page, sizeof(page), log, tag, 0)) {
+		IOLog("HP-PPGTT: %s page read refused/failed\n", tag);
+		return;
+	}
+	uint32_t off = va & 0xfff;
+	if (off + 64 * 4 > 0x1000) off = 0x1000 - 64 * 4;
+	const uint32_t *all = reinterpret_cast<const uint32_t *>(page);
+	for (uint32_t i = 0; i < 4; ++i) gHpPpgttLastDwords[i] = all[i];
+	gHpPpgttLastValid = true;
+	for (uint32_t i = 0; i < 0x1000 / 4; ++i) {
+		if (all[i] != 0x61040001U) continue;
+		uint32_t j = i > 4 ? i - 4 : 0;
+		IOLog("HP-PPGTT: %s HIT61040001 pageOff=%03x\n", tag, i * 4);
+		for (uint32_t k = 0; k < 8 && j + k < 0x1000 / 4; k += 8)
+			IOLog("HP-PPGTT: %s HIT +%03x: %08x %08x %08x %08x %08x %08x %08x %08x\n", tag,
+				(j + k) * 4, all[j + k], all[j + k + 1], all[j + k + 2], all[j + k + 3],
+				all[j + k + 4], all[j + k + 5], all[j + k + 6], all[j + k + 7]);
+		break;
+	}
+	const uint32_t *dw = reinterpret_cast<const uint32_t *>(page + off);
+	for (uint32_t i = 0; i < 64; i += 8)
+		IOLog("HP-PPGTT: %s +%03x: %08x %08x %08x %08x %08x %08x %08x %08x\n", tag, off + i * 4,
+			dw[i], dw[i + 1], dw[i + 2], dw[i + 3], dw[i + 4], dw[i + 5], dw[i + 6], dw[i + 7]);
+}
+
+static void hpBtPpgttDump64K(volatile uint8_t *mmio, const char *tag, uint32_t va, bool log) {
+	if (!mmio || !va || !gHpPmapValidPage) return;
+	uint32_t lo = hpBtRd(mmio, 0x2270);
+	uint32_t hi = hpBtRd(mmio, 0x2274);
+	uint64_t pml4 = (static_cast<uint64_t>(hi) << 32) | (lo & 0xfffff000U);
+	uint64_t phys = 0;
+	if (!hpBtWalkEx(pml4, va, phys, log, tag)) {
+		IOLog("HP-PPGTT: %s 64K walk failed\n", tag);
+		return;
+	}
+	uint64_t base = phys & ~0xffffULL;
+	IOLog("HP-PPGTT: %s 64K base=%llx va=%08x\n", tag, (unsigned long long)base, va);
+	static uint8_t page[0x1000];
+	for (uint32_t sub = 0; sub < 16; ++sub) {
+		uint64_t pa = base + static_cast<uint64_t>(sub) * 0x1000;
+		if (!hpBtPhysReadDbg(pa, page, sizeof(page), log, tag, 0)) {
+			IOLog("HP-PPGTT: %s 64K sub=%02u pa=%llx read failed\n", tag, sub, (unsigned long long)pa);
+			continue;
+		}
+		const uint32_t *w = reinterpret_cast<const uint32_t *>(page);
+		IOLog("HP-PPGTT: %s 64K sub=%02u pa=%llx: %08x %08x %08x %08x %08x %08x %08x %08x\n",
+			tag, sub, (unsigned long long)pa, w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]);
+		for (uint32_t i = 0; i < 0x1000 / 4; ++i) {
+			if (w[i] != 0x61040001U) continue;
+			uint32_t j = i > 4 ? i - 4 : 0;
+			IOLog("HP-PPGTT: %s 64K HIT61040001 sub=%02u off=%03x\n", tag, sub, i * 4);
+			for (uint32_t k = 0; k < 8 && j + k < 0x1000 / 4; k += 8)
+				IOLog("HP-PPGTT: %s 64K HIT +%03x: %08x %08x %08x %08x %08x %08x %08x %08x\n",
+					tag, (j + k) * 4, w[j + k], w[j + k + 1], w[j + k + 2], w[j + k + 3],
+					w[j + k + 4], w[j + k + 5], w[j + k + 6], w[j + k + 7]);
+			break;
+		}
+	}
+}
+
+static void hpBtPpgttFollow(volatile uint8_t *mmio, uint32_t va, bool log, int depth) {
+	if (!va || depth > 4) return;
+	IOLog("HP-PPGTT: CHAIN depth=%d va=%08x\n", depth, va);
+	hpBtPpgttDump(mmio, "CHAIN", va, log);
+	if (depth == 0 && log) hpBtPpgttDump64K(mmio, "CHAIN64K", va, log);
+	if (!gHpPpgttLastValid) return;
+	uint32_t w = gHpPpgttLastDwords[0];
+	if (w != 0x18800101U && w != 0x18900101U && w != 0x18b00101U) return;
+	uint64_t next = static_cast<uint64_t>(gHpPpgttLastDwords[1]) |
+		(static_cast<uint64_t>(gHpPpgttLastDwords[2]) << 32);
+	if (next && next <= 0xffffffffULL) hpBtPpgttFollow(mmio, static_cast<uint32_t>(next), log, depth + 1);
+}
+
+static void hpBtCmpBatch(HpBtBb &e, HpBtCopy *c, uint32_t nCd, volatile uint8_t *mmio, bool log) {
+	if (!c || !mmio) return;
+	HpBtCd *d = nullptr;
+	for (uint32_t k = nCd; k-- > (nCd > 128 ? nCd - 128 : 0);) {
+		HpBtCd &x = gHpBtCds[k % 128];
+		if (!x.valid || !x.ndw || !hpBtKernelPtr(reinterpret_cast<const void *>(x.cpu))) continue;
+		uint64_t end = x.gpu + static_cast<uint64_t>(x.ndw) * 4;
+		if (e.addr >= x.gpu && e.addr < end) { d = &x; break; }
+	}
+	if (d) {
+		uint32_t n = c->n < d->ndw ? c->n : d->ndw;
+		uint32_t diffs = 0, first = 0xffffffffU;
+		const uint32_t *now = reinterpret_cast<const uint32_t *>(d->cpu);
+		for (uint32_t i = 0; i < n; ++i) {
+			if (c->dw[i] == now[i]) continue;
+			if (!diffs) first = i;
+			diffs++;
+		}
+		IOLog("HP-CMP: submit-vs-now gpu=%llx ndw=%u diffs=%u first=%x\n",
+			(unsigned long long)e.addr, n, diffs, first == 0xffffffffU ? 0 : first);
+	}
+	uint32_t lo = hpBtRd(mmio, 0x2270);
+	uint32_t hi = hpBtRd(mmio, 0x2274);
+	uint64_t pml4 = (static_cast<uint64_t>(hi) << 32) | (lo & 0xfffff000U);
+	uint32_t pages = (c->n + 1023) / 1024;
+	if (pages > 16) pages = 16;
+	static uint8_t page[0x1000];
+	for (uint32_t p = 0; p < pages; ++p) {
+		uint64_t va = e.addr + static_cast<uint64_t>(p) * 0x1000;
+		if (va > 0xffffffffULL) break;
+		uint64_t phys = 0;
+		if (!hpBtWalkEx(pml4, static_cast<uint32_t>(va), phys, log, "CMP")) {
+			IOLog("HP-CMP: page=%u va=%llx walk failed\n", p, (unsigned long long)va);
+			continue;
+		}
+		if (!hpBtPhysReadDbg(phys & ~0xfffULL, page, sizeof(page), log, "CMP", 0)) {
+			IOLog("HP-CMP: page=%u va=%llx phys=%llx read failed\n", p, (unsigned long long)va,
+				(unsigned long long)phys);
+			continue;
+		}
+		const uint32_t *gpu = reinterpret_cast<const uint32_t *>(page);
+		const uint32_t *cpu = c->dw + p * 1024;
+		uint32_t n = c->n - p * 1024;
+		if (n > 1024) n = 1024;
+		uint32_t diffs = 0, first = 0xffffffffU;
+		for (uint32_t i = 0; i < n; ++i) {
+			if (gpu[i] == cpu[i]) continue;
+			if (!diffs) first = i;
+			diffs++;
+		}
+		IOLog("HP-CMP: page=%u va=%llx phys=%llx equal=%u diffs=%u first=%03x cpu=%08x gpu=%08x\n",
+			p, (unsigned long long)va, (unsigned long long)phys, diffs == 0, diffs,
+			first == 0xffffffffU ? 0 : first,
+			first == 0xffffffffU ? 0 : cpu[first],
+			first == 0xffffffffU ? 0 : gpu[first]);
+	}
+}
+
+static uint64_t hpBtCtxImage(void *ring, uint32_t &lrca, uint64_t &ctx, uint64_t &smb) {
+	lrca = 0; ctx = 0; smb = 0;
+	if (!hpBtKernelPtr(ring)) return 0;
+	auto *r = static_cast<const uint8_t *>(ring);
+	ctx = *reinterpret_cast<const uint64_t *>(r + 0x20);
+	if (!hpBtKernelPtr(reinterpret_cast<const void *>(ctx))) return 0;
+	uint32_t v = 0;
+	memcpy(&v, reinterpret_cast<const void *>(ctx + 0x89), sizeof(v));
+	lrca = v & 0xfffff000U;
+	smb = *reinterpret_cast<const uint64_t *>(ctx + 0x98);
+	if (!hpBtKernelPtr(reinterpret_cast<const void *>(smb))) return 0;
+	uint64_t image = *reinterpret_cast<const uint64_t *>(smb + 0x38);
+	if (!hpBtKernelPtr(reinterpret_cast<const void *>(image)) || (image & 3)) return 0;
+	return image;
+}
+
+static void hpBtCtxDump(void *ring, uint32_t acthd, uint32_t bb, bool log) {
+	uint32_t lrca = 0;
+	uint64_t ctx = 0, smb = 0;
+	uint64_t image = hpBtCtxImage(ring, lrca, ctx, smb);
+	IOLog("HP-PPGTT: CTX ring=%p ctx=%llx lrca=%08x smb=%llx image=%llx\n", ring,
+		(unsigned long long)ctx, lrca, (unsigned long long)smb, (unsigned long long)image);
+	if (!image) return;
+	auto *pg1 = reinterpret_cast<const uint32_t *>(image + 0x1000);
+	uint32_t pdp0Lo = pg1[0x33], pdp0Hi = pg1[0x31];
+	uint64_t pml4 = (static_cast<uint64_t>(pdp0Hi) << 32) | (pdp0Lo & 0xfffff000U);
+	IOLog("HP-PPGTT: CTXIMG pdp0=%08x:%08x pml4=%llx tail=%08x head=%08x\n", pdp0Hi, pdp0Lo,
+		(unsigned long long)pml4, pg1[0x07], pg1[0x05]);
+	hpBtDumpDwords("CTXIMG", static_cast<uint64_t>(lrca) + 0x1000ULL, image + 0x1000ULL, pg1, 0, 64, 64);
+	if (!pml4) return;
+	uint64_t phys = 0;
+	if (!hpBtWalkEx(pml4, acthd, phys, log, "CTXACTHD")) IOLog("HP-PPGTT: CTXACTHD walk failed\n");
+	if (!hpBtWalkEx(pml4, bb & ~3U, phys, log, "CTXBB")) IOLog("HP-PPGTT: CTXBB walk failed\n");
+}
+
+// R27 snapshot scope: MMIO registers only. No stale CPU pointers, inferred
+// page-table walking, physical memory read/write, or candidate association.
+static void hpBtDump(void *ring) {
+    if (__sync_lock_test_and_set(&gHpBtDumpBusy, 1)) return;
+    uint32_t hang = __sync_fetch_and_add(&gHpBtRcsHangSeq, 1) + 1;
+    volatile uint8_t *mmio = hpBtMmioFor(ring);
+    if (!mmio) {
+        IOLog("HP-DIAG: hang=%u status=mmio-unavailable\n", hang);
+        __sync_lock_release(&gHpBtDumpBusy);
+        return;
+    }
+    uint32_t acthd = hpBtRd(mmio, 0x2074), acthdHi = hpBtRd(mmio, 0x205c);
+    uint32_t bb = hpBtRd(mmio, 0x2140), bbHi = hpBtRd(mmio, 0x2144);
+    uint32_t ipehr = hpBtRd(mmio, 0x2068), head = hpBtRd(mmio, 0x2034);
+    uint32_t tail = hpBtRd(mmio, 0x2030), bbState = hpBtRd(mmio, 0x2110);
+    if (acthd == 0xffffffffU && bb == 0xffffffffU && ipehr == 0xffffffffU &&
+        head == 0xffffffffU && tail == 0xffffffffU) {
+        IOLog("HP-DIAG: hang=%u status=mmio-invalid\n", hang);
+        __sync_lock_release(&gHpBtDumpBusy);
+        return;
+    }
+    IOLog("HP-BBTRACE: HANG #%u ring=%p ACTHD=%08x ACTHD_HI=%08x BB=%08x BB_HI=%08x IPEHR=%08x HEAD=%08x TAIL=%08x BB_STATE=%08x\n",
+        hang, ring, acthd, acthdHi, bb, bbHi, ipehr, head, tail, bbState);
+    hpR30Dump(ring, (static_cast<uint64_t>(bbHi) << 32) | (bb & ~3U), hang);
+    IOLog("HP-CCS: hang=%u HEAD=%08x TAIL=%08x ACTHD=%08x:%08x BB=%08x:%08x IPEHR=%08x EL_ST=%08x:%08x CSP=%08x\n",
+        hang, hpBtRd(mmio, 0x1a034), hpBtRd(mmio, 0x1a030), hpBtRd(mmio, 0x1a05c), hpBtRd(mmio, 0x1a074),
+        hpBtRd(mmio, 0x1a144), hpBtRd(mmio, 0x1a140), hpBtRd(mmio, 0x1a068),
+        hpBtRd(mmio, 0x1a238), hpBtRd(mmio, 0x1a234), hpBtRd(mmio, 0x1a3a0));
+    if (hang <= 6) xeEvDumpRecent(120, 90 + static_cast<int>(hang));
+    IOLog("HP-DIAG-END: hang=%u status=complete scope=mmio-submit\n", hang);
+    __sync_lock_release(&gHpBtDumpBusy);
+}
+
+static uint32_t hpBtDoHangAnalysis(void *ring) {
+	// The original doHangAnalysis tail-calls generateHangSig and returns its 32-bit hang
+	// signature. Preserve that value across the diagnostic dump; the caller stores it.
+	uint32_t ret = FunctionCast(hpBtDoHangAnalysis, gHpBtOrgHang)(ring);
+	hpBtDump(ring);
+	return ret;
+}
+
+static void hpBtInstall(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
+    RouteRequestPlus submit[] = {
+        {"__ZN20IGHardwareRingBuffer17submitBatchBufferEyjPjjbb", hpBtSubmitBatchBuffer, gHpBtOrgSubmitBb},
+    };
+    bool submitOk = RouteRequestPlus::routeAll(patcher, index, submit, address, size);
+    if (!submitOk) { patcher.clearError(); gHpBtOrgSubmitBb = 0; }
+    RouteRequestPlus req[] = {
+        {"__ZN20IGHardwareRingBuffer14doHangAnalysisEv", hpBtDoHangAnalysis, gHpBtOrgHang},
+    };
+    bool ok = RouteRequestPlus::routeAll(patcher, index, req, address, size);
+    if (!ok) {
+        patcher.clearError();
+        gHpBtOrgHang = 0;
+    }
+    IOLog("HP-BBTRACE: %s hang=%d submit=%d scope=mmio-submit\n",
+          ok && submitOk ? "ready" : "partial", ok, submitOk);
 }
 
 bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
@@ -1311,6 +2181,10 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 		};
 		PANIC_COND(!RouteRequestPlus::routeAll(patcher, index, requests, address, size), "ngreen","Failed to route dp symbols");
 		gTglFbRoutesDone++;
+		if (xeAuxBlMode()) {
+			gXeAuxBlWr = patcher.solveSymbol(index, "__ZN14AppleIntelPort8writeAUXEjPvj", address, size);
+			patcher.clearError();
+		}
 		if (checkKernelArgument("-ngreenfixbootmode")) {
 			SolveRequestPlus crtcSolve[] = {
 				{"__ZN24AppleIntelBaseController35hwCRTCToIODetailedTimingInformationEP21AppleIntelFramebufferP29IODetailedTimingInformationV2", gHwCrtcToTimingAddr},
@@ -1546,7 +2420,7 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 		static const uint8_t r_tcon_camellia[]= {0x3d, 0x14, 0x1e, 0xc4, 0xc1};
 		static const uint8_t f_tcon_banksia[] = {0x3d, 0x12, 0x14, 0xc4, 0x41};
 		static const uint8_t r_tcon_banksia[] = {0x3d, 0x14, 0x1e, 0xc4, 0xc1};
-		const bool enableTcon = checkKernelArgument("-ngreentglwithgfx") && !NGreen::callback->isRealTGL;
+		const bool enableTcon = checkKernelArgument("-ngreentglwithgfx");
 
 		if (isprod){
 			LookupPatchPlus const patchesp[] = {// tgl production kext
@@ -1619,7 +2493,7 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 				{activeKext, f13, r13, arrsize(f13),	1},
 				// f13b: mandatory. Without this bypass AppleIntelPort::probePortStateEv hits
 				// a pure-virtual call and panics in WindowServer during enableController.
-				{activeKext, f13b, r13b, arrsize(f13b),	1},
+		//		{activeKext, f13b, r13b, arrsize(f13b),	1},
 				// f15: suppress getPathByPipe log flood at IGLogLevel=8.
 				// On platform 0x9a490000 all paths are on pipe 0; every scan cycle logs
 				// "pipe = 0" many times per second, flooding the log unreadably.
@@ -1657,7 +2531,11 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 		//  (1) getTransactionOptions() & 0x500 e (2) getPlaneTransactionOptions(p) & 0x500 -> unsupported
 		//      (bits que o IOAcceleratorFamily2 do Tahoe passa por padrão; no Big Sur tinham outro sentido);
 		//  (3) o formato de pixel é lido de IOSurface+0xa4 direto da memória: no Tahoe o layout do IOSurface mudou e
-		//      vem 0 (o IntelIGPU-Tahoe documenta o mesmo); sem a leitura fica o padrão da própria função, 'BGRA'.
+		//      vem 0 (o IntelIGPU-Tahoe documenta o mesmo).
+		// HP-FBABI: dropping that read forces EVERY surface to BGRA, including
+		// non-BGRA planes whose real format is preserved by the accelerator.
+		// On native TGL/Tahoe use the accessor-verified +0x80 field instead.
+		// Keep the original null-surface branch and its BGRA default intact.
 		// Padrões únicos no TGL FB 16.0 (0x3ecf1, 0x3ed1d, 0x3ed88). Não fatal: só registra se não achar.
 		{
 			static const uint8_t f_vopt[]  = {0xa9, 0x00, 0x05, 0x00, 0x00, 0x74, 0x17};
@@ -1666,13 +2544,19 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 			static const uint8_t r_vpopt[] = {0xa9, 0x00, 0x00, 0x00, 0x00, 0x74, 0x1e};
 			static const uint8_t f_vfmt[]  = {0x8b, 0x80, 0xa4, 0x00, 0x00, 0x00, 0x89, 0x45, 0xb4};
 			static const uint8_t r_vfmt[]  = {0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
+			static const uint8_t r_vfmt80[] = {0x8b, 0x80, 0x80, 0x00, 0x00, 0x00, 0x89, 0x45, 0xb4};
+			const bool hpNativeTahoe = NGreen::callback->isRealTGL && getKernelVersion() == KernelVersion::Tahoe;
+			const bool hpFormatReady = hpNativeTahoe && hpTglIOSurfaceLayoutReady();
 			LookupPatchPlus const p1[] = {{activeKext, f_vopt, r_vopt, arrsize(f_vopt), 1}};
 			LookupPatchPlus const p2[] = {{activeKext, f_vpopt, r_vpopt, arrsize(f_vpopt), 1}};
-			LookupPatchPlus const p3[] = {{activeKext, f_vfmt, r_vfmt, arrsize(f_vfmt), 1}};
+			LookupPatchPlus const p3[] = {{activeKext, f_vfmt, hpFormatReady ? r_vfmt80 : r_vfmt, arrsize(f_vfmt), 1}};
 			bool a = LookupPatchPlus::applyAll(patcher, p1, address, size);
 			bool b = LookupPatchPlus::applyAll(patcher, p2, address, size);
 			bool c = LookupPatchPlus::applyAll(patcher, p3, address, size);
-			SYSLOG("ngreen", "XE-VALD: ValidateTransaction opts=%d planeopts=%d fmtBGRA=%d", a, b, c);
+			SYSLOG("ngreen", "XE-VALD: ValidateTransaction opts=%d planeopts=%d fmtBGRA=%d", a, b, c && !hpFormatReady);
+			if (hpNativeTahoe)
+				SYSLOG("ngreen", "HP-FBABI: ValidateTransaction IOSurface format+80, null BGRA preserved %s",
+					hpFormatReady && c ? "ready" : "failed (baseline fallback)");
 		}
 
 		return true;
@@ -1932,6 +2816,26 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 		SYSLOG("ngreen", "V165: routing %zu HW accelerator symbols", sizeof(requests)/sizeof(requests[0]));
 		PANIC_COND(!RouteRequestPlus::routeAll(patcher, index, requests, address, size), "ngreen","Failed to route symbols");
 		SYSLOG("ngreen", "V165: HW accelerator symbols routed OK");
+		if (NGreen::callback->isRealTGL && getKernelVersion() == KernelVersion::Tahoe) {
+			hpBtInstall(patcher, index, address, size);
+			if (!checkKernelArgument("-ngreenxefix")) {
+				SolveRequestPlus hpPoshSolve[] = {{"__ZNK20IGSharedMappedBuffer17getVirtualAddressEv", gSmbGetVA}};
+				if (!SolveRequestPlus::solveAll(patcher, index, hpPoshSolve, address, size)) { patcher.clearError(); gSmbGetVA = 0; }
+				RouteRequestPlus hpExeclistRoutes[] = {
+					{"__ZN17IGHardwareContext20restoreFromSafeImageEv", xeRestoreSafe, gOrgRestoreSafe},
+					{"__ZN26IGHardwareCommandStreamer524prepareExecListAndSubmitEjjPKj", xePrepSubmit, gOrgPrepSubmit},
+					{"__ZN26IGHardwareCommandStreamer514submitExecListEj", xeCs5Submit, gOrgCs5Submit},
+					{"__ZN26IGHardwareCommandStreamer516processCSBDetailEP28SGfxContextStatusBufferEntryRj", xeCsbDetail, gOrgCsbDetail},
+					{"__ZN26IGHardwareCommandStreamer522csbProcessIdleToActiveEPK28SGfxContextStatusBufferEntry", xeCsbI2A, gOrgCsbI2A},
+					{"__ZN26IGHardwareCommandStreamer522csbProcessActiveToIdleEPK28SGfxContextStatusBufferEntry", xeCsbA2I, gOrgCsbA2I},
+					{"__ZN26IGHardwareCommandStreamer519csbProcessPreemptedEPK28SGfxContextStatusBufferEntry", xeCsbPreempt, gOrgCsbPreempt},
+					{"__ZN26IGHardwareCommandStreamer523csbProcessElementSwitchEPK28SGfxContextStatusBufferEntry", xeCsbElSwitch, gOrgCsbElSwitch},
+				};
+				bool hpExOk = RouteRequestPlus::routeAll(patcher, index, hpExeclistRoutes, address, size);
+				if (!hpExOk) patcher.clearError();
+				SYSLOG("ngreen", "HP-POSH-EXECLIST: posh=%d i2a=%d routes=%s", gSmbGetVA != 0, gOrgCsbI2A != 0, hpExOk ? "ready" : "failed");
+			}
+		}
 
 		if (checkKernelArgument("-ngreenxefix")) {  // xe/flipdiag: só contadores, sem mudar comportamento
 			RouteRequestPlus flipDiag[] = {
@@ -2019,7 +2923,7 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 			}
 		}
 
-		if ((!wegCoexist || forceFullMTL) && !NGreen::callback->isRealTGL) {
+		if (!wegCoexist || forceFullMTL) {
 			RouteRequestPlus coexistOffRoutes[] = {
 				// ForceWake: replace Apple's SafeForceWakeMultithreaded with i915-ported version.
 				// Apple's code uses 90ms timeouts and no fallback; ours uses 50ms + reserve-bit fallback.
@@ -2030,7 +2934,41 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 			if (forceFullMTL && wegCoexist) {
 				SYSLOG("ngreen", "FULL_MTL: forcing SafeForceWakeMultithreaded route despite coexist mode");
 			}
+			// xe/rc6fw (22/10): clamped SafeForceWake + idle release of leaked ctx-1 forcewake (see xeSafeForceWake)
+			if (!checkKernelArgument("-ngreennorc6fw")) {
+				uint32_t ms = 0;
+				if (PE_parse_boot_argn("ngreenfwidle", &ms, sizeof(ms)) && ms >= 100 && ms <= 60000) gRc6IdleMs = ms;
+				gRc6FwDrop = checkKernelArgument("-ngreenrc6fwnodrop") ? 0 : 1;
+				mach_vm_address_t sfw = patcher.solveSymbol(index, "__ZN16IntelAccelerator13SafeForceWakeEbj", address, size);
+				patcher.clearError();
+				bool sigCnt = false, sigLock = false;
+				if (sfw) {
+					static const uint8_t sCnt[] = {0x41, 0x8b, 0x85, 0x90, 0x12, 0x00, 0x00};   // movl 0x1290(%r13),%eax
+					static const uint8_t sLck[] = {0x49, 0x8b, 0x9d, 0x68, 0x14, 0x00, 0x00};   // movq 0x1468(%r13),%rbx
+					auto *pb = reinterpret_cast<const uint8_t *>(sfw);
+					for (size_t i = 0; i + sizeof(sCnt) <= 0x140; i++) {
+						if (!sigCnt && !memcmp(pb + i, sCnt, sizeof(sCnt))) sigCnt = true;
+						if (!sigLock && !memcmp(pb + i, sLck, sizeof(sLck))) sigLock = true;
+					}
+				}
+				if (sigCnt && sigLock) {
+					gFwSymAddr = sfw;
+					RouteRequestPlus rc6fw[] = {
+						{"__ZN16IntelAccelerator13SafeForceWakeEbj", xeSafeForceWake, gOrgSafeForceWake},
+					};
+					if (RouteRequestPlus::routeAll(patcher, index, rc6fw, address, size)) gRc6FwOn = 1;
+					else patcher.clearError();
+				}
+				SYSLOG("ngreen", "XE-RC6FW: sym=%d sig=%d/%d route=%d idle=%u drop=%d", sfw != 0, sigCnt, sigLock, gRc6FwOn, gRc6IdleMs, gRc6FwDrop);
+			}
 		}
+		// xe/gpurec (22/10): restore + replay the render-reset-domain sibling (RCS <-> CCS) after a GPU restart
+		// HP-REC isolated: the pinned shared-domain recovery was gated away from real TGL.
+		// Keep its signature checks and implementation; trial only on real TGL/Tahoe.
+		// This targets recovery after a hang, not prevention of the initial GPU fault.
+		const bool hpRecoveryTrial = NGreen::callback->isRealTGL && getKernelVersion() == KernelVersion::Tahoe;
+		if (hpRecoveryTrial) SYSLOG("ngreen", "HP-REC isolated real-TGL/Tahoe: requesting signature-checked shared-domain recovery");
+		if (!NGreen::callback->isRealTGL || hpRecoveryTrial) xeGpuRecInstall(patcher, index, address, size);
 
 		if (!wegCoexist) {
 			RouteRequestPlus gpuInfoRoute[] = {
@@ -2064,7 +3002,7 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 		static const uint8_t f3b[] = {// jmp L3BankCount
 			0x74, 0x23, 0x83, 0xf9, 0x02, 0x0f, 0x85, 0x89, 0x01, 0x00, 0x00, 0x83, 0xfe, 0x01, 0x75, 0x59, 0x83, 0xfa, 0x0c, 0x75, 0x54, 0x41, 0xc7, 0x87, 0x64, 0x11, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00
 		};
-		static const uint8_t r3b[] = {
+		static uint8_t r3b[] = {  // xe/topo4: byte 28 = L3 (ngreen-l3)
 			0x90, 0x90, 0x83, 0xf9, 0x02, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x83, 0xfe, 0x01, 0x90, 0x90, 0x83, 0xfa, 0x0c, 0x90, 0x90, 0x41, 0xc7, 0x87, 0x64, 0x11, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00
 		};
 		
@@ -2088,7 +3026,7 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 		static const uint8_t f3bbb[] = {//NumSubSlices
 			0x8b, 0x5d, 0xd0, 0xf3, 0x0f, 0xb8, 0xf3, 0x01, 0xf6, 0x41, 0x89, 0xb7, 0x58, 0x11, 0x00, 0x00
 		};
-		static const uint8_t r3bbb[] = {
+		static uint8_t r3bbb[] = {  // xe/topo4: byte 4 = SS (ngreen-eu / 8)
 			0x8b, 0x5d, 0xd0, 0xbe, 0x0c, 0x00, 0x00, 0x00, 0x90, 0x41, 0x89, 0xb7, 0x58, 0x11, 0x00, 0x00
 		};
 		
@@ -2241,30 +3179,208 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 			};
 			PANIC_COND(!LookupPatchPlus::applyAll(patcher, patchesAlways, address, size), "ngreen",
 				"kextG11HWT Failed to apply base patches!");
-
-			// HP/25G83: these two fixes concern Tahoe's IOSurface ABI, not RPL
-			// topology. Preserve RPL behavior; native TGL opts in explicitly.
-			// +0x98 remains the upstream 25G241 value, pending 25G83 runtime validation.
-			if (!NGreen::callback->isRealTGL || checkKernelArgument("-ngreentgltahoe")) {
-				static const uint8_t f_fmt[] = {0x8b, 0x83, 0xa4, 0x00, 0x00, 0x00, 0x89, 0x85, 0xf4, 0xfe, 0xff, 0xff};
-				static const uint8_t r_fmt[] = {0xb8, 0x41, 0x52, 0x47, 0x42, 0x90, 0x89, 0x85, 0xf4, 0xfe, 0xff, 0xff};
-				LookupPatchPlus const patchFmt[] = {{activeKext, f_fmt, r_fmt, arrsize(f_fmt), 1}};
-				SYSLOG("ngreen", "XE-FMT: performTransaction formato do IOSurface -> 'BGRA': %s",
-					   LookupPatchPlus::applyAll(patcher, patchFmt, address, size) ? "aplicado" : "NAO encontrado");
-				static const uint8_t f_planes[] = {0x8b, 0x83, 0xb0, 0x00, 0x00, 0x00, 0x85, 0xc0, 0xba, 0x01, 0x00, 0x00, 0x00};
-				static const uint8_t r_planes_xor[] = {0x31, 0xc0, 0x90, 0x90, 0x90, 0x90, 0x85, 0xc0, 0xba, 0x01, 0x00, 0x00, 0x00};
-				static const uint8_t r_planes_98[] = {0x8b, 0x83, 0x98, 0x00, 0x00, 0x00, 0x85, 0xc0, 0xba, 0x01, 0x00, 0x00, 0x00};
-				const uint8_t *r_planes = checkKernelArgument("-ngreenplanesxor") ? r_planes_xor : r_planes_98;
-				if (!checkKernelArgument("-ngreennoplanesfix")) {
-					LookupPatchPlus const patchPlanes[] = {{activeKext, f_planes, r_planes, arrsize(f_planes), 1}};
-					bool okp2 = LookupPatchPlus::applyAll(patcher, patchPlanes, address, size);
-					IOLog("XeNG PLANES2: calculateIOSurfaceDeviceCacheVRAMBytes planos de IOSurface+%s: %s\n", r_planes == r_planes_98 ? "0x98" : "nenhum (xor)", okp2 ? "aplicado" : "NAO encontrado");
-				}
-			}
 			
-			// HP-R4: resolve_ccs+0xc7 also faults on real TGL with Tahoe IOAF2.
-			// Reuse upstream NOCCS3 independently of RPL topology overrides.
-			if (!NGreen::callback->isRealTGL || getKernelVersion() == KernelVersion::Tahoe) {
+			if (NGreen::callback->isRealTGL && getKernelVersion() == KernelVersion::Tahoe) {
+				// OS ABI compatibility is independent of native GPU topology.
+				// Preserve real multi-plane formats; do not force one plane/BGRA.
+				static const uint8_t oldPlanes[] = {0x8b,0x83,0xb0,0,0,0,0x85,0xc0,0xba,1,0,0,0};
+				static const uint8_t newPlanes[] = {0x8b,0x83,0x98,0,0,0,0x85,0xc0,0xba,1,0,0,0};
+				static const uint8_t oldFormat[] = {0x8b,0x83,0xa4,0,0,0,0x89,0x85,0xf4,0xfe,0xff,0xff};
+				static const uint8_t newFormat[] = {0x8b,0x83,0x80,0,0,0,0x89,0x85,0xf4,0xfe,0xff,0xff};
+				// blit3d_submit_rectlist shrinks the rectangle group until this
+				// complete command+state reservation fits. Tahoe has 4KiB slots,
+				// unlike the emitter's 64KiB assumption. Limit the GROUP, not its
+				// returned length: remaining rectangles are emitted by its loop.
+				static const uint8_t oldChunk[] = {0x49,0x81,0xfc,0,0,1,0,0x77,0xc8};
+				static const uint8_t newChunk[] = {0x49,0x81,0xfc,0,0x0c,0,0,0x77,0xc8};
+				// Native TGL needs Wa_1606700617 too. Apply during Apple's
+				// force-woken engine initialization, including later resets.
+				// Keep CS_CHICKEN1's original EDX=0x10001: adding bit1 to
+				// that shared operand would accidentally alter GPU preemption.
+				// No RPL topology changes, PERCTX clearing, or POSH bypass.
+				static const uint8_t hpFfdopFind[] = {0x8b,0x90,0xec,0x20,0,0,0xba,1,0,1,0,0x89,0x90,0xec,0x20,0,0};
+				// R32 experiment: keep FF_DOP write, but also set bit 1 in the
+				// value later ORed into the masked CS_CHICKEN1 write. This selects
+				// thread-group rather than mid-thread GPGPU preemption only when
+				// the existing masked write reaches the current context. Context
+				// restore / userspace updates may override it; runtime proof needed.
+				static const uint8_t hpFfdopReplace[] = {0xba,3,0,3,0,0x89,0x90,0xec,0x20,0,0,0xba,3,0,1,0,0x90};
+				mach_vm_address_t rectList = 0;
+				SolveRequestPlus symbols[] = {
+					{"__ZL22blit3d_submit_rectlistP23IGHardwareBlit3DContextP15blit3d_params_tPK8IGVectorI11rect_pair_t25IGIOMallocAllocatorPolicyE", rectList},
+				};
+				LookupPatchPlus const abi[] = {
+					{activeKext, oldPlanes, newPlanes, sizeof(oldPlanes), 1},
+					{activeKext, oldFormat, newFormat, sizeof(oldFormat), 1},
+					{activeKext, oldChunk, newChunk, sizeof(oldChunk), 1},
+				};
+				bool ok = hpTglSurfaceABIReady() &&
+					SolveRequestPlus::solveAll(patcher, index, symbols, address, size) &&
+					*reinterpret_cast<uint8_t *>(rectList + 0x7ff) == 0xe8 &&
+					LookupPatchPlus::applyAll(patcher, abi, address, size);
+				patcher.clearError();
+				// The donor assumes allocation cannot fail. Its rect-list routine
+                // returns void; reject invalid buffers without a store, and
+                // carry the hook failure to submitBlit's boolean result.
+                static const uint8_t guardSite[] = {0x48,0x83,0xc3,0x3f,0x48,0x8b,0x85,0x68,0xfe,0xff,0xff,0x41,0x89,0x46,0x08};
+                static const uint8_t guardExit[] = {0x48,0x8b,0x05,0x6e,0x29,0x09,0,0x48,0x8b,0,0x48,0x3b,0x45,0xd0};
+                uint8_t guard[19];
+                if (ok) {
+                    ok = !memcmp(reinterpret_cast<void *>(rectList + 0x83a), guardSite, sizeof(guardSite)) &&
+                        !memcmp(reinterpret_cast<void *>(rectList + 0x23db), guardExit, sizeof(guardExit));
+                    if (ok) {
+                        HpTglRepair::rectGuard(guard, rectList + 0x23db);
+                        auto trampoline = patcher.routeBlock(rectList + 0x83a, guard, sizeof(guard), true);
+                        ok = trampoline && patcher.getError() == KernelPatcher::Error::NoError;
+                    }
+                    patcher.clearError();
+                }
+                if (ok) ok = hpTglEnableRepair(address, size, rectList + 0x804);
+                SYSLOG("ngreen", "HP-RECT4: backing-slot base, null guard, failed-blit propagation %s", ok ? "ready" : "failed");
+				SYSLOG("ngreen", "HP-REPAIR: plane+98 format+80, checked surfaces, page-local rect batches %s", ok ? "ready" : "failed");
+				LookupPatchPlus const hpFfdop[] = {
+					{activeKext, hpFfdopFind, hpFfdopReplace, sizeof(hpFfdopFind), 1},
+				};
+				bool waOk = ok && LookupPatchPlus::applyAll(patcher, hpFfdop, address, size);
+				patcher.clearError();
+				SYSLOG("ngreen", "HP-R32-WA: FF_DOP enabled, CS_CHICKEN1 thread-group request/PERCTX retained %s", waOk ? "ready" : "failed");
+				// Capture the scalar already read by populateResetRegisterList;
+				// the prefix does not issue additional MMIO or follow a pointer.
+				mach_vm_address_t hpReadFn = patcher.solveSymbol(index,
+					"__ZN16IntelAccelerator25populateResetRegisterListEv", address, size);
+				static const uint8_t hpReadSite[] = {0x48,0x8b,0xb3,0xc0,0x12,0,0,0x48,0x3b,0xb3,0xc8,0x12,0,0};
+				static const uint8_t hpReadLoad[] = {0x8b,0x80,0x80,0x25,0,0,0x89,0x47,0xfa};
+				bool readOk = waOk && hpReadFn && hpReadFn >= address &&
+					hpReadFn - address <= size && size - (hpReadFn - address) >= 0xacb &&
+					!memcmp(reinterpret_cast<void *>(hpReadFn + 0xa9e), hpReadLoad, sizeof(hpReadLoad)) &&
+					!memcmp(reinterpret_cast<void *>(hpReadFn + 0xabd), hpReadSite, sizeof(hpReadSite));
+				if (readOk) {
+					uint8_t prefix[64];
+					auto len = HpTglRepair::existingReadbackPrefix(prefix, reinterpret_cast<uint64_t>(&hpR32Readback));
+					auto tr = patcher.routeBlock(hpReadFn + 0xabd, prefix, len, true);
+					readOk = tr && patcher.getError() == KernelPatcher::Error::NoError;
+				}
+				patcher.clearError();
+				SYSLOG("ngreen", "HP-R32-READBACK: route %s scope=startup-last-writer", readOk ? "ready" : "failed");
+				// Linux 7d0a66e4/v6.18 Wa_1606931601: TGL requires EARLY_READ
+				// disable (ROW_CHICKEN2 bit14). Bit15 READ_SUPPRESSION belongs
+				// to newer DG2/MTL rules; do not copy the old RPL 0xc000 write.
+				// This donor only masks bits0/1/8 at +0x35d. Insert on its
+				// unconditional, already-force-woken path before context enable.
+				// Both overwritten MMIO instructions are PIC (16 bytes).
+				mach_vm_address_t hpStart = patcher.solveSymbol(index,
+					"__ZN16IntelAccelerator19startGraphicsEngineEv", address, size);
+				static const uint8_t hpRowSite[] = {
+					0x8b,0xb0,0xe0,0x20,0,0,0xc7,0x80,0xe0,0x20,0,0,0,0x40,0,0x40};
+				bool rowOk = waOk && hpStart &&
+					!memcmp(reinterpret_cast<void *>(hpStart+0x83),hpRowSite,sizeof(hpRowSite));
+				if (rowOk) {
+					uint8_t prefix[128];
+					auto length = HpTglRepair::nativeRowPrefix(prefix,reinterpret_cast<uint64_t>(hpNativeRowState));
+					auto trampoline = patcher.routeBlock(hpStart+0x83,prefix,length,true);
+					rowOk = trampoline && patcher.getError()==KernelPatcher::Error::NoError;
+				}
+				patcher.clearError();
+				SYSLOG("ngreen", "HP-ROW5: native engine bit14 multicast/MCR-restore route %s", rowOk ? "ready" : "failed");
+				// GA416's proven native 80EU/10SS combination: no render
+				// compression (AUX_NONE) and the resolve entry stubbed, so the
+				// caller cannot read an unresolved CCS surface. L3=6 is set in
+				// getGPUInfo. Do not install the unproven CCS6 page/jump path.
+				static const uint8_t hpNoAuxFind[] = {0xf6,0x86,0x91,0,0,0,0x02,0x8b,0x42,0x18,0x75,0x0b,
+				                                      0x83,0xe0,0xf8,0x89,0x42,0x18};
+				static const uint8_t hpNoAuxRepl[] = {0xf6,0x86,0x91,0,0,0,0x02,0x8b,0x42,0x18,0x90,0x90,
+				                                      0x83,0xe0,0xf8,0x89,0x42,0x18};
+				static const uint8_t hpNoCCSFind[] = {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56,0x41,0x55,0x41,0x54,
+				                                      0x53,0x48,0x83,0xec,0x48,0x48,0x89,0x75,0xc0,0xf6,0x87,0x78};
+				static const uint8_t hpNoCCSRepl[] = {0x31,0xc0,0xc3,0xe5,0x41,0x57,0x41,0x56,0x41,0x55,0x41,0x54,
+				                                      0x53,0x48,0x83,0xec,0x48,0x48,0x89,0x75,0xc0,0xf6,0x87,0x78};
+				LookupPatchPlus const hpNoAux[] = {{activeKext,hpNoAuxFind,hpNoAuxRepl,sizeof(hpNoAuxFind),1}};
+				bool noauxOK=rowOk && LookupPatchPlus::applyAll(patcher,hpNoAux,address,size);
+				patcher.clearError();
+				LookupPatchPlus const hpNoCCS[] = {
+					{activeKext,hpNoCCSFind,hpNoCCSRepl,sizeof(hpNoCCSFind),1},
+				};
+				bool knownOK=noauxOK && LookupPatchPlus::applyAll(patcher,hpNoCCS,address,size);
+				patcher.clearError();
+				// Native TGL Tahoe fixes that were previously trapped inside !isRealTGL:
+				// 1) Disable EnableMultiContext (bit 33 of accel+0x1190 at 0x27499) unless -ngreenmc is passed,
+				//    so Metal compute uses g_cInitGfxHwCtxParamsForCompute on RCS (with full golden context,
+				//    indirect ctx WA, R_PWR_CLK_STATE, and nonpriv whitelist) instead of unfinished CCS0,
+				//    and RCU_MODE (0x14800) stays 0 so CCS0 never wedges the shared Slice 0 RCU.
+				//    Keep 48-bit high canonical range reservation at 0x4bf0a (f_vasreserve).
+				static const uint8_t f_nomc[] = {0x21,0xd8,0x48,0xc1,0xe0,0x21,0x48,0xb9,0xff,0xff,0xff,0xff,0xfd,0xff,0xff,0xff};
+				static const uint8_t r_nomc[] = {0x31,0xc0,0x48,0xc1,0xe0,0x21,0x48,0xb9,0xff,0xff,0xff,0xff,0xfd,0xff,0xff,0xff};
+				static const uint8_t f_vasreserve[] = {0xf6,0x80,0x94,0x11,0x00,0x00,0x02,0x74,0x26,0x41,0xf6,0x46,0x24,0x02};
+				static const uint8_t r_vasreserve[] = {0xf6,0x80,0x94,0x11,0x00,0x00,0x02,0x90,0x90,0x41,0xf6,0x46,0x24,0x02};
+				if (!checkKernelArgument("-ngreenmc")) {
+					LookupPatchPlus const hpNoMc[] = {
+						{activeKext,f_nomc,r_nomc,sizeof(f_nomc),1},
+						{activeKext,f_vasreserve,r_vasreserve,sizeof(f_vasreserve),1},
+					};
+					bool nomcOK = LookupPatchPlus::applyAll(patcher,hpNoMc,address,size);
+					patcher.clearError();
+					SYSLOG("ngreen", "HP-NOMC: EnableMultiContext->0 (compute on RCS, RCU_MODE=0) + VAS reserve %s", nomcOK ? "ready" : "failed");
+				}
+				// 2) Stub submitDepthResolve (HiZ sibling of submitCCSResolve).
+				static const uint8_t f_nodepth_hp[] = {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56,0x41,0x55,0x41,0x54,0x53,
+				                                       0x48,0x83,0xec,0x38,0xf6,0x87,0x78,0x0c,0x00,0x00,0x02,0x0f,0x84};
+				static const uint8_t r_nodepth_hp[] = {0x31,0xc0,0xc3,0xe5,0x41,0x57,0x41,0x56,0x41,0x55,0x41,0x54,0x53,
+				                                       0x48,0x83,0xec,0x38,0xf6,0x87,0x78,0x0c,0x00,0x00,0x02,0x0f,0x84};
+				if (!checkKernelArgument("-ngreendepthresolve")) {
+					LookupPatchPlus const hpNoDepth[] = {{activeKext,f_nodepth_hp,r_nodepth_hp,sizeof(f_nodepth_hp),1}};
+					bool nodepthOK = LookupPatchPlus::applyAll(patcher,hpNoDepth,address,size);
+					patcher.clearError();
+					SYSLOG("ngreen", "HP-NODEPTH: submitDepthResolve immediate return %s", nodepthOK ? "ready" : "failed");
+				}
+				// 3) Remove TILE_CACHE_FLUSH (bit 28) from PIPE_CONTROL in generateFlip and commitStampCommand.
+				static const uint8_t f_notcf_hp[] = {0x48,0xbe,0x04,0x00,0x00,0x7a,0x21,0x50,0x10,0x50};
+				static const uint8_t r_notcf_hp[] = {0x48,0xbe,0x04,0x00,0x00,0x7a,0x21,0x50,0x10,0x40};
+				static const uint8_t f_notcf2_hp[] = {0x4c,0x89,0x75,0xa8,0x49,0xc1,0xe6,0x3c,0x49,0x09,0xde};
+				static const uint8_t r_notcf2_hp[] = {0x4c,0x89,0x75,0xa8,0x45,0x31,0xf6,0x90,0x49,0x09,0xde};
+				if (!checkKernelArgument("-ngreentcf")) {
+					LookupPatchPlus const hpNoTcf[] = {
+						{activeKext,f_notcf_hp,r_notcf_hp,sizeof(f_notcf_hp),3},
+						{activeKext,f_notcf2_hp,r_notcf2_hp,sizeof(f_notcf2_hp),2},
+					};
+					bool notcfOK = LookupPatchPlus::applyAll(patcher,hpNoTcf,address,size);
+					patcher.clearError();
+					SYSLOG("ngreen", "HP-NOTCF: PIPE_CONTROL without TILE_CACHE_FLUSH %s", notcfOK ? "ready" : "failed");
+				}
+				// 4) Keep renderCompression (accel+0x1474) = 0 so generateFlip never enables PLANE_CTL decompression on AUX_NONE.
+				if (!checkKernelArgument("-ngreennorc")) {
+					static const uint8_t f_rcstart_hp[] = {0x41,0xf6,0x06,0x20,0x74,0x08,0x41,0xc6,0x85,0x74,0x14,0x00,0x00,0x01};
+					static const uint8_t r_rcstart_hp[] = {0x41,0xf6,0x06,0x20,0x74,0x08,0x41,0xc6,0x85,0x74,0x14,0x00,0x00,0x00};
+					static const uint8_t f_rcset_hp[] = {0x41,0x8a,0x07,0x41,0x88,0x86,0x74,0x14,0x00,0x00,0xeb,0x16};
+					static const uint8_t r_rcset_hp[] = {0xb0,0x00,0x90,0x41,0x88,0x86,0x74,0x14,0x00,0x00,0xeb,0x16};
+					LookupPatchPlus const hpRcPolicy[] = {
+						{activeKext,f_rcstart_hp,r_rcstart_hp,sizeof(f_rcstart_hp),1},
+						{activeKext,f_rcset_hp,r_rcset_hp,sizeof(f_rcset_hp),1},
+					};
+					bool rcOK = LookupPatchPlus::applyAll(patcher,hpRcPolicy,address,size);
+					patcher.clearError();
+					SYSLOG("ngreen", "HP-RCPOLICY: renderCompression (accel+0x1474) forced 0 %s", rcOK ? "ready" : "failed");
+				}
+				SYSLOG("ngreen", "HP-KNOWN7: native NOAUX+NOCCS3 proven artifact/CPU combination %s",knownOK ? "ready" : "failed");
+				PANIC_COND(!knownOK,"ngreen","HP-KNOWN7 native NOAUX/NOCCS3 preflight failed");
+			}
+
+			if (!NGreen::callback->isRealTGL) {
+				// RPL-only: hardcode topology and bypass BCS readiness check
+				xeTopoArgs();
+				r3b[28] = (uint8_t)gTopoL3;
+				r3bbb[4] = (uint8_t)gTopoSs;
+				LookupPatchPlus const patchesRPL[] = {
+					// xe/topo5: r3b/r3bbb are writable now; passed as const pointers so the (find, replace, size, count)
+					// constructor is used. As plain uint8_t[N] they matched the template (find[N], replace[N], count, skip),
+					// i.e. count=32 skip=1: the only match was skipped, the patch failed and PANIC_COND hung topo..topo4 at boot.
+					{activeKext, f3b, static_cast<const uint8_t *>(r3b), arrsize(f3b),	1},      // L3BankCount=8 (ngreen-l3)
+					{activeKext, f3bb, r3bb, arrsize(f3bb),	1},    // MaxEU/SS=8
+					{activeKext, f3bbb, static_cast<const uint8_t *>(r3bbb), arrsize(f3bbb),	1},// NumSubSlices=12 (ngreen-eu)
+					{activeKext, f_devstart, m_devstart, r_devstart, rm_devstart, arrsize(f_devstart), 1}, // BCS bypass
+				};
+				PANIC_COND(!LookupPatchPlus::applyAll(patcher, patchesRPL, address, size), "ngreen",
+					"kextG11HWT Failed to apply RPL-specific patches!");
+
 				// xe/noccs3 (19/10): o XE-NOCCS2 (cortar enableRenderCompressionWithAccelTask inteira) deixava o driver Metal
 				// usando fast clear / stencil comprimido SEM mapeamento AUX -> hang do RCS no PIPE_CONTROL após o fast clear.
 				// O que panicava era só o RESOLVE: IntelAccelerator::submitCCSResolve -> resolve_ccs escreve no buffer 2 do
@@ -2275,82 +3391,14 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 				                                    0x53, 0x48, 0x83, 0xec, 0x48, 0x48, 0x89, 0x75, 0xc0, 0xf6, 0x87, 0x78};
 				static const uint8_t r_noccs3[] = {0x31, 0xc0, 0xc3, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54,
 				                                    0x53, 0x48, 0x83, 0xec, 0x48, 0x48, 0x89, 0x75, 0xc0, 0xf6, 0x87, 0x78};
-				LookupPatchPlus const patchNoCCS3[] = {{activeKext, f_noccs3, r_noccs3, arrsize(f_noccs3), 1}};
-				SYSLOG("ngreen", "XE-NOCCS3: IntelAccelerator::submitCCSResolve -> retorno imediato: %s",
-					   LookupPatchPlus::applyAll(patcher, patchNoCCS3, address, size) ? "aplicado" : "NAO encontrado");
-			}
-
-			// GA414: pair the existing NOAUX with NOCCS3 on this exact HP/25G83.
-			// Other native TGL builds stay unchanged; the RPL-only block below stays closed.
-			// Keep const arrays: writable arrays select a different LookupPatchPlus overload.
-			static const uint8_t f_noaux[] = {0xf6, 0x86, 0x91, 0x00, 0x00, 0x00, 0x02, 0x8b, 0x42, 0x18, 0x75, 0x0b,
-			                                  0x83, 0xe0, 0xf8, 0x89, 0x42, 0x18};
-			static const uint8_t r_noaux[] = {0xf6, 0x86, 0x91, 0x00, 0x00, 0x00, 0x02, 0x8b, 0x42, 0x18, 0x90, 0x90,
-			                                  0x83, 0xe0, 0xf8, 0x89, 0x42, 0x18};
-			bool hpNoAux = false;
-			if (NGreen::callback->isRealTGL && NGreen::callback->iGPU &&
-				getKernelVersion() == KernelVersion::Tahoe) {
-				auto *gpu = NGreen::callback->iGPU;
-				const uint32_t vendor = WIOKit::readPCIConfigValue(gpu, WIOKit::kIOPCIConfigVendorID, 0, 16);
-				const uint32_t device = WIOKit::readPCIConfigValue(gpu, WIOKit::kIOPCIConfigDeviceID, 0, 16);
-				const uint32_t subVendor = WIOKit::readPCIConfigValue(gpu, WIOKit::kIOPCIConfigSubSystemVendorID, 0, 16);
-				const uint32_t subDevice = WIOKit::readPCIConfigValue(gpu, WIOKit::kIOPCIConfigSubSystemID, 0, 16);
-				const auto buildAddress = patcher.solveSymbol(KernelPatcher::KernelID, "_osversion");
-				if (!buildAddress) patcher.clearError();
-				const char *build = reinterpret_cast<const char *>(buildAddress);
-				hpNoAux = hpGa414NoAuxIdentity(true, NGreen::callback->cpuModel, vendor, device,
-					subVendor, subDevice, true, build);
-				IOLog("GA414 NOAUX: gate=%d cpu=0x%x pci=%04x:%04x subsystem=%04x:%04x build=%.5s\n",
-					hpNoAux, NGreen::callback->cpuModel, vendor, device, subVendor, subDevice, build ? build : "ERROR");
-				if (!hpNoAux) IOLog("GA414 NOAUX: ERROR exact HP/25G83 identity unavailable or mismatch; not applied\n");
-			}
-			if (!NGreen::callback->isRealTGL || hpNoAux) {
-				if (!checkKernelArgument("-ngreenccs")) {
-					bool mayApply = true;
-					const auto *bytes = reinterpret_cast<const uint8_t *>(address);
-					if (hpNoAux) {
-						static volatile uint32_t attempted = 0;
-						const bool firstAttempt = __sync_bool_compare_and_swap(&attempted, 0, 1);
-						const size_t originalCount = hpGa414PatternCount(bytes, size, f_noaux, sizeof(f_noaux));
-						const size_t patchedCount = hpGa414PatternCount(bytes, size, r_noaux, sizeof(r_noaux));
-						mayApply = firstAttempt && originalCount == 1 && patchedCount == 0;
-						IOLog("GA414 NOAUX: preflight first=%d original=%zu patched=%zu expected=1/0\n",
-							firstAttempt, originalCount, patchedCount);
-						if (!mayApply) IOLog("GA414 NOAUX: ERROR duplicate attempt or non-unique/missing pattern; not applied\n");
-					}
-					if (mayApply) {
-						LookupPatchPlus const patchNoAux[] = {{activeKext, f_noaux, r_noaux, arrsize(f_noaux), 1}};
-						bool oka = LookupPatchPlus::applyAll(patcher, patchNoAux, address, size);
-						if (hpNoAux) {
-							const size_t originalCount = hpGa414PatternCount(bytes, size, f_noaux, sizeof(f_noaux));
-							const size_t patchedCount = hpGa414PatternCount(bytes, size, r_noaux, sizeof(r_noaux));
-							oka = oka && originalCount == 0 && patchedCount == 1;
-							IOLog("GA414 NOAUX: postflight original=%zu patched=%zu verified=%d expected=0/1\n",
-								originalCount, patchedCount, oka);
-							if (!oka) IOLog("GA414 NOAUX: ERROR apply/verification failed; experiment INVALID\n");
-						}
-						IOLog("XeNG NOAUX: fillSurfaceStateAuxInfo sempre AUX_NONE: %s\n", oka ? "aplicado" : "NAO encontrado");
-					}
-				} else if (hpNoAux) {
-					IOLog("GA414 NOAUX: DISABLED by -ngreenccs; experiment INVALID\n");
-				}
-			}
-
-			if (!NGreen::callback->isRealTGL) {
-				// RPL-only: hardcode topology and bypass BCS readiness check
-				LookupPatchPlus const patchesRPL[] = {
-					{activeKext, f3b, r3b, arrsize(f3b),	1},      // L3BankCount=8
-					{activeKext, f3bb, r3bb, arrsize(f3bb),	1},    // MaxEU/SS=8
-					{activeKext, f3bbb, r3bbb, arrsize(f3bbb),	1},// NumSubSlices=12
-					{activeKext, f_devstart, m_devstart, r_devstart, rm_devstart, arrsize(f_devstart), 1}, // BCS bypass
-				};
-				PANIC_COND(!LookupPatchPlus::applyAll(patcher, patchesRPL, address, size), "ngreen",
-					"kextG11HWT Failed to apply RPL-specific patches!");
-
 				// xe/fmt (19/10): IGAccelDisplayPipe::performTransaction lê o formato do quadro de IOSurface+0xa4 direto da
 				// memória (0x81361 no 16.0.32). No Tahoe o layout do IOSurface mudou e vem 0 -> o FB programa o plano como
 				// YUV 4:2:2 (PLANE_CTL 0x90010400): tela verde em 2 tons + metade com lixo. Usa o formato do desktop, 'BGRA'.
-				// XE-FMT is applied above, independently of RPL topology.
+				static const uint8_t f_fmt[] = {0x8b, 0x83, 0xa4, 0x00, 0x00, 0x00, 0x89, 0x85, 0xf4, 0xfe, 0xff, 0xff};
+				static const uint8_t r_fmt[] = {0xb8, 0x41, 0x52, 0x47, 0x42, 0x90, 0x89, 0x85, 0xf4, 0xfe, 0xff, 0xff};
+				LookupPatchPlus const patchFmt[] = {{activeKext, f_fmt, r_fmt, arrsize(f_fmt), 1}};
+				SYSLOG("ngreen", "XE-FMT: performTransaction formato do IOSurface -> 'BGRA': %s",
+					   LookupPatchPlus::applyAll(patcher, patchFmt, address, size) ? "aplicado" : "NAO encontrado");
 				// xe/noposh (19/10): IGHardwareRingBuffer::submitBatchBuffer liga o bit 20 do MI_BATCH_BUFFER_START quando o
 				// contexto tem POSH (ctx+0x6e bit 0x10): (flags & 0x10) << 16. Só o ctx16 roda batches 0x18900101 e, depois dele,
 				// o RCS não troca mais de contexto (execlists válidas, nenhuma ativa). O RPL não tem o pipe POSH do TGL.
@@ -2362,6 +3410,9 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 					bool okp = LookupPatchPlus::applyAll(patcher, patchNoPosh, address, size);
 					IOLog("XeNG NOPOSH: submitBatchBuffer sem bit POSH: %s\n", okp ? "aplicado" : "NAO encontrado");
 				}
+				LookupPatchPlus const patchNoCCS3[] = {{activeKext, f_noccs3, r_noccs3, arrsize(f_noccs3), 1}};
+				SYSLOG("ngreen", "XE-NOCCS3: IntelAccelerator::submitCCSResolve -> retorno imediato: %s",
+					   LookupPatchPlus::applyAll(patcher, patchNoCCS3, address, size) ? "aplicado" : "NAO encontrado");
 				// xe/nodepth (20/10): mesmo problema do NOCCS3 pelo caminho irmão. Pânico do iconservicesagent em resolve_hiz_g7
 				// <- IntelAccelerator::submitDepthResolve <- IGAccelResource::submitDepthResolve <- submitCCSResolve <-
 				// enableRenderCompressionWithAccelTask: o resolve HiZ também escreve no IOAccelCommandBufferPool2 do Tahoe.
@@ -2376,7 +3427,14 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 					SYSLOG("ngreen", "XE-NODEPTH: IntelAccelerator::submitDepthResolve -> retorno imediato: %s",
 						   LookupPatchPlus::applyAll(patcher, patchNoDepth, address, size) ? "aplicado" : "NAO encontrado");
 				}
-				// XE-NOAUX definitions/application moved above; other RPL-only patches stay here.
+				// xe/noaux (19/10): o RCS trava (sem fault) no PIPE_CONTROL depois de desenhar em RTs pequenos com
+				// RENDER_SURFACE_STATE AuxiliarySurfaceMode=5 (CCS_E): a AUX-TT não cobre essas superfícies no RPL.
+				// IGAccelResource::fillSurfaceStateAuxInfo põe aux=4/5 quando ResourceInfoEntry+0x91 bit 0x02; senão
+				// zera os 3 bits. "jne" (75 0b) -> NOPs em 0x73fd0 do 16.0.32: sempre aux=NONE. -ngreenccs desliga.
+				static const uint8_t f_noaux[] = {0xf6, 0x86, 0x91, 0x00, 0x00, 0x00, 0x02, 0x8b, 0x42, 0x18, 0x75, 0x0b,
+				                                  0x83, 0xe0, 0xf8, 0x89, 0x42, 0x18};
+				static const uint8_t r_noaux[] = {0xf6, 0x86, 0x91, 0x00, 0x00, 0x00, 0x02, 0x8b, 0x42, 0x18, 0x90, 0x90,
+				                                  0x83, 0xe0, 0xf8, 0x89, 0x42, 0x18};
 				// xe/notcf (19/10): o 1º restart de cada boot é o contexto do pipe de display parado no PIPE_CONTROL do flip
 				// (IGAccelDisplayPipe::generateFlip, dw1 0x50105021 = DC/RT/depth flush + CS stall + post-sync + TILE CACHE
 				// FLUSH), logo depois do desenho 3D do flip, com o 3D ocioso. O resto do driver usa 0x40105021 (sem o bit 28)
@@ -2412,7 +3470,15 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 				// o plano 1 e get_tex_data devolvia endereço vazio: YUV (HEIC, vídeo) com croma zerado = papel de parede
 				// verde, quadros de vídeo vazios. No Tahoe IOSurface::getPlaneCount() lê [rdi+0x98] (KC 25G241), então
 				// lê do offset certo: "mov eax,[rbx+0x98]". -ngreenplanesxor volta ao patch antigo.
-				// XE-PLANES2 is applied above, independently of RPL topology.
+				static const uint8_t f_planes[] = {0x8b, 0x83, 0xb0, 0x00, 0x00, 0x00, 0x85, 0xc0, 0xba, 0x01, 0x00, 0x00, 0x00};
+				static const uint8_t r_planes_xor[] = {0x31, 0xc0, 0x90, 0x90, 0x90, 0x90, 0x85, 0xc0, 0xba, 0x01, 0x00, 0x00, 0x00};
+				static const uint8_t r_planes_98[] = {0x8b, 0x83, 0x98, 0x00, 0x00, 0x00, 0x85, 0xc0, 0xba, 0x01, 0x00, 0x00, 0x00};
+				const uint8_t *r_planes = checkKernelArgument("-ngreenplanesxor") ? r_planes_xor : r_planes_98;
+				if (!checkKernelArgument("-ngreennoplanesfix")) {
+					LookupPatchPlus const patchPlanes[] = {{activeKext, f_planes, r_planes, arrsize(f_planes), 1}};
+					bool okp2 = LookupPatchPlus::applyAll(patcher, patchPlanes, address, size);
+					IOLog("XeNG PLANES2: calculateIOSurfaceDeviceCacheVRAMBytes planos de IOSurface+%s: %s\n", r_planes == r_planes_98 ? "0x98" : "nenhum (xor)", okp2 ? "aplicado" : "NAO encontrado");
+				}
 				// xe/blitalign (20/10): plano de IOSurface com offset não múltiplo de 64 (o CoreVideo usa 32 e 2073632 no 420v)
 				// = textura zerada e escrita perdida -> gravação de tela verde, conversões VTPixelTransfer vazias, Safari -6680.
 				// A GPU usa uma cópia da superfície (device cache, +0x04 da tabela de planos); pageon/pageoff copiam com
@@ -2437,6 +3503,11 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 						{activeKext, f_ba_rota, r_ba_rota, arrsize(f_ba_rota), 1}};
 					bool okba = LookupPatchPlus::applyAll(patcher, patchBa, address, size);
 					IOLog("XeNG BLITALIGN: cópias lineares de IOSurface desalinhadas (offset %% 64) pelo motor de cópia: %s\n", okba ? "aplicado" : "NAO encontrado");
+					// xe/blitfix (23/10): estende a v2 para pitch não múltiplo de 64 (ver xeBlitFixInstall). -ngreennoblitfix desliga.
+					if (okba && !checkKernelArgument("-ngreennoblitfix")) {
+						bool okbf = xeBlitFixInstall(patcher, activeKext, address, size, r_ba_rota, arrsize(r_ba_rota));
+						IOLog("XeNG BLITFIX: cópias de IOSurface com pitch %% 64 != 0 pelo motor de cópia: %s\n", okbf ? "aplicado" : "NAO encontrado");
+					}
 				}
 				// xe/rpcs (20/10, do WhateverXe 1163642): o construtor do contexto RCS grava R_PWR_CLK_STATE (0x20c8) = 0x80000000
 				// (só ENABLE). O Linux pede ENABLE | S_CNT_ENABLE | 1 fatia (0x80041000); o RPL também tem 1 fatia (SLICE_EN=1).
@@ -2456,6 +3527,11 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 					};
 					bool okb = LookupPatchPlus::applyAll(patcher, patchB16, address, size);
 					IOLog("XeNG BLIT16: blit3d PS só SIMD16: %s\n", okb ? "aplicado" : "NAO encontrado");
+				}
+				if (!checkKernelArgument("-ngreenccs")) {
+					LookupPatchPlus const patchNoAux[] = {{activeKext, f_noaux, r_noaux, arrsize(f_noaux), 1}};
+					bool oka = LookupPatchPlus::applyAll(patcher, patchNoAux, address, size);
+					IOLog("XeNG NOAUX: fillSurfaceStateAuxInfo sempre AUX_NONE: %s\n", oka ? "aplicado" : "NAO encontrado");
 				}
 				// xe/rcpolicy (21/10, from WhateverXe jkbuha 1a9b960/76a9459): IntelAccelerator+0x1474 is the display/IOSurface
 				// "renderCompression" policy. start() leaves it 0 on real hardware (it is 1 only in the simulator), but the TGL
@@ -3413,9 +4489,63 @@ void Gen11::setupOptimalLaneCount(AppleIntel::AppleIntelBaseController *that, co
 		cached = hwLanes;
 }
 
+using XeAuxFn = uint32_t (*)(void *, uint32_t, void *, uint32_t);
+static void xeAuxBlApply(thread_call_param_t, thread_call_param_t) {
+	void *port = gXeAuxBlPort;
+	if (!port || !gXeAuxBlWr || !gXeAuxBlRd) return;
+	auto wr = [&](uint32_t a, void *b, uint32_t n) { return reinterpret_cast<XeAuxFn>(gXeAuxBlWr)(port, a, b, n); };
+	auto rd = [&](uint32_t a, void *b, uint32_t n) { return reinterpret_cast<XeAuxFn>(gXeAuxBlRd)(port, a, b, n); };
+	const uint32_t lvl = gXeAuxBlLevel;
+	uint32_t ret, rb = 0, done;
+	if (xeAuxBlHdr()) {
+		static int maxNits = 0;
+		if (!maxNits && (!PE_parse_boot_argn("ngreenauxnits", &maxNits, sizeof(maxNits)) || maxNits < 10 || maxNits > 2000)) maxNits = 400;
+		uint32_t nits = lvl ? (uint32_t)(((uint64_t)lvl * (uint32_t)maxNits + 0x7FFF) / 0xFFFF) : 0;
+		if (lvl && nits < 2) nits = 2;
+		uint8_t c = 0;
+		ret = rd(0x344, &c, 1);
+		if (!ret && !(c & 0x10)) { c |= 0x10; ret = wr(0x344, &c, 1); }   // brightness AUX enable
+		uint8_t pkt[4] = {(uint8_t)nits, (uint8_t)(nits >> 8), 0, 0};
+		if (!ret) ret = wr(0x354, pkt, 4);
+		uint8_t c2 = 0;
+		rd(0x354, &rb, 4);
+		rd(0x344, &c2, 1);
+		rb = (rb & 0xFFFF) | ((uint32_t)c2 << 24);
+		done = nits;
+	} else {
+		const bool wide = (gXeDpcd700[0] >> 16) & 0x4;   // 0x702 bit 2: 16-bit level
+		uint8_t v[2] = {(uint8_t)(lvl >> 8), (uint8_t)lvl};
+		ret = wr(0x722, v, wide ? 2 : 1);
+		uint8_t m = 0, c = 0;
+		if (!ret && !(ret = rd(0x721, &m, 1)) && (m & 3) != 2) { m = (uint8_t)((m & ~3U) | 2); ret = wr(0x721, &m, 1); }   // DPCD mode
+		if (!ret && !(ret = rd(0x720, &c, 1)) && !(c & 1)) { c |= 1; ret = wr(0x720, &c, 1); }                             // backlight enable
+		rd(0x720, &rb, 4);
+		done = lvl;
+	}
+	gXeAuxBlRet = ret; gXeAuxBlRb = rb; gXeAuxBlDone = done;
+	if (OSIncrementAtomic(&gXeAuxBlN) < 8) IOLog("XeNG AUXBL: mode %d level 0x%x ret 0x%x rb 0x%08x\n", xeAuxBlMode(), done, ret, rb);
+	xeTopoPublish(nullptr, nullptr);
+}
+
 IOReturn Gen11::wrapICLReadAUX(void *that, uint32_t address, void *buffer, uint32_t length) {
 
 	IOReturn retVal = FunctionCast(wrapICLReadAUX, callback->orgICLReadAUX)(that, address, buffer, length);
+	if (retVal == kIOReturnSuccess && address == 0 && buffer && length >= 16 && gXeDpcd700Ret == 0xFFFFFFFFU) {
+		// xe/auxbl: eDP backlight caps, read once next to Apple's first sink-caps read (read only)
+		uint32_t caps[4] = {0, 0, 0, 0}, hdr = 0;
+		gXeDpcd700Ret = FunctionCast(wrapICLReadAUX, callback->orgICLReadAUX)(that, 0x700, caps, 16);
+		for (int i = 0; i < 4; i++) gXeDpcd700[i] = caps[i];
+		gXeDpcd340Ret = FunctionCast(wrapICLReadAUX, callback->orgICLReadAUX)(that, 0x340, &hdr, 4);
+		gXeDpcd340 = hdr;
+		const bool vesaOk = gXeDpcd700Ret == 0 && ((caps[0] >> 8) & 0x4) && ((caps[0] >> 16) & 0x2);
+		const bool hdrOk = gXeDpcd340Ret == 0 && ((hdr >> 8) & 0x10);
+		if (xeAuxBlMode() && gXeAuxBlWr && (xeAuxBlHdr() ? hdrOk : vesaOk)) {
+			gXeAuxBlRd = callback->orgICLReadAUX;
+			gXeAuxBlTc = thread_call_allocate(xeAuxBlApply, nullptr);
+			if (gXeAuxBlTc) gXeAuxBlPort = that;
+		}
+		IOLog("XeNG AUXBL: caps 0x700 %08x 0x340 %08x mode %d armed %d\n", caps[0], hdr, xeAuxBlMode(), gXeAuxBlPort ? 1 : 0);
+	}
 
 	// V97AUX: log first ~40 AUX reads to diagnose eDP link training failures.
 	static int auxLogCount = 0;
@@ -3688,8 +4818,6 @@ void Gen11::hwSetPowerWellStateDDI(AppleIntel::AppleIntelBaseController *that, b
 //  - o driver TGL desliga a fatia S1 do DBUF (DBUF_CTL_S1 0x44FE8); sem ela a leitura do plano vira ruído
 //    -> manter o pedido de energia (bit 31) sempre ligado.
 static bool xeFixEnabled() {
-	// Display 13 DPT/DBUF policy does not apply to native Tiger Lake Display 12.
-	if (NGreen::callback && NGreen::callback->getIsRealTGL()) return false;
 	static int v = -1;
 	if (v < 0) v = checkKernelArgument("-ngreenxefix") ? 1 : 0;
 	return v == 1;
@@ -3877,6 +5005,12 @@ static uint32_t xeFixFilterWrite(unsigned long reg, uint32_t val) {
 					val = v > gBlHwFreq ? gBlHwFreq : (uint32_t)v;
 				}
 				gBlLastOut = val;
+				if (xeAuxBlMode() && gXeAuxBlTc && gBlHwFreq && gBlHwFreq != 0xFFFFFFFF) {   // xe/auxbl
+					uint64_t l = (uint64_t)val * 0xFFFF / gBlHwFreq;
+					gXeAuxBlLevel = l > 0xFFFF ? 0xFFFF : (uint32_t)l;
+					thread_call_enter(gXeAuxBlTc);
+					if ((xeAuxBlMode() == 2 || xeAuxBlMode() == 4) && val) val = gBlHwFreq;
+				}
 			}
 		}
 	}
@@ -4464,10 +5598,6 @@ void Gen11::initPlatformWorkarounds(AppleIntel::AppleIntelBaseController *that)
 
 uint64_t Gen11::getOSInformation(AppleIntel::AppleIntelBaseController *that)
 {
-	// Keep the donor's native TGL platform table; the edits below describe the
-	// author's ADL-P/RPL-P panel and connector layout, not the HP panel.
-	if (NGreen::callback->isRealTGL)
-		return FunctionCast(getOSInformation, callback->ogetOSInformation)(that);
 	auto *pinfo = reinterpret_cast<PlatformInfo *>(callback->gPlatformInformationList);
 	if (pinfo) {
 		// Index 1 = the mobile TGL/ADL-P platform entry (0x9A490000 and variants).
@@ -5565,6 +6695,7 @@ unsigned long Gen11::start(void *that,void  *param_1)
 	
 	// V42: Save accelerator instance for child enumeration in hangcheck
 	callback->accelInstance = that;
+	xeRc6FwStart(that);  // xe/rc6fw (22/10)
 	
 	// V54: Pre-enable Master IRQ BEFORE calling original start().
 	// V53 proved that the TGL driver never enables GFX_MSTR_IRQ bit 31 on RPL.
@@ -6159,11 +7290,13 @@ unsigned long Gen11::start(void *that,void  *param_1)
 		}
 		
 		// 5. Clear GT interrupt identity (W1C) so stale interrupts don't confuse scheduler
-		uint32_t gtIntr0 = NGreen::callback->readReg32(GEN11_GT_INTR_DW0);
-		uint32_t gtIntr1 = NGreen::callback->readReg32(GEN11_GT_INTR_DW1);
-		if (gtIntr0) NGreen::callback->writeReg32(GEN11_GT_INTR_DW0, gtIntr0);
-		if (gtIntr1) NGreen::callback->writeReg32(GEN11_GT_INTR_DW1, gtIntr1);
-		SYSLOG("ngreen", "V51: cleared GT_INTR DW0=0x%x DW1=0x%x", gtIntr0, gtIntr1);
+		if (!NGreen::callback->isRealTGL) {
+			uint32_t gtIntr0 = NGreen::callback->readReg32(GEN11_GT_INTR_DW0);
+			uint32_t gtIntr1 = NGreen::callback->readReg32(GEN11_GT_INTR_DW1);
+			if (gtIntr0) NGreen::callback->writeReg32(GEN11_GT_INTR_DW0, gtIntr0);
+			if (gtIntr1) NGreen::callback->writeReg32(GEN11_GT_INTR_DW1, gtIntr1);
+			SYSLOG("ngreen", "V51: cleared GT_INTR DW0=0x%x DW1=0x%x", gtIntr0, gtIntr1);
+		}
 	}
 	
 	// ── V51: BCS engine stop+clear ──
@@ -6387,36 +7520,32 @@ void Gen11::getGPUInfo(void *that)
 	
 	FunctionCast(getGPUInfo, callback->ogetGPUInfo)(that);
 
-	// HP-R5: getGPUInfo already reads TGL's fuse-derived topology and computes
-	// its dispatch limits. The RPL override below changed 80 EU / 10 SS into
-	// 96 EU / 12 SS after those limits were computed (R4 boot + client trace).
-	// Keep the native fields, mirrors, frequencies and masks on real TGL.
-	if (NGreen::callback->isRealTGL) {
-		const UInt32 slices = getMember<UInt32>(that, 0x115c);
-		const UInt32 subslices = getMember<UInt32>(that, 0x1158);
-		const UInt32 euPerSS = getMember<UInt32>(that, 0x116c);
-		const UInt32 totalEU = getMember<UInt32>(that, 0x1124);
-		const UInt32 nativeL3 = getMember<UInt32>(that, 0x1164);
-		// The donor's L3 switch accepts 12 SS or a special 4-SS SKU, but
-		// leaves L3=0 for this verified 10-SS GT2. HP's prior NixOS
-		// forcewake-held measurement found 0x9118=0x88: six L3 banks.
-		// This is a static measured fallback, not a live fuse read or EU override.
-		if (getKernelVersion() == KernelVersion::Tahoe &&
-			getMember<UInt32>(that, 0x1120) == 2 && slices == 1 &&
-			subslices == 10 && euPerSS == 8 && totalEU == 80 && nativeL3 == 0) {
-			getMember<UInt32>(that, 0x1164) = 6;
-			SYSLOG("ngreen", "HP-GA416: native Tiger Lake %uEU / %uSS", totalEU, subslices);
-			SYSLOG("ngreen", "HP-GA416: hardware L3 fuse = 0x88 (measured on NixOS; prior static evidence, not a runtime fuse read)");
-			SYSLOG("ngreen", "HP-GA416: donor L3 = %u", nativeL3);
-			SYSLOG("ngreen", "HP-GA416: L3 override %u -> %u", nativeL3, getMember<UInt32>(that, 0x1164));
-			SYSLOG("ngreen", "HP-GA416: effective L3BankCount = %u", getMember<UInt32>(that, 0x1164));
-		}
-		SYSLOG("ngreen", "HP-R5: native TGL topology slices=%u subslices=%u maxEU/SS=%u totalEU=%u L3Banks=%u nativeL3=%u mirrors=%u/%u dispatchers=%u",
-			slices, subslices, euPerSS, totalEU, getMember<UInt32>(that, 0x1164),
-			nativeL3, getMember<UInt32>(that, 0x0dd8), getMember<UInt32>(that, 0x0ddc),
-			getMember<UInt32>(that, 0x114c));
-		return;
-	}
+	if (NGreen::callback->isRealTGL && getKernelVersion() == KernelVersion::Tahoe) {
+        // Native fuses already describe this GPU. Preserve the complete
+        // donor result (including frequency/mirrors/dispatchers), rather than
+        // running the generic RPL topology and 1000/450 MHz override below.
+        const auto slices = getMember<UInt32>(that, 0x115c);
+        const auto subslices = getMember<UInt32>(that, 0x1158);
+        const auto euPerSS = getMember<UInt32>(that, 0x116c);
+        const auto eu = getMember<UInt32>(that, 0x1124);
+        const auto nativeL3 = getMember<UInt32>(that, 0x1164);
+        const auto frequency = getMember<uint64_t>(that, 0x1150);
+        // This exact HP 80EU GT2 was measured under NixOS: L3 fuse88 ->6.
+        // It is a prior measurement, not a live fuse read. Other SKUs and
+        // nonzero native values are never replaced with a guessed bank count.
+        if (getMember<UInt32>(that, 0x1120) == 2 && slices == 1 &&
+            subslices == 10 && euPerSS == 8 && eu == 80 && nativeL3 == 0)
+            getMember<UInt32>(that, 0x1164) = 6;
+        gTopoSs = subslices;
+        gTopoL3 = getMember<UInt32>(that, 0x1164);
+        IOLog("HP-NATIVE4: native topology slices=%u subslices=%u eu/ss=%u eu=%u L3=%u->%u freq=0x%llx mirrors=%u/%u; prior fuse88 fallback only\n",
+            slices, subslices, euPerSS, eu, nativeL3, gTopoL3, frequency,
+            getMember<UInt32>(that, 0xdd8), getMember<UInt32>(that, 0xddc));
+        gTopoAcc = that;
+        if (!gTopoTc) gTopoTc = thread_call_allocate(xeTopoPublish, nullptr);
+        if (gTopoTc) thread_call_enter(gTopoTc);
+        return;
+    }
 
 	// --- GPU topology override for RPL i7-13700H (verified from Linux i915 syslog) ---
 	// Linux i915 reports: 1 slice, 6 DSS (mask=0x3f), 16 EU/DSS, 96 EU total.
@@ -6430,7 +7559,8 @@ void Gen11::getGPUInfo(void *that)
 	//   0x1150 = Frequency pair (low32=fMaxMHz, high32=fMinMHz)
 	//   0x1164 = L3BankCount
 	unsigned int numSlices        = 1;
-	unsigned int numSubSlices     = 12;  // 6 DSS × 2 = 12 traditional SS
+	xeTopoArgs();
+	unsigned int numSubSlices     = gTopoSs;  // 6 DSS × 2 = 12 traditional SS (xe/topo4: ngreen-eu / 8)
 	unsigned int maxEUPerSubSlice = 8;   // 16 EU/DSS ÷ 2 SS/DSS = 8 EU/SS
 	unsigned int totalEU          = maxEUPerSubSlice * numSubSlices; // = 96
 	
@@ -6440,13 +7570,19 @@ void Gen11::getGPUInfo(void *that)
 	getMember<UInt32>(that, 0x1124) = totalEU;
 	getMember<UInt32>(that, 0x0dd8) = numSlices;
 	getMember<UInt32>(that, 0x0ddc) = numSubSlices;
-	getMember<UInt32>(that, 0x1164) = 8;  // L3BankCount (confirmed from InsanelyMac TGL logs)
+	getMember<UInt32>(that, 0x1164) = gTopoL3;  // L3BankCount (8 confirmed from InsanelyMac TGL logs; xe/topo4: ngreen-l3)
 	
 	// Frequency: fMaxFrequencyInMhz=1000, fMinFrequencyInMhz=450 (TGL defaults)
 	getMember<uint64_t>(that, 0x1150) = 0x1C2000003E8ULL;
 	
-	SYSLOG("ngreen", "getGPUInfo: overridden topology → slices=%u subslices=%u maxEU/SS=%u totalEU=%u L3Banks=8",
-		   numSlices, numSubSlices, maxEUPerSubSlice, totalEU);
+	SYSLOG("ngreen", "getGPUInfo: overridden topology → slices=%u subslices=%u maxEU/SS=%u totalEU=%u L3Banks=%u",
+		   numSlices, numSubSlices, maxEUPerSubSlice, totalEU, gTopoL3);
+	IOLog("XeNG TOPO: subslices=%u eu/ss=%u eu=%u l3=%u%s\n", numSubSlices, maxEUPerSubSlice, totalEU, gTopoL3,
+	      (numSubSlices == 12 && gTopoL3 == 8) ? " (default)" : " (boot-arg)");
+	// published later from a thread_call, not from inside getGPUInfo
+	gTopoAcc = that;
+	if (!gTopoTc) gTopoTc = thread_call_allocate(xeTopoPublish, nullptr);
+	if (gTopoTc) thread_call_enter(gTopoTc);
 
 }
 
@@ -6877,10 +8013,6 @@ void Gen11::blit3d_initialize_scratch_space(void *that)
 // padrão 1500 = RP0 desde 20/10 noite, antes 1100; 0 desliga). Ocioso a GPU entra em RC6 de qualquer jeito, então o piso só vale com trabalho.
 void Gen11::wrapSetGTFrequencyMMIO(void *that, uint32_t val)
 {
-	if (NGreen::callback && NGreen::callback->isRealTGL) {
-		FunctionCast(wrapSetGTFrequencyMMIO, callback->oSetGTFrequencyMMIO)(that, val);
-		return;
-	}
 	static int pisoMhz = -1;
 	if (pisoMhz < 0) {
 		pisoMhz = 1500;
@@ -6904,10 +8036,6 @@ void Gen11::wrapSetGTFrequencyMMIO(void *that, uint32_t val)
 static volatile uint64_t gXeWedgedUntil = 0; static volatile uint32_t gXeIdleSkips = 0;
 void Gen11::wrapWaitForGpuIdle(void *that)
 {
-	if (NGreen::callback && NGreen::callback->isRealTGL) {
-		FunctionCast(wrapWaitForGpuIdle, callback->oWaitForGpuIdle)(that);
-		return;
-	}
 	static int off = -1;
 	if (off < 0) off = checkKernelArgument("-ngreennoidlebound") ? 1 : 0;
 	uint64_t now = mach_absolute_time();
@@ -7198,6 +8326,17 @@ unsigned long Gen11::startGraphicsEngine(void *that)
 	}
 
 	unsigned long ret = FunctionCast(startGraphicsEngine, callback->ostartGraphicsEngine)(that);
+	if (NGreen::callback->isRealTGL && getKernelVersion()==KernelVersion::Tahoe) {
+		uint64_t sample = __atomic_load_n(&hpR32Readback, __ATOMIC_RELAXED);
+		SYSLOG("ngreen", "HP-R32-READBACK: valid=%u cs=%08x scope=startup-last-writer",
+			static_cast<unsigned>(sample >> 32 == 1), static_cast<unsigned>(sample));
+		SYSLOG("ngreen", "HP-ROW5: call=%u row=0x%x->0x%x ack=0x%x MCR=0x%x->0x%x engine=%lu verified=%u",
+			hpNativeRowState[5],hpNativeRowState[1],hpNativeRowState[2],hpNativeRowState[3],
+			hpNativeRowState[0],hpNativeRowState[4],ret,
+			hpNativeRowState[5] && hpNativeRowState[2]!=0xffffffffU &&
+			(hpNativeRowState[2]&0x4000U) && (hpNativeRowState[3]&1) &&
+			hpNativeRowState[0]==hpNativeRowState[4]);
+	}
 
 	if (!NGreen::callback->isRealTGL) {
 		// Masked clear: mask=bit14, value=0 → 0x40000000
@@ -7206,6 +8345,24 @@ unsigned long Gen11::startGraphicsEngine(void *that)
 		SYSLOG("ngreen", "V163: startGraphicsEngine post-clear FF_SLICE_CS_CHICKEN1=0x%08x (ret=%lu)",
 			NGreen::callback->readReg32(GEN7_FF_SLICE_CS_CHICKEN1), ret);
 		xeLrcaRepair("post-start");
+		// xe/rowchk (25/10, #9): Wa_1606931601 + Wa_1508744258 (i915 rcs_engine_wa_init, tgl/adl-p): GEN8_ROW_CHICKEN2
+		// (0xe4f4, masked) bits 14|15 = GEN12_DISABLE_EARLY_READ | GEN12_DISABLE_READ_SUPPRESSION. Upstream NootedGreen has
+		// them in dead code after a return and Apple only sets bits 0/1/8. Without them SIMD32 kernels read one stale GRF
+		// (lanes 8-15, .x channel): non-deterministic results in kernels with private arrays, the short dashes of Core Image's
+		// Lanczos (Preview/Photos zoom). Written after Apple's start, with the render well held awake through our own
+		// FORCEWAKE_RENDER requester bit (5) so Apple's references stay untouched; without forcewake the write is lost.
+		// Readback in ioreg xe-rowchk-* (post bit 31 = forcewake acked). -ngreennorowchk turns it off.
+		if (xeFixEnabled() && !checkKernelArgument("-ngreennorowchk")) {
+			auto *cb = NGreen::callback;
+			cb->writeReg32(FORCEWAKE_RENDER_GEN9, (1u << 21) | (1u << 5));
+			for (int i = 0; i < 500 && !(cb->readReg32(FORCEWAKE_ACK_RENDER_GEN9) & (1u << 5)); i++) IODelay(100);
+			gRc2Pre = cb->readReg32(GEN8_ROW_CHICKEN2);
+			cb->writeReg32(GEN8_ROW_CHICKEN2, (0xC000u << 16) | 0xC000u);
+			gRc2Post = cb->readReg32(GEN8_ROW_CHICKEN2) | (cb->readReg32(FORCEWAKE_ACK_RENDER_GEN9) & (1u << 5) ? 0x80000000u : 0);
+			cb->writeReg32(FORCEWAKE_RENDER_GEN9, (1u << 21));
+			gRc2N++;
+			if (gTopoTc) thread_call_enter(gTopoTc);
+		}
 	}
 
 	return ret;
@@ -7664,12 +8821,7 @@ uint64_t Gen11::IGHardwareExtendedContextinitWithOptions(void *that,void *param_
 		SYSLOG("ngreen", "V502: initWithOptions ExtCtxParams=%p +0x10=0x%llx +0x18=0x%llx (0=simple,!=0=GPU-cmd)",
 			   param_2, (unsigned long long)p2f10, (unsigned long long)p2f18);
 	}
-	// HP-R3: 25G83 + the 16.0.2 TGL accelerator faults at scratch+0xd000
-	// while copying 0x44 bytes; its static Blit3D params request 0xd240 bytes.
-	// Pass a page-rounded size to the existing allocator, retaining Apple's
-	// complete scratch shader/state initialization and its normal return value.
-	// Both initWithOptions bodies consume (and do not retain) this 0x38-byte
-	// params record; use a per-call copy so concurrent contexts share no edits.
+	// HP-R3 isolated port: preserve the original guarded scratch-size adjustment.
 	uint64_t hpR3BlitParams[7];
 	const bool hpR3Align = NGreen::callback->isRealTGL &&
 		getKernelVersion() == KernelVersion::Tahoe && param_2 &&
@@ -8113,7 +9265,14 @@ unsigned long Gen11::submitBlit(void *that, void *param_1, void *param_2, void *
 		return xeBlitRet(xeK, xeRs, param_3, __LINE__, (unsigned long)(static_cast<unsigned long>(kIOReturnUnsupported)));
 	}
 
-	return xeBlitRet(xeK, xeRs, param_3, __LINE__, (unsigned long)(FunctionCast(submitBlit, callback->osubmitBlit)(that, param_1, param_2, param_3, param_4)));
+    HpTglBlitScope scope;
+    hpTglBeginBlit(scope);
+    auto result = (unsigned long)(FunctionCast(submitBlit, callback->osubmitBlit)(that, param_1, param_2, param_3, param_4));
+    if (hpTglEndBlit(scope)) {
+        IOLog("HP-RECT4: submitBlit rejected; donor result=0x%lx overridden to boolean false\n", result);
+        result = 0; // Disassembly: IntelAccelerator::submitBlit returns bool.
+    }
+	return xeBlitRet(xeK, xeRs, param_3, __LINE__, result);
 }
 
 void  Gen11::markBlitUsage(void *that)
@@ -9050,47 +10209,6 @@ void Gen11::v60GpuHealthMonitor(thread_call_param_t param0, thread_call_param_t 
 		if (emr != 0xFFFFFFFF) {
 			NGreen::callback->writeReg32(RING_EMR(RENDER_RING_BASE), 0xFFFFFFFF);
 		}
-		
-		// ── V79: Plane linearization (brief Apple logo flash) — aggressive mode only ──
-		// Boot log shows SURF=0x0 for iters 1–6; SURF becomes non-zero (tiled) at iter 7 (~14s).
-		// Old cadence (<=5, 10, 20, 30) skipped iter 7/8/9 — the first 6s window where the plane
-		// is tiled. Writing at iter 10 (~20s) is too late: the login screen is already up and the
-		// Apple logo phase has ended. Fix: fire every tick from 1–12 so we catch iter 7 immediately
-		// (first time SURF is mapped and tiling != 0) while the Apple logo may still be on screen.
-		if (v60Count <= 5 || v60Count == 10 || v60Count == 20 || v60Count == 30) {
-			uint32_t planCtl  = NGreen::callback->readReg32(0x70180); // PLANE_CTL
-			uint32_t planStrd = NGreen::callback->readReg32(0x70188); // PLANE_STRIDE
-			uint32_t tiling = (planCtl >> 10) & 0x7; // bits[12:10]
-			if (tiling != 0) {
-				uint32_t newCtl = planCtl & ~(0x7u << 10); // clear tiling -> linear
-				uint32_t newStrd = planStrd;
-				if (tiling == 1) {
-					newStrd = planStrd * 8;
-				} else if (tiling == 4) {
-					newStrd = planStrd * 16;
-				}
-				NGreen::callback->writeReg32(0x70180, newCtl);
-				NGreen::callback->writeReg32(0x70188, newStrd);
-				uint32_t planSurf = NGreen::callback->readReg32(0x7019C);
-				NGreen::callback->writeReg32(0x7019C, planSurf);
-				SYSLOG("ngreen", "V79[%d]: tiling %d->linear CTL 0x%x->0x%x STRIDE 0x%x->0x%x SURF=0x%x",
-					   v60Count, tiling, planCtl, newCtl, planStrd, newStrd, planSurf);
-			} else {
-				SYSLOG("ngreen", "V79[%d]: already linear CTL=0x%x STRIDE=0x%x", v60Count, planCtl, planStrd);
-			}
-		}
-	}*/
-
-	// 5. V60: ACTIVE error suppression (V57 proven approach)
-	//    Keep this write path strictly opt-in via -ngreenv60rw.
-	/*if (v60Aggressive) {
-		if (realErr) {
-			NGreen::callback->writeReg32(ERROR_GEN6, 0x0);
-		}
-		// Re-mask EMR every cycle — Apple may unmask during error recovery attempts
-		if (emr != 0xFFFFFFFF) {
-			NGreen::callback->writeReg32(RING_EMR(RENDER_RING_BASE), 0xFFFFFFFF);
-		}
 	}*/
 	
 	// 6. Log with ring + CSB focus
@@ -9881,7 +10999,7 @@ void Gen11::v71EmrEnforcer(thread_call_param_t param0, thread_call_param_t param
 	uint32_t err    = NGreen::callback->readReg32(ERROR_GEN6);
 	// 19/10: o pânico "spinlock timeout, owner=current_thread" parou dentro deste SYSLOG; com xefix ele não é mais emitido
 	static int v74Quiet = -1;
-	if (v74Quiet < 0) v74Quiet = checkKernelArgument("-ngreenxefix") ? 1 : 0;
+	if (v74Quiet < 0) v74Quiet = !checkKernelArgument("-ngreenv74log") ? 1 : 0;
 	if (!v74Quiet && (v71Count <= 3 || (err != 0 && v71Count <= 50) ||
 	    ((emrRcs != 0xFFFFFFFF || emrBcs != 0xFFFFFFFF) && v71Count <= 50))) {
 		SYSLOG("ngreen", "V74Ep[%d]: EMR_RCS=0x%x EMR_BCS=0x%x ERR=0x%x (V74 EMR mask removed)",
@@ -10217,6 +11335,155 @@ static const FwMediaEngine fwMediaEngines[] = {
 	{ FORCEWAKE_MEDIA_VEBOX_GEN11(0), FORCEWAKE_ACK_MEDIA_VEBOX_GEN11(0), "VEBOX0" },  // 0xa560 / 0x0D70
 };
 
+// ─── xe/rc6fw (22/10): forcewake ctx 1 balanced + released on idle ─────────────────────────────────────────
+// Apple's IntelAccelerator::SafeForceWake(bool, uint dom) (TGL 16.0.x, file offset 0x28c2a) keeps SIGNED counters per
+// domain at accel+0x1290/0x1294/0x1298 (render/media/GT) under the spin lock *(accel+0x1468), and calls
+// SafeForceWakeMultithreaded(set, changed, ctx=1) (= our forceWake) only on transitions:
+//   get: count++ , wake if the old count <= 0;    put: count-- , release only if the old count == 1.
+// That is asymmetric: one extra put leaves the count at -1; from then on every get (-1 -> 0) wakes and every put
+// (0 -> -1) does NOT release -> forcewake bit 1 stays set on RENDER/GT/VDBOX0/VEBOX0 forever and the GT never enters
+// RC6 (seen 22/10 04:25: RC6 0 %, GT 4.6-5.3 W, all engines idle, MI_MODE idle bit set). A get without a put (leak)
+// has the same visible effect. This block:
+//   (1) replaces SafeForceWake's multi-forcewake path with the same algorithm but with the count clamped at 0
+//       (an extra put is ignored and logged, so it can never turn into a sticky hold);
+//   (2) runs a 100 ms watchdog: if any count is > 0 while there has been no SafeForceWake call and no execlist
+//       submission for ngreenfwidle ms (default 500) and every engine reports idle (RING_MI_MODE bit 9), the hold is
+//       a leak: the counts are zeroed under Apple's lock and ctx 1 is released (logged with the caller of the
+//       leaked get). A later stray put is absorbed by (1). Apple itself never needs ctx 1 while the engine runs:
+//       submitExecList drops it right after writing the ELSP, and the interrupt path uses ctx 2.
+//   (3) publishes diagnostics on the IntelAccelerator service (ioreg -rc IntelAccelerator | grep xe-fw).
+// Off: -ngreennorc6fw (pure Apple path, as before). Keep (1)+(3) but never drop: -ngreenrc6fwnodrop.
+static inline uint64_t xeFwOff(uint64_t ra) {
+	// return address -> AppleIntelTGLGraphics file offset (matches `otool -tV` addresses)
+	return (gFwSymAddr && ra > gFwSymAddr - 0x28c2a) ? ra - gFwSymAddr + 0x28c2a : 0;
+}
+
+static inline IOSimpleLock *xeAppleFwLock(uint8_t *a) {
+	void *holder = *reinterpret_cast<void **>(a + 0x1468);
+	return holder ? *reinterpret_cast<IOSimpleLock **>(holder) : nullptr;
+}
+
+static void xeSafeForceWake(void *that, bool set, uint32_t dom) {
+	auto *a = static_cast<uint8_t *>(that);
+	if (gRc6FwOn != 1 || !dom || !a) {
+		FunctionCast(xeSafeForceWake, gOrgSafeForceWake)(that, set, dom);
+		return;
+	}
+	uint64_t flags = *reinterpret_cast<volatile uint64_t *>(a + 0x1190);
+	IOSimpleLock *lk = xeAppleFwLock(a);
+	if ((flags & 0x1000) || !(flags & 0x800) || !lk) {  // not the MultiForceWake path: Apple's code unchanged
+		FunctionCast(xeSafeForceWake, gOrgSafeForceWake)(that, set, dom);
+		return;
+	}
+	gFwAccel = that;
+	uint64_t caller = xeFwOff(reinterpret_cast<uint64_t>(__builtin_return_address(0)));
+	auto *cnt = reinterpret_cast<volatile int32_t *>(a + 0x1290);
+	IOSimpleLockLock(lk);
+	uint32_t changed = 0;
+	for (unsigned i = 0; i < 3; i++) {
+		uint32_t d = 1u << i;
+		if (!(dom & d)) continue;
+		int32_t c = cnt[i];
+		if (c < 0) { gFwUnderflow++; c = 0; }  // left by Apple's original code (before the route) or a reset
+		if (set) {
+			cnt[i] = c + 1;
+			if (c == 0) { changed |= d; gFwLastGetCaller[i] = caller; }
+		} else if (c == 0) {
+			gFwUnderflow++; gFwUnderflowCaller = caller;   // extra put: ignore (Apple would go to -1 = sticky hold)
+			cnt[i] = 0;
+			xeEv('FWUF', i, (uint32_t)caller, gFwUnderflow);
+		} else {
+			cnt[i] = c - 1;
+			if (c == 1) changed |= d;
+		}
+	}
+	gFwActSeq++;
+	if (changed) Gen11::xeForceWakePub(that, set, changed, 1);
+	IOSimpleLockUnlock(lk);
+}
+
+static inline bool xeEngIdle(uint32_t base) {
+	// RING_MI_MODE bit 9 = MODE_IDLE. 0 = engine fused off / powered down (also idle).
+	// never let readReg32 fall into its index/data (write) path: only read inside the mapped BAR
+	auto *cb = NGreen::callback;
+	if (base + 0xa0 > cb->mmioLength()) return false;  // outside the BAR / unmapped -> treat as busy (never drop)
+	uint32_t m = cb->readReg32(base + 0x9c);
+	return m == 0 || m == 0xffffffff || (m & 0x200);
+}
+
+static void xeFwIdleWorker(thread_call_param_t, thread_call_param_t) {
+	static uint32_t lastSeq = 0, lastSub = 0, quietMs = 0, pubTick = 0;
+	const uint32_t tick = 100;
+	void *acc = gFwAccel;
+	if (acc && NGreen::callback) {
+		auto *a = static_cast<uint8_t *>(acc);
+		auto *cnt = reinterpret_cast<volatile int32_t *>(a + 0x1290);
+		uint32_t seq = gFwActSeq, sub = gCs5SubmitN;
+		if (seq != lastSeq || sub != lastSub) { quietMs = 0; lastSeq = seq; lastSub = sub; }
+		else if (quietMs < 0x40000000) quietMs += tick;
+		// held = Apple still counts a holder, or our FWREF count for ctx 1 is set while Apple's is not (desync, e.g. after
+		// IntelAccelerator::systemDidWake zeroes Apple's counts but not ours -> the next get/put pair would leave it held)
+		bool held = false;
+		for (unsigned i = 0; i < 3; i++) if (cnt[i] > 0 || gFwRef[i][1] > 0) held = true;
+		if (gRc6FwDrop && held && quietMs >= gRc6IdleMs) {
+			// 0x1c4000 (VCS1) is fused off on this SKU; VCS2 0x1d0000 reads 0 when unused
+			bool idle = xeEngIdle(0x2000) && xeEngIdle(0x1a000) && xeEngIdle(0x22000) && xeEngIdle(0x1c0000) &&
+			            xeEngIdle(0x1c8000) && xeEngIdle(0x1d0000);
+			IOSimpleLock *lk = idle ? xeAppleFwLock(a) : nullptr;
+			if (lk) {
+				IOSimpleLockLock(lk);
+				if (gFwActSeq == seq && gCs5SubmitN == sub) {  // nobody took/released forcewake meanwhile
+					uint32_t drop = 0;
+					int32_t c0 = cnt[0], c1 = cnt[1], c2 = cnt[2];
+					for (unsigned i = 0; i < 3; i++) {
+						if (cnt[i] > 0 || gFwRef[i][1] > 0) {
+							drop |= 1u << i;
+							if (cnt[i] > 0) gFwLeakCaller = gFwLastGetCaller[i];
+							cnt[i] = 0;
+							// make forceWake's FWREF do exactly one 1->0 transition (it ignores a put at 0)
+							if (gFwLock) gFwRef[i][1] = 1;
+						}
+					}
+					if (drop) {
+						Gen11::xeForceWakePub(acc, false, drop, 1);
+						gFwLeakDrops++; gFwLeakDom |= drop;
+						xeEv('FWLK', drop, (uint32_t)gFwLeakCaller, (uint32_t)((c0 & 0xff) | ((c1 & 0xff) << 8) | ((c2 & 0xff) << 16)));
+					}
+				}
+				IOSimpleLockUnlock(lk);
+			}
+			quietMs = 0;
+		}
+		if (++pubTick >= 10) {  // 1 s: publish diagnostics (thread context, outside any lock)
+			pubTick = 0;
+			auto *svc = static_cast<IOService *>(acc);
+			svc->setProperty("xe-fw-leakdrops", gFwLeakDrops, 32);
+			svc->setProperty("xe-fw-leakdom", gFwLeakDom, 32);
+			svc->setProperty("xe-fw-leakcaller", (unsigned long long)gFwLeakCaller, 64);
+			svc->setProperty("xe-fw-underflow", gFwUnderflow, 32);
+			svc->setProperty("xe-fw-underflowcaller", (unsigned long long)gFwUnderflowCaller, 64);
+			svc->setProperty("xe-fw-count", (unsigned long long)(((uint64_t)(uint32_t)cnt[0]) | ((uint64_t)(uint16_t)cnt[1] << 32) | ((uint64_t)(uint16_t)cnt[2] << 48)), 64);
+		}
+	}
+	if (gFwIdleTc) {
+		uint64_t deadline = 0;
+		clock_interval_to_deadline(tick, kMillisecondScale, &deadline);
+		thread_call_enter_delayed(gFwIdleTc, deadline);
+	}
+}
+
+static void xeRc6FwStart(void *accel) {
+	if (gRc6FwOn != 1 || gFwIdleTc) return;
+	gFwAccel = accel;
+	gFwIdleTc = thread_call_allocate(xeFwIdleWorker, nullptr);
+	if (gFwIdleTc) {
+		uint64_t deadline = 0;
+		clock_interval_to_deadline(5000, kMillisecondScale, &deadline);  // start after the accelerator is up
+		thread_call_enter_delayed(gFwIdleTc, deadline);
+	}
+	SYSLOG("ngreen", "XE-RC6FW: watchdog %s (idle %u ms, drop %d)", gFwIdleTc ? "armed" : "FAILED", gRc6IdleMs, gRc6FwDrop);
+}
+
 void Gen11::wrapSafeForceWake(void *that, bool set, uint32_t dom) {
 	forceWake(that, set, dom, 1);  // forward to our forceWake with ctx=1 (normal, non-IRQ)
 }
@@ -10234,7 +11501,7 @@ void Gen11::forceWake(void *that, bool set, uint32_t dom, uint8_t ctx) {
 	fwCallCount++;
 	
 	static int hcQuiet = -1;  // 19/10: dezenas de SYSLOG aqui; o forcewake pode estar em interrupção
-	if (hcQuiet < 0) hcQuiet = checkKernelArgument("-ngreenxefix") ? 1 : 0;
+	if (hcQuiet < 0) hcQuiet = !checkKernelArgument("-ngreenhc") ? 1 : 0;
 	if (!hcQuiet && !hangcheckDumped && fwCallCount == 15) {
 		hangcheckDumped = true;
 		SYSLOG("ngreen", "=== HANGCHECK: GPU state dump (fwCall=%d) ===", fwCallCount);
@@ -10593,43 +11860,72 @@ void Gen11::forceWake(void *that, bool set, uint32_t dom, uint8_t ctx) {
 	static int fwRelease = -1;
 	if (fwRelease < 0) fwRelease = checkKernelArgument("-ngreenfwhold") ? 0 : 1;  // 19/10: segurar sempre quebrou o boot
 	static int fwRefArg = -1;
-	if (fwRefArg < 0) fwRefArg = (checkKernelArgument("-ngreenxefix") && !checkKernelArgument("-ngreennofwref")) ? 1 : 0;
-	static IOSimpleLock *fwLock = nullptr;
-	static uint32_t fwRef[8][4];
+	if (fwRefArg < 0) fwRefArg = !checkKernelArgument("-ngreennofwref") ? 1 : 0;
+	// xe/rc6fw (22/10): fwLock/fwRef moved to file scope (gFwLock/gFwRef) so the idle watchdog shares them
+	auto &fwLock = gFwLock;
+	auto &fwRef = gFwRef;
 	if (fwRefArg == 1 && !fwLock) {
 		IOSimpleLock *l = IOSimpleLockAlloc();
 		if (l && !__sync_bool_compare_and_swap(&fwLock, (IOSimpleLock *)nullptr, l)) IOSimpleLockFree(l);
 	}
 	if (fwRefArg == 1 && fwLock && ctx < 4) {
 		uint32_t mudar = 0;
+		auto waitAckLocked = [&](uint32_t reqReg, uint32_t ackReg) {
+			for (int u = 0; u < 5000; u++) {
+				if ((NGreen::callback->readReg32(ackReg) & mask) == ack_exp) return true;
+				IODelay(1);
+			}
+			for (unsigned pass = 1; pass <= 10; pass++) {
+				for (int u = 0; u < 500; u++) {
+					if ((NGreen::callback->readReg32(ackReg) & FORCEWAKE_KERNEL_FALLBACK) == 0) break;
+					IODelay(1);
+				}
+				NGreen::callback->writeReg32(reqReg, fw_set(FORCEWAKE_KERNEL_FALLBACK));
+				IODelay(10 * pass);
+				for (int u = 0; u < 500; u++) {
+					if (NGreen::callback->readReg32(ackReg) & FORCEWAKE_KERNEL_FALLBACK) break;
+					IODelay(1);
+				}
+				bool ok = (NGreen::callback->readReg32(ackReg) & mask) == ack_exp;
+				NGreen::callback->writeReg32(reqReg, fw_clear(FORCEWAKE_KERNEL_FALLBACK));
+				if (ok) return true;
+			}
+			for (int u = 0; u < 5000; u++) {
+				if ((NGreen::callback->readReg32(ackReg) & mask) == ack_exp) return true;
+				IODelay(1);
+			}
+			xeEv('FWTO', reqReg, dom, ack_exp);
+			return false;
+		};
 		// 19/10: o forcewake também é chamado em interrupção primária (panic "hwlock ... recursively" com o lock
 		// comum): desliga as interrupções enquanto segura o lock.
 		IOInterruptState fwIs = IOSimpleLockLockDisableInterrupt(fwLock);
 		for (unsigned d = DOM_FIRST, i = 0; d <= DOM_LAST && i < 8; d <<= 1, i++) {
 			if (!(dom & d)) continue;
 			if (set) {
-				if (fwRef[i][ctx]++ == 0) mudar |= d;
+				bool needHw = (fwRef[i][ctx]++ == 0);
+				if (!needHw && d != DOM_MEDIA) {
+					needHw = ((NGreen::callback->readReg32(fwAckReg(d)) & mask) != ack_exp);
+				}
+				if (needHw) mudar |= d;
 			} else if (fwRef[i][ctx] > 0) {
-				// xe/fwhold (19/10): ao zerar, NÃO solta (o motor ficava em RC6 e a execlist escrita logo depois do
-				// fim do CSB se perdia). Mantém o forcewake ligado; -ngreenfwrelease volta a soltar.
 				if (--fwRef[i][ctx] == 0 && fwRelease) mudar |= d;
 			}
 		}
-		// a requisição é escrita ainda dentro do lock (a ordem das escritas segue a dos contadores); só o ACK é esperado fora
 		for (unsigned d = DOM_FIRST; d <= DOM_LAST; d <<= 1) {
 			if (!(mudar & d)) continue;
-			// 19/10: escrita direta no MMIO dentro da trava. wrapWriteRegister32 pode chamar o forcewake de novo
-			// (recursão -> panic "spinlock acquisition timeout, owner: current_thread").
 			if (d == DOM_MEDIA) {
-				for (const auto &eng : fwMediaEngines) NGreen::callback->writeReg32(eng.req, wr);
+				for (const auto &eng : fwMediaEngines) {
+					NGreen::callback->writeReg32(eng.req, wr);
+					if (set) waitAckLocked(eng.req, eng.ack);
+				}
 			} else {
 				NGreen::callback->writeReg32(fwReqReg(d), wr);
+				if (set) waitAckLocked(fwReqReg(d), fwAckReg(d));
 			}
 		}
 		IOSimpleLockUnlockEnableInterrupt(fwLock, fwIs);
-		dom = mudar;
-		if (!dom) return;
-		fwJaEscrito = true;
+		return;
 	}
 
 	for (unsigned d = DOM_FIRST; d <= DOM_LAST; d <<= 1) {
@@ -11545,9 +12841,16 @@ void Gen11::IGScheduler5resume(void *that) {
 bool Gen11::wrapIGScheduler5IsGpuIdle(const void *that) {
 	bool idle = FunctionCast(wrapIGScheduler5IsGpuIdle, callback->oIGScheduler5IsGpuIdle)(that);
 	if (!idle) {
+		uint32_t busyMask = that ? *reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(that) + 0xcd0) : 0xffffffffu;
+		uint32_t ex = NGreen::callback ? NGreen::callback->readReg32(0x2234) : 0xffffffffu;
+		uint32_t ringHead = NGreen::callback ? (NGreen::callback->readReg32(0x2034) & 0x001ffffcu) : 0xffffffffu;
+		uint32_t ringTail = NGreen::callback ? (NGreen::callback->readReg32(0x2030) & 0x000ffff8u) : 0xffffffffu;
 		uint32_t instdone = NGreen::callback->readReg32(RING_INSTDONE(RENDER_RING_BASE));
-		if ((instdone & ~1U) == 0xfffffffe) {
-			SYSLOG("ngreen", "V212[5]: isGpuIdle override INSTDONE=0x%08x → idle", instdone);
+		if (busyMask == 0 && ((ex & 0x4007c000u) == 0) && (ringHead == ringTail) && (instdone & ~1U) == 0xfffffffe) {
+			static uint32_t n = 0;
+			if (++n <= 8 || (n & 0xfffu) == 0) {
+				SYSLOG("ngreen", "V212[5]: isGpuIdle override #%u INSTDONE=0x%08x ex=0x%08x → idle", n, instdone, ex);
+			}
 			return true;
 		}
 	}
@@ -11761,3 +13064,339 @@ void Gen11::endReset(void *that)
 //undefined8 __thiscall IntelAccelerator::stopGraphicsEngine(IntelAccelerator *this)
 //void __thiscall IGAccelSegmentResourceList::initBlitUsage(IGAccelSegmentResourceList *this)
 //ulong IntelAccelerator::submitBlit (blit3d_params_t *param_1,IGVector *param_2,IGAccelTask *param_3,bool param_4)
+
+// ─── xe/gpurec (22/10): recover the render reset domain sibling (RCS <-> CCS) after a GPU restart ───────────────
+// AppleIntelTGLGraphics 16.0.x, IGHardwareRingBuffer::resetGraphicsEngine (file 0x43576), host scheduler path:
+//   save ring->0x78 list (MMIO) -> GAMTARBMODE 0x4a08 |= bit2 -> GDRST 0x941c = ring->0x70 -> poll -> 0x4a08 &= ~bit2
+//   -> restore ring->0x78 list (value = accel->getDefaultResetValue(reg) ?: saved, masked regs | 0xffff0000)
+//   -> IGScheduler5::processGPUReset(ring->0x40 = IGHwCsType, ctx) for THAT engine only.
+// RCS (type 0, IGHardwareRingBufferMain::init 0x84d10) and CCS (type 1, IGHardwareRingBufferCompute::init 0x4e35a)
+// both use GDRST mask 0x2 (GEN11_GRDOM_RENDER, the shared render reset domain), but each restores only its own list
+// (_rcsResetRegisters / _ccsResetRegisters) and replays only its own engine. A reset of one therefore leaves the other
+// with HWS_PGA=0, GFX_MODE=0, FORCE_TO_NONPRIV at defaults, its in-flight context dropped by the hardware and the
+// scheduler still waiting for its CSB events: every gpuRestart report after the first CCS reset shows exactly that
+// (RCS GFX_MODE 0x8000->0, HWS_PGA 0x40004000->0, NONPRIV 0xe100->0xe000, EXECLIST_STATUS 0x1), its stamps never return,
+// restarts of its channels are "Skipped / no channel associated", WindowServer blocks and watchdogd panics.
+// Fix (what i915 does for engines that share a reset domain): around the original, snapshot the sibling's list; after
+// a real GDRST, restore it (same value rule as Apple, last known-good snapshot if the live one is already broken) and
+// run IGScheduler5::processGPUReset for the sibling (CSB head reset, in-flight stamps retired, execlist resubmitted).
+// Off: -ngreennogpurec. Diagnostics: ioreg -rc IntelAccelerator | grep xe-rec.
+static mach_vm_address_t gOrgRge = 0, gRecSfw = 0, gRecGetDef = 0, gRecS5Proc = 0, gRecList[2] = {0, 0};
+static int gRecOn = 0;
+static uint32_t gRecGood[2][64];
+static bool gRecGoodOk[2] = {false, false};
+static volatile uint32_t gRecResets = 0, gRecSibRestores = 0, gRecSibReplays = 0, gRecOwnFix = 0, gRecSkipKick = 0, gRecLast = 0;
+
+static inline uint32_t xeRecRd(volatile uint8_t *mmio, uint32_t r) { return *reinterpret_cast<volatile uint32_t *>(mmio + r); }
+static inline void xeRecWr(volatile uint8_t *mmio, uint32_t r, uint32_t v) { *reinterpret_cast<volatile uint32_t *>(mmio + r) = v; }
+// IGVector<resetRegisterInfo>: {u64 count; u64 capacity; resetRegisterInfo *data}, entry 0x24 B: u32 reg, u32 val, u8 masked, name@0xa
+static inline bool xeRecList(int i, uint64_t &n, uint8_t *&d) {
+	auto *v = reinterpret_cast<uint8_t *>(gRecList[i]);
+	if (!v) return false;
+	n = *reinterpret_cast<uint64_t *>(v);
+	d = *reinterpret_cast<uint8_t **>(v + 0x10);
+	return d && n > 0 && n <= 64 && *reinterpret_cast<uint32_t *>(d) == (i == 0 ? 0x2080u : 0x1a080u);  // entry 0 = HWS_PGA
+}
+static inline uint32_t xeRecReg(uint8_t *d, uint64_t i) { return *reinterpret_cast<uint32_t *>(d + i * 0x24); }
+static inline bool xeRecMasked(uint8_t *d, uint64_t i) { return d[i * 0x24 + 8] != 0; }
+
+static void xeRecWriteList(void *acc, volatile uint8_t *mmio, uint8_t *d, uint64_t n, const uint32_t *src) {
+	auto getDef = reinterpret_cast<uint32_t (*)(void *, uint32_t)>(gRecGetDef);
+	for (uint64_t i = 0; i < n; i++) {
+		uint32_t reg = xeRecReg(d, i), v = getDef(acc, reg);
+		if (!v) v = src[i];
+		if (xeRecMasked(d, i)) v |= 0xffff0000u;
+		xeRecWr(mmio, reg, v);
+	}
+	(void)xeRecRd(mmio, xeRecReg(d, 0));  // posting read
+}
+
+// ─── xe/gpurec2 (23/10): registers of the render reset domain that are in NEITHER Apple reset list ──────────────
+// IntelAccelerator::initModeRegisters (file 0x28e1a, called only from startGraphicsEngine 0x2513e, i.e. boot/wake) writes
+//   RCU_MODE 0x14800 = masked bit0 <- (accel->0x1190 >> 33) & 1   ("Multi-Context (Compute Command Streamer) Enabled")
+//   0xce90 |= 0x10001 (conditional), CCS FORCE_TO_NONPRIV0 0x1a4d0 = 0xb134
+// GDRST bit1 (GEN11_GRDOM_RENDER) resets them, and neither _rcsResetRegisters (32) nor _ccsResetRegisters (4: HWS_PGA,
+// INSTPM, MI_MODE, GFX_MODE) contains them. After ANY render-domain reset (RCS by Apple, CCS by Apple, or our sibling
+// path) the CCS is left disabled: ELSP writes produce no CSB event, IGHardwareCommandStreamer5 never flips its port, so
+// getActiveContexts() is empty -> IGAccelEventMachine::eventTimeout returns NULL -> IOAF "no channel associated with
+// stamp_idx 24..31" forever; or, when the CCS itself is restarted, the post-reset stamp test times out every time.
+// Fix: snapshot them before the reset, and re-apply them right after GDRST, BEFORE any replay touches ELSP (the own
+// engine's replay runs inside Apple's resetGraphicsEngine, so it is done from an IGScheduler5::processGPUReset wrapper).
+// CCS RING_IMR 0x1a0a8 / RING_HWSTAM 0x1a098 are engine registers also missing from the CCS list (RCS list has
+// CONTROL_IMR 0x20a8); they are restored to their pre-reset values only if the reset changed them.
+static const uint32_t kXeRecEx[5] = {0x14800, 0xce90, 0x1a4d0, 0x1a0a8, 0x1a098};
+static const bool kXeRecExMasked[5] = {true, true, false, false, false};
+static uint32_t gRecExSnap[5], gRecExGood[5];
+static bool gRecExSnapOk = false, gRecExGoodOk = false;
+static mach_vm_address_t gOrgS5Proc = 0;
+static int gRecExOn = 0;
+static void *volatile gRecPendAcc = nullptr;
+static volatile uint8_t *volatile gRecPendMmio = nullptr;
+static volatile uint32_t gRecExFix = 0, gRecExLastRcu = 0xffffffffu;
+
+static inline uint32_t xeRecCcsOn(void *acc) {
+	return (uint32_t)((*reinterpret_cast<uint64_t *>(static_cast<uint8_t *>(acc) + 0x1190) >> 33) & 1);
+}
+static void xeRecExSnapshot(void *acc, volatile uint8_t *mmio) {
+	uint32_t v[5];
+	for (int i = 0; i < 5; i++) v[i] = xeRecRd(mmio, kXeRecEx[i]);
+	// only trust a snapshot taken while the domain was healthy (RCU_MODE matches what startGraphicsEngine programmed)
+	gRecExSnapOk = (v[0] & 1) == xeRecCcsOn(acc);
+	if (gRecExSnapOk) {
+		for (int i = 0; i < 5; i++) gRecExSnap[i] = gRecExGood[i] = v[i];
+		gRecExGoodOk = true;
+	}
+}
+// Idempotent: writes only registers whose live value differs from the healthy one. Returns a bitmask of what it wrote.
+static uint32_t xeRecExFix(void *acc, volatile uint8_t *mmio) {
+	if (gRecExOn != 1 || !acc || !mmio) return 0;
+	uint32_t did = 0, on = xeRecCcsOn(acc), rcu = xeRecRd(mmio, kXeRecEx[0]);
+	gRecExLastRcu = rcu;
+	if ((rcu & 1) != on) { xeRecWr(mmio, kXeRecEx[0], 0x10000u | on); did |= 1; }   // exactly Apple's initModeRegisters write
+	const uint32_t *src = gRecExSnapOk ? gRecExSnap : (gRecExGoodOk ? gRecExGood : nullptr);
+	if (src) for (int i = 1; i < 5; i++) {
+		if (i == 2 && !on) continue;                       // CCS whitelist only matters with CCS enabled
+		uint32_t cur = xeRecRd(mmio, kXeRecEx[i]);
+		if (kXeRecExMasked[i] ? ((cur & 0xffff) == (src[i] & 0xffff)) : (cur == src[i])) continue;
+		xeRecWr(mmio, kXeRecEx[i], kXeRecExMasked[i] ? (0xffff0000u | (src[i] & 0xffff)) : src[i]);
+		did |= 1u << i;
+	}
+	if (did) { (void)xeRecRd(mmio, kXeRecEx[0]); gRecExFix++; }
+	return did;
+}
+// IGScheduler5::processGPUReset is called by resetGraphicsEngine right after GDRST + list restore (file 0x43842) and by
+// our sibling replay. Re-enable the CCS before Apple resubmits to ELSP.
+static void xeRecProc(void *sched, uint32_t type, void *ctx) {
+	auto orig = FunctionCast(xeRecProc, gOrgS5Proc);
+	if (gRecPendAcc && gRecPendMmio) xeRecExFix(gRecPendAcc, gRecPendMmio);
+	orig(sched, type, ctx);
+}
+
+static bool xeRecResetGraphicsEngine(void *ring, void *ctx) {
+	auto orig = FunctionCast(xeRecResetGraphicsEngine, gOrgRge);
+	auto *r = static_cast<uint8_t *>(ring);
+	if (gRecOn != 1 || !r) return orig(ring, ctx);
+	auto *acc = *reinterpret_cast<uint8_t **>(r + 0x10);
+	auto *mmio = *reinterpret_cast<volatile uint8_t **>(r + 0x50);
+	uint32_t mask = *reinterpret_cast<uint32_t *>(r + 0x70);
+	mach_vm_address_t ownList = *reinterpret_cast<mach_vm_address_t *>(r + 0x78);
+	uint8_t type = r[0x40];
+	int own = ownList == gRecList[0] ? 0 : ownList == gRecList[1] ? 1 : -1;
+	if (!acc || !mmio || !(mask & 2) || own < 0 || type != (uint8_t)own) return orig(ring, ctx);
+	int sib = 1 - own;
+	uint64_t sn = 0, on = 0; uint8_t *sd = nullptr, *od = nullptr;
+	if (!xeRecList(sib, sn, sd) || !xeRecList(own, on, od)) return orig(ring, ctx);
+
+	auto sfw = reinterpret_cast<void (*)(void *, bool, uint32_t)>(gRecSfw);
+	sfw(acc, true, 7);  // hold render/media/GT across the whole reset (Apple takes and drops its own inside)
+	uint32_t snap[64], osnap[64];
+	for (uint64_t i = 0; i < sn; i++) snap[i] = xeRecRd(mmio, xeRecReg(sd, i));
+	for (uint64_t i = 0; i < on; i++) osnap[i] = xeRecRd(mmio, xeRecReg(od, i));
+	if (snap[0]) { for (uint64_t i = 0; i < sn; i++) gRecGood[sib][i] = snap[i]; gRecGoodOk[sib] = true; }
+	if (osnap[0]) { for (uint64_t i = 0; i < on; i++) gRecGood[own][i] = osnap[i]; gRecGoodOk[own] = true; }
+	// resetGraphicsEngine's "ring wait" path (engine flags 0x4/0x8 at ring->0x8b8[type]+0xa4) only kicks RING_CTL and may
+	// not reach GDRST; then only act if the sibling visibly lost its state.
+	auto *eng = *reinterpret_cast<uint8_t **>(r + 0x8b8 + (uint64_t)type * 8);
+	bool kick = eng && (*reinterpret_cast<uint32_t *>(eng + 0xa4) & 0xc);
+
+	xeRecExSnapshot(acc, mmio);
+	gRecPendAcc = acc; gRecPendMmio = mmio;     // xeRecProc() re-applies the extras between GDRST and Apple's replay
+	bool ret = orig(ring, ctx);
+	gRecPendAcc = nullptr; gRecPendMmio = nullptr;
+	uint32_t exDid = xeRecExFix(acc, mmio);   // no-op if xeRecProc already did it
+
+	uint32_t sibHws = xeRecRd(mmio, xeRecReg(sd, 0));
+	bool lost = snap[0] ? (sibHws == 0) : true;
+	bool gdrst = !kick || (snap[0] && sibHws == 0);
+	gRecResets++;
+	uint32_t did = 0;
+	if (ret && gdrst && lost) {
+		const uint32_t *src = snap[0] ? snap : (gRecGoodOk[sib] ? gRecGood[sib] : snap);
+		xeRecWriteList(acc, mmio, sd, sn, src);
+		gRecSibRestores++; did |= 1;
+		// own engine: Apple restored from what it saved; if that was already broken (HWS_PGA 0), use the known-good copy
+		if (xeRecRd(mmio, xeRecReg(od, 0)) == 0 && gRecGoodOk[own]) {
+			xeRecWriteList(acc, mmio, od, on, gRecGood[own]);
+			gRecOwnFix++; did |= 2;
+		}
+		// replay the sibling: IGScheduler5::processGPUReset(type, ctx) -> IGHardwareCommandStreamer5::processGPUReset
+		auto *sched = *reinterpret_cast<uint8_t **>(acc + 0x1250);
+		auto *vt = sched ? *reinterpret_cast<mach_vm_address_t **>(sched) : nullptr;
+		auto *cs = sched ? *reinterpret_cast<uint8_t **>(sched + 0xca0 + (uint64_t)sib * 8) : nullptr;
+		auto *desc = cs ? *reinterpret_cast<uint8_t **>(cs + 0x28) : nullptr;
+		if (vt && vt[0x190 / 8] == gRecS5Proc && desc && desc[0] == (uint8_t)sib) {
+			reinterpret_cast<void (*)(void *, uint32_t, void *)>(gRecS5Proc)(sched, (uint32_t)sib, nullptr);
+			gRecSibReplays++; did |= 4;
+		}
+	} else if (kick && !gdrst) {
+		gRecSkipKick++;
+	}
+	if (exDid) did |= 8;
+	sfw(acc, false, 7);
+	gRecLast = (uint32_t)own | ((uint32_t)ret << 4) | ((uint32_t)kick << 5) | (did << 8) | ((snap[0] >> 12) << 12);
+	xeEv('GREC', gRecLast, snap[0], sibHws);
+	if (gRecResets <= 32)
+		IOLog("XeNG GPUREC: reset %s ret=%d kick=%d sibHWS %x->%x restore=%d ownfix=%d replay=%d (n=%u)\n", own ? "CCS" : "RCS",
+		      ret, kick, snap[0], sibHws, !!(did & 1), !!(did & 2), !!(did & 4), gRecResets);
+	auto *svc = reinterpret_cast<IOService *>(acc);
+	svc->setProperty("xe-rec-resets", gRecResets, 32);
+	svc->setProperty("xe-rec-sibrestores", gRecSibRestores, 32);
+	svc->setProperty("xe-rec-sibreplays", gRecSibReplays, 32);
+	svc->setProperty("xe-rec-ownfix", gRecOwnFix, 32);
+	svc->setProperty("xe-rec-last", gRecLast, 32);
+	svc->setProperty("xe-rec-exfix", gRecExFix, 32);
+	svc->setProperty("xe-rec-rcu", gRecExLastRcu, 32);    // RCU_MODE seen right after the last reset (bit0 0 = CCS was off)
+	return ret;
+}
+
+// Route installer (called from processKext). All addresses are runtime; every assumption is checked by bytes first.
+static void xeGpuRecInstall(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
+	if (checkKernelArgument("-ngreennogpurec")) { SYSLOG("ngreen", "XE-GPUREC: off (-ngreennogpurec)"); return; }
+	mach_vm_address_t rge = patcher.solveSymbol(index, "__ZN20IGHardwareRingBuffer19resetGraphicsEngineEP17IGHardwareContext", address, size);
+	patcher.clearError();
+	gRecSfw = patcher.solveSymbol(index, "__ZN16IntelAccelerator13SafeForceWakeEbj", address, size); patcher.clearError();
+	gRecGetDef = patcher.solveSymbol(index, "__ZN16IntelAccelerator20getDefaultResetValueEj", address, size); patcher.clearError();
+	gRecS5Proc = patcher.solveSymbol(index, "__ZN12IGScheduler515processGPUResetE10IGHwCsTypeP17IGHardwareContext", address, size); patcher.clearError();
+	mach_vm_address_t cs5Proc = patcher.solveSymbol(index, "__ZN26IGHardwareCommandStreamer515processGPUResetEv", address, size); patcher.clearError();
+	gRecList[0] = patcher.solveSymbol(index, "_rcsResetRegisters", address, size); patcher.clearError();
+	gRecList[1] = patcher.solveSymbol(index, "_ccsResetRegisters", address, size); patcher.clearError();
+	auto has = [](mach_vm_address_t f, size_t len, const uint8_t *p, size_t n) {
+		if (!f) return false;
+		auto *b = reinterpret_cast<const uint8_t *>(f);
+		for (size_t i = 0x10; i + n <= len; i++) if (!memcmp(b + i, p, n)) return true;  // skip the entry (route jump)
+		return false;
+	};
+	// movl $0x40004,0x4a08(%rax); movl 0x70(%r12),%ecx; movl %ecx,0x941c(%rax)
+	static const uint8_t sGdrst[] = {0xc7, 0x80, 0x08, 0x4a, 0x00, 0x00, 0x04, 0x00, 0x04, 0x00, 0x41, 0x8b, 0x4c, 0x24, 0x70, 0x89, 0x88, 0x1c, 0x94, 0x00, 0x00};
+	// movzbl 0x40(%r12),%esi; movq (%rdi),%rax; movq -0x30(%rbp),%rdx; callq *0x190(%rax)   (sched->processGPUReset(type, ctx))
+	static const uint8_t sProc[] = {0x41, 0x0f, 0xb6, 0x74, 0x24, 0x40, 0x48, 0x8b, 0x07, 0x48, 0x8b, 0x55, 0xd0, 0xff, 0x90, 0x90, 0x01, 0x00, 0x00};
+	// movzbl 0x40(%r12),%eax; movq 0x8b8(%r12,%rax,8),%rax; movl 0xa4(%rax),%ecx
+	static const uint8_t sFlags[] = {0x41, 0x0f, 0xb6, 0x44, 0x24, 0x40, 0x49, 0x8b, 0x84, 0xc4, 0xb8, 0x08, 0x00, 0x00, 0x8b, 0x88, 0xa4, 0x00, 0x00, 0x00};
+	// IGScheduler5::processGPUReset: movl %esi,%eax; movq 0xca0(%rdi,%rax,8),%rdi
+	static const uint8_t sS5[] = {0x89, 0xf0, 0x48, 0x8b, 0xbc, 0xc7, 0xa0, 0x0c, 0x00, 0x00};
+	// IGHardwareCommandStreamer5::processGPUReset: movl $7,%eax; movl %eax,0x1c04(%rdi)
+	static const uint8_t sCs5[] = {0xb8, 0x07, 0x00, 0x00, 0x00, 0x89, 0x87, 0x04, 0x1c, 0x00, 0x00};
+	bool sig1 = has(rge, 0x320, sGdrst, sizeof(sGdrst)), sig2 = has(rge, 0x320, sProc, sizeof(sProc)),
+	     sig3 = has(rge, 0x320, sFlags, sizeof(sFlags));
+	bool sig4 = false;
+	if (gRecS5Proc) sig4 = !memcmp(reinterpret_cast<const uint8_t *>(gRecS5Proc) + 4, sS5, sizeof(sS5));
+	bool sig5 = has(cs5Proc, 0x40, sCs5, sizeof(sCs5)) || (cs5Proc && !memcmp(reinterpret_cast<const uint8_t *>(cs5Proc) + 0xe, sCs5, sizeof(sCs5)));
+	uint64_t n0 = 0, n1 = 0; uint8_t *d0 = nullptr, *d1 = nullptr;
+	// the lists are filled by the static constructors of the TGL kext, which ran before processKext; check them now
+	bool l0 = xeRecList(0, n0, d0), l1 = xeRecList(1, n1, d1);
+	bool ok = rge && gRecSfw && gRecGetDef && gRecS5Proc && sig1 && sig2 && sig3 && sig4 && sig5;
+	// IntelAccelerator::initModeRegisters @0x28e7e: movl $0xfffefffe,%ecx; andl 0x14800(%rax),%ecx; movq 0x1190(%rdi),%rdx;
+	// shrq $0x21,%rdx; andl $1,%edx; leal 0x10000(%rcx,%rdx),%ecx; movl %ecx,0x14800(%rax)
+	static const uint8_t sRcu[] = {0xb9, 0xfe, 0xff, 0xfe, 0xff, 0x23, 0x88, 0x00, 0x48, 0x01, 0x00, 0x48, 0x8b, 0x97, 0x90, 0x11, 0x00, 0x00,
+	                               0x48, 0xc1, 0xea, 0x21, 0x83, 0xe2, 0x01, 0x8d, 0x8c, 0x11, 0x00, 0x00, 0x01, 0x00, 0x89, 0x88, 0x00, 0x48, 0x01, 0x00};
+	// ... movl $0xb134,0x1a4d0(%rax)
+	static const uint8_t sNp[] = {0xc7, 0x80, 0xd0, 0xa4, 0x01, 0x00, 0x34, 0xb1, 0x00, 0x00};
+	mach_vm_address_t imr = patcher.solveSymbol(index, "__ZN16IntelAccelerator17initModeRegistersEv", address, size); patcher.clearError();
+	bool sig6 = has(imr, 0x120, sRcu, sizeof(sRcu)) && has(imr, 0x120, sNp, sizeof(sNp));
+	if (ok) {
+		RouteRequestPlus rec[] = {
+			{"__ZN20IGHardwareRingBuffer19resetGraphicsEngineEP17IGHardwareContext", xeRecResetGraphicsEngine, gOrgRge},
+		};
+		if (RouteRequestPlus::routeAll(patcher, index, rec, address, size)) gRecOn = 1;
+		else patcher.clearError();
+		// second route only if the first one is in and initModeRegisters matches; off with -ngreennogpurecex
+		if (gRecOn == 1 && sig6 && !checkKernelArgument("-ngreennogpurecex")) {
+			RouteRequestPlus rec2[] = {
+				{"__ZN12IGScheduler515processGPUResetE10IGHwCsTypeP17IGHardwareContext", xeRecProc, gOrgS5Proc},
+			};
+			if (RouteRequestPlus::routeAll(patcher, index, rec2, address, size) && gOrgS5Proc) gRecExOn = 1;
+			else patcher.clearError();
+		}
+	}
+	SYSLOG("ngreen", "XE-GPUREC: sym rge=%d sfw=%d def=%d s5=%d cs5=%d lists=%d/%d(n=%llu/%llu) sig=%d%d%d%d%d%d route=%d ex=%d",
+	       rge != 0, gRecSfw != 0, gRecGetDef != 0, gRecS5Proc != 0, cs5Proc != 0, l0, l1, n0, n1, sig1, sig2, sig3, sig4, sig5, sig6, gRecOn, gRecExOn);
+}
+
+// ─── xe/blitfix (23/10): IOSurface copies whose linear row pitch is not a multiple of 64 bytes ────────────────────────
+// A Metal texture over an IOSurface is never used in place: IGAccelResource pageon/pageoff copy between the IOSurface
+// pages (linear) and the Y-tiled device cache with IntelAccelerator::submitBlit (16.0.32, file 0x2bc8e). Routing there:
+//   blit2d_supported (0x300f4 -> blit2d_common_supported 0x3011e) accepts linear pitch % 4 == 0 && <= 0x7ffe;
+//   blit2d_fast_supported (0x302e6) needs pitch & 0x3f == 0 when src/dst tiling differ (mask 0x3f at 0x30370);
+//   if blit3d_supported && !fast, the block at 0x2c228 sends the copy to Blit3D (0x2bd28) when
+//   area*bpp >= 0x20001 (0x51001 for bpp 16), otherwise to blt2d_source_copy (XY_SRC_COPY_BLT, BCS).
+// Blit3D produces nothing here, so an IOSurface with bytesPerRow 656 (R8 642 px) reads as zeros / loses GPU writes once
+// it is larger than 128 KB, while the same surface below 128 KB is correct (XY_SRC_COPY_BLT takes 16-byte pitch).
+// BLITALIGN v2 already rewrote 0x2c228 to divert ((src|dst base) & 0x3f) != 0. This replaces that block with a call to
+// xeBlitFixRoute(params, pixelArea, accel), which keeps the original thresholds and the v2 rule and adds
+// ((srcPitch|dstPitch) & 0x3f) != 0 -> 2D. Copies with 64-aligned base and pitch still go to Blit3D exactly as before.
+// Counters (ioreg -rc IntelAccelerator | grep xe-blitfix) are published from a thread_call, never from submitBlit.
+static volatile uint32_t gBfPitch = 0, gBfBase = 0, gBf3D = 0, gBfLast = 0;
+static void *volatile gBfAcc = nullptr;
+static thread_call_t volatile gBfTc = nullptr;
+
+static void xeBlitFixPublish(thread_call_param_t, thread_call_param_t) {
+	auto *svc = OSDynamicCast(IOService, reinterpret_cast<OSObject *>(gBfAcc));
+	if (!svc) return;
+	svc->setProperty("xe-blitfix-pitch", gBfPitch, 32);   // large copies sent to XY_SRC_COPY because of the pitch (new)
+	svc->setProperty("xe-blitfix-base", gBfBase, 32);     // same, because of the base address (BLITALIGN v2 rule)
+	svc->setProperty("xe-blitfix-3d", gBf3D, 32);         // large non-fast copies still left on Blit3D (64-aligned)
+	svc->setProperty("xe-blitfix-last", gBfLast, 32);     // last pitch diversion: srcPitch<<16 | dstPitch (low 16 bits)
+}
+
+static void xeBlitFixNote(void *acc) {
+	gBfAcc = acc;   // gBfTc is allocated once in xeBlitFixInstall (no allocation inside submitBlit)
+	if (gBfTc) thread_call_enter(gBfTc);   // coalesces if already pending
+}
+
+// Called from the patched block (rdi = blit3d_params_t*, rsi = sum of rect w*h, rdx = IntelAccelerator*).
+// true -> blt2d_source_copy, false -> Blit3D. Must stay cheap: runs for every large non-fast copy.
+static bool xeBlitFixRoute(const uint8_t *p, uint64_t px, void *acc) {
+	const uint32_t bpp = p[0xa0];
+	const uint64_t bytes = px * bpp;
+	if (bytes < (bpp == 16 ? 0x51001ULL : 0x20001ULL)) return true;     // original 0x2c228..0x2c25f
+	const uint32_t sb = *reinterpret_cast<const uint32_t *>(p) + *reinterpret_cast<const uint32_t *>(p + 0x2c);
+	const uint32_t db = *reinterpret_cast<const uint32_t *>(p + 0x48) + *reinterpret_cast<const uint32_t *>(p + 0x74);
+	if ((sb | db) & 0x3f) {                                               // BLITALIGN v2
+		uint32_t n = OSIncrementAtomic(&gBfBase) + 1;
+		if (!(n & (n - 1))) xeBlitFixNote(acc);
+		return true;
+	}
+	const uint32_t sp = *reinterpret_cast<const uint32_t *>(p + 0x8), dp = *reinterpret_cast<const uint32_t *>(p + 0x50);
+	if ((sp | dp) & 0x3f) {                                               // new: pitch not 64-aligned
+		uint32_t n = OSIncrementAtomic(&gBfPitch) + 1;
+		gBfLast = (sp << 16) | (dp & 0xffff);
+		if (n <= 8) IOLog("XeNG BLITFIX #%u: pitch %u->%u tiling %u->%u bpp %u bytes %llu -> XY_SRC_COPY\n",
+		                  n, sp, dp, p[0xc], p[0x54], bpp, bytes);
+		if (!(n & (n - 1))) xeBlitFixNote(acc);   // 1, 2, 4, 8, ... : rare
+		return true;
+	}
+	uint32_t n = OSIncrementAtomic(&gBf3D) + 1;
+	if (!(n & (n - 1))) xeBlitFixNote(acc);
+	return false;
+}
+
+// v2 = BLITALIGN v2's 60-byte block at submitBlit+0x59a (0x2c228), as it is in memory after BLITALIGN applied it.
+// New block (same 60 bytes; branch targets are relative to the block start, identical to the ones v2 encodes):
+//   +0  4c 89 f7            mov  rdi, r14            ; blit3d_params_t*
+//   +3  48 89 d6            mov  rsi, rdx            ; sum of w*h
+//   +6  48 8b 55 c0         mov  rdx, [rbp-0x40]     ; IntelAccelerator* (stored at 0x2bd06)
+//   +10 48 b8 <imm64>       movabs rax, xeBlitFixRoute
+//   +20 ff d0               call rax                 ; stack is 16-aligned here (6 pushes + sub 0x38)
+//   +22 84 c0               test al, al
+//   +24 0f 84 e2 fa ff ff   je   Blit3D (0x2bd28)     ; same target as v2's je
+//   +30 be 01 00 00 00      mov  esi, 1               ; != 2 -> blt2d_source_copy (as the original 0x2c245)
+//   +35 eb d4               jmp  0x2c221 (jmp 0x2bf0c) ; same target as v2's "eb be"
+//   +37 cc x 23
+// Only caller-saved registers are clobbered; all of them are dead at both targets.
+static bool xeBlitFixInstall(KernelPatcher &patcher, KernelPatcher::KextInfo *kext, mach_vm_address_t address, size_t size, const uint8_t *v2, size_t v2Size) {
+	if (!gBfTc) gBfTc = thread_call_allocate(xeBlitFixPublish, nullptr);
+	static uint8_t blk[60];
+	if (v2Size != sizeof(blk)) return false;
+	// v2 must still be the BLITALIGN v2 block with its two branches where this code expects them
+	static const uint8_t v2je[] = {0x0f, 0x84, 0xc7, 0xfa, 0xff, 0xff, 0xeb, 0xbe};
+	if (memcmp(v2 + 51, v2je, sizeof(v2je)) != 0) return false;
+	static const uint8_t head[] = {0x4c, 0x89, 0xf7, 0x48, 0x89, 0xd6, 0x48, 0x8b, 0x55, 0xc0, 0x48, 0xb8};
+	static const uint8_t tail[] = {0xff, 0xd0, 0x84, 0xc0, 0x0f, 0x84, 0xe2, 0xfa, 0xff, 0xff, 0xbe, 0x01, 0x00, 0x00, 0x00, 0xeb, 0xd4};
+	memset(blk, 0xcc, sizeof(blk));
+	memcpy(blk, head, sizeof(head));
+	uint64_t fn = reinterpret_cast<uint64_t>(&xeBlitFixRoute);
+	memcpy(blk + 12, &fn, sizeof(fn));
+	memcpy(blk + 20, tail, sizeof(tail));
+	LookupPatchPlus const p[] = {{kext, v2, blk, sizeof(blk), 1}};
+	return LookupPatchPlus::applyAll(patcher, p, address, size);
+}

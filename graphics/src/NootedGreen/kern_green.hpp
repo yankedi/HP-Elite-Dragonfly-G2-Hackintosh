@@ -283,6 +283,7 @@ class NGreen {
     bool isRealTGL = false;  // true if CPU is genuine TGL (model 0x8C/0x8D), false if spoofed (RPL/ADL)
 public:
     bool getIsRealTGL() const { return isRealTGL; }
+    uint64_t mmioLength() const { return (rmmio && rmmioPtr) ? rmmio->getLength() : 0; }  // xe/rc6fw (22/10)
 private:
     bool dmcIsAdlp = false;    // true when ADL-P DMC blob was loaded in hwInitializeCState
     void adlpDcExit(const char *caller);
@@ -299,6 +300,9 @@ private:
 	IOMemoryMap *aperture {nullptr};
 	volatile UInt32 *aperturePtr {nullptr};
 	uint64_t apertureLen {0};
+
+	// HP-BBTRACE read-only hang-time GGTT page-0 aperture dump access.
+	friend void hpBtApertureDump(const char *tag, uint32_t addr);
 
 	// Last RCS context object seen by IGHardwareContext::withOptions.
 	// V507 uses this to re-run the LRCA slot repair on each populateResetRegisterList call.

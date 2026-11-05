@@ -10,9 +10,16 @@
 #include "kern_patcherplus.hpp"
 #include <Headers/kern_api.hpp>
 #include <Headers/kern_devinfo.hpp>
+#include "hp_repair_policy.hpp"
+#include <libkern/c++/OSBoolean.h>
+#include <libkern/c++/OSDictionary.h>
+#include <libkern/c++/OSNumber.h>
 
 
 static const char *pathIOAcceleratorFamily2= "/System/Library/Extensions/IOAcceleratorFamily2.kext/Contents/MacOS/IOAcceleratorFamily2";
+static const char *pathIOSurface = "/System/Library/Extensions/IOSurface.kext/Contents/MacOS/IOSurface";
+static KernelPatcher::KextInfo kextIOSurface { "com.apple.iokit.IOSurface", &pathIOSurface, 1, {true}, {},
+	KernelPatcher::KextInfo::Unloaded };
 static const char *pathAGDP = "/System/Library/Extensions/AppleGraphicsControl.kext/Contents/PlugIns/"
 							  "AppleGraphicsDevicePolicy.kext/Contents/MacOS/AppleGraphicsDevicePolicy";
 static const char *pathBacklight = "/System/Library/Extensions/AppleBacklight.kext/Contents/MacOS/AppleBacklight";
@@ -152,6 +159,7 @@ void NGreen::init() {
 	lilu.onKextLoadForce(&kextMCCSControl);
 	lilu.onKextLoadForce(&kextIOGraphics);*/
 	lilu.onKextLoadForce(&kextIOAcceleratorFamily2);
+	lilu.onKextLoadForce(&kextIOSurface);
 	
 	genx.init();
 	gen11.init();
@@ -171,6 +179,7 @@ void NGreen::init() {
 
 
 void NGreen::processPatcher(KernelPatcher &patcher) {
+	{ extern void xePmInstall(KernelPatcher &); xePmInstall(patcher); }   // XE-PM (kern_xepm.cpp), -ngreenpm
 	// Hook _cs_validate_page FIRST — before DeviceInfo which blocks
 	// for >60s polling PEGP (NVIDIA dGPU) disable via processSwitchOff.
 	// Without this, WindowServer starts before the hook is established
@@ -356,20 +365,100 @@ void NGreen::setApertureIfNecessary() {
 // O TGL pede até 0x3ffe dwords de uma vez. Aqui: registra cada pool criado (quantidade, tamanho, reserva, chamador) e,
 // com -ngreenxefix, garante pelo menos 128 KB por buffer (desliga com -ngreennopoolfix).
 static mach_vm_address_t orgPoolInit = 0;
+static mach_vm_address_t hpSurfaceCount = 0, hpSurfaceRow = 0, hpSurfaceElement = 0;
+static mach_vm_address_t hpSurfaceSize = 0, hpSurfaceCopy = 0, hpSurfaceFormat = 0;
+static mach_vm_address_t hpCreationKey = 0;
+static mach_vm_address_t hpSurfaceResource = 0;
+static uint64_t hpTglImage = 0, hpTglImageSize = 0, hpRectReturn = 0;
+static IOSimpleLock *hpBlitLock = nullptr;
+static bool hpSurfaceReady = false;
+static bool hpPoolReady = false;
+
+bool hpTglIOSurfaceLayoutReady() { return hpSurfaceReady; }
+bool hpTglSurfaceABIReady() { return hpSurfaceReady && hpSurfaceResource && hpPoolReady; }
+bool hpTglEnableRepair(uint64_t image, uint64_t size, uint64_t rectReturn) {
+    if (!hpBlitLock) hpBlitLock = IOSimpleLockAlloc();
+    if (!hpBlitLock) return false;
+	hpTglImage = image;
+	hpTglImageSize = size;
+	hpRectReturn = rectReturn;
+    return true;
+}
+
+static bool hpIsTglAccelerator(void *accel) {
+	if (!accel || !hpTglImage) return false;
+	auto vt = *static_cast<uint64_t *>(accel);
+	return vt >= hpTglImage && vt - hpTglImage < hpTglImageSize;
+}
+
+static bool hpValidSurface(void *surface) {
+	if (!surface || !hpSurfaceReady) return false;
+	using Count = uint32_t (*)(void *);
+	using Size = uint64_t (*)(void *, uint32_t);
+	using Element = uint32_t (*)(void *, uint32_t);
+	using Copy = OSObject *(*)(void *, const char *, uint32_t *);
+	auto planes = reinterpret_cast<Count>(hpSurfaceCount)(surface);
+	// TGL allocates 40 bytes per entry using a 32-bit multiplication.
+	if (planes > UINT32_MAX / 40) return false;
+	for (uint32_t i = 0; i < (planes ? planes : 1); ++i) {
+		auto row = reinterpret_cast<Size>(hpSurfaceRow)(surface, i);
+		auto element = reinterpret_cast<Element>(hpSurfaceElement)(surface, i);
+		auto size = reinterpret_cast<Size>(hpSurfaceSize)(surface, i);
+		if (!HpTglRepair::validPlane(row, element, size)) return false;
+	}
+
+	// The legacy shared-texture override deliberately supplies no per-plane
+	// element size. Do not enter its planar divide path with that zero value.
+	uint32_t bytes = 0;
+	auto key = *reinterpret_cast<const char **>(hpCreationKey);
+	auto *props = reinterpret_cast<Copy>(hpSurfaceCopy)(surface, key, &bytes);
+	auto *dict = OSDynamicCast(OSDictionary, props);
+	bool valid = true;
+	if (dict) {
+		auto *shared = OSDynamicCast(OSBoolean, dict->getObject("kIntelIsSharedTexture"));
+		if (shared && shared->isTrue()) {
+			auto *row = OSDynamicCast(OSNumber, dict->getObject("kIntelSysMemRowBytes"));
+			auto *size = OSDynamicCast(OSNumber, dict->getObject("kIntelSysMemSize"));
+			auto *width = OSDynamicCast(OSNumber, dict->getObject("kMetalTextureWidth"));
+			auto *height = OSDynamicCast(OSNumber, dict->getObject("kMetalTextureHeight"));
+			auto *format = OSDynamicCast(OSNumber, dict->getObject("kMetalTexturePixelFormat"));
+			valid = !planes && row && size && width && height && format &&
+				row->unsigned64BitValue() && row->unsigned64BitValue() <= UINT32_MAX &&
+				size->unsigned64BitValue() && size->unsigned64BitValue() <= UINT32_MAX &&
+				width->unsigned32BitValue() && height->unsigned32BitValue();
+		}
+	}
+	if (props) props->release();
+	return valid;
+}
+
+static void *hpNewSurfaceResource(void *accel, void *cache) {
+	if (hpIsTglAccelerator(accel)) {
+		auto surface = cache ? *reinterpret_cast<void **>(static_cast<uint8_t *>(cache) + 0x10) : nullptr;
+		if (!hpValidSurface(surface)) {
+			IOLog("HP-ABI: rejecting invalid IOSurface layout before resource allocation\n");
+			return nullptr;
+		}
+		static uint32_t checked = 0;
+		if (__sync_fetch_and_add(&checked, 1) == 0)
+			IOLog("HP-ABI: first TGL IOSurface resource validated\n");
+	}
+	return FunctionCast(hpNewSurfaceResource, hpSurfaceResource)(accel, cache);
+}
 static bool wrapPoolInit(void *that, void *accel, void *channel, void *task, int count, int bufSize, uint32_t a,
 						 uint32_t b, uint32_t c, uint32_t reserve) {
 	static int fixArg = -1, nlog = 0;
-	// HP-R6: the Tahoe 4KB command-pool mismatch also affects real TGL.
-	// Reuse only the upstream sizing/alignment algorithm below; preserve
-	// -ngreennopoolfix and do not turn on unrelated RPL-only xefix paths.
-	if (fixArg < 0) {
-		const bool hpTglTahoe = NGreen::callback && NGreen::callback->getIsRealTGL() &&
-			getKernelVersion() == KernelVersion::Tahoe;
-		fixArg = ((checkKernelArgument("-ngreenxefix") || hpTglTahoe) &&
-			!checkKernelArgument("-ngreennopoolfix")) ? 1 : 0;
-		if (hpTglTahoe) IOLog("HP-R6: real TGL/Tahoe upstream pool sizing/alignment enabled=%d\n", fixArg);
-	}
+	if (fixArg < 0) fixArg = (checkKernelArgument("-ngreenxefix") && !checkKernelArgument("-ngreennopoolfix")) ? 1 : 0;
 	int novo = bufSize;
+	// HP-KPOOL isolated: real-TGL/Tahoe small command pools only.
+	// Keep the user's large pools and the separate alignment path unchanged.
+	// The TGL blit emitter can reserve up to 0x3ffe DWORDs, exceeding a 4 KiB pool.
+	const bool hpKernelPool = NGreen::callback->getIsRealTGL() && getKernelVersion() == KernelVersion::Tahoe &&
+		count > 0 && count <= 16 && bufSize >= 0x1000 && bufSize < 0x20000;
+	if (hpKernelPool) {
+		novo = 0x20000;
+		SYSLOG("ngreen", "HP-KPOOL isolated: count=%d size=0x%x->0x%x reserve=0x%x", count, bufSize, novo, reserve);
+	}
 	// 20/10: 256 buffers x 128 KB = 32 MB por pool (um por processo) esgotava a área de endereços dos buffers de comando:
 	// hang com o batch continuando numa página "scratch" (0xc01dbead) em 40c2a000. Só os pools pequenos (o do blit3d do
 	// kernel, count=8) ficam com 128 KB; os grandes sobem de 4 KB para 16 KB e os de 64 KB não mudam.
@@ -391,18 +480,168 @@ static bool wrapPoolInit(void *that, void *accel, void *channel, void *task, int
 // grandes (>= 0x400 dwords, as do blit3d), completa o buffer com MI_NOOP até o próximo múltiplo de 64.
 // Campos do pool: 0x1842 índice atual, 0x40 + 24*i base da CPU do buffer i, 0x1850 limite, 0x1858 ponteiro atual.
 static mach_vm_address_t orgPoolGetPtr = 0;
+static mach_vm_address_t hpPoolGPUAddress = 0, hpPoolSetPtr = 0;
+static uint64_t hpCCSCommitReturn = 0;
+static HpTglCCSScope *hpCCSScopes = nullptr;
+static HpTglBlitScope *hpBlitScopes = nullptr;
+
+void hpTglBeginBlit(HpTglBlitScope &scope) {
+    scope.thread = reinterpret_cast<void *>(current_thread());
+    scope.failed = false;
+    scope.next = nullptr;
+    if (!hpBlitLock) return;
+    IOSimpleLockLock(hpBlitLock);
+    scope.next = hpBlitScopes;
+    hpBlitScopes = &scope;
+    IOSimpleLockUnlock(hpBlitLock);
+}
+
+bool hpTglEndBlit(HpTglBlitScope &scope) {
+    if (!hpBlitLock) return false;
+    IOSimpleLockLock(hpBlitLock);
+    auto **entry = &hpBlitScopes;
+    while (*entry && *entry != &scope) entry = &(*entry)->next;
+    if (*entry) *entry = scope.next;
+    bool failed = scope.failed;
+    IOSimpleLockUnlock(hpBlitLock);
+    return failed;
+}
+
+static uint64_t hpPoolBackingBase(uint8_t *p) {
+    // +1848 is the current SUBMISSION start, not the allocation base.
+    // submitBuffer can advance it to a non-page-aligned cursor. Both the
+    // allocator and getGPUVirtualAddress use +40+24*index as the backing base.
+    auto index = *reinterpret_cast<int16_t *>(p + 0x1842);
+    auto count = *reinterpret_cast<uint16_t *>(p + 0x1832);
+    if (index < 0 || index >= count || index >= 256) return 0;
+    return *reinterpret_cast<uint64_t *>(p + 0x40 + 24 * index);
+}
+
+static void *hpRectAllocationFailed(uint8_t *p, uint32_t ndw, const char *reason) {
+    if (hpBlitLock) {
+        auto thread = reinterpret_cast<void *>(current_thread());
+        IOSimpleLockLock(hpBlitLock);
+        for (auto *scope = hpBlitScopes; scope; scope = scope->next)
+            if (scope->thread == thread) scope->failed = true;
+        IOSimpleLockUnlock(hpBlitLock);
+    }
+    // The emitter assigned this submission tag before allocating, but has
+    // not retained its per-rectangle event references or emitted this group.
+    // Clear the tag that its normal post-submit path would clear.
+    auto submission = *reinterpret_cast<uint64_t *>(p + 0x1860);
+    if (submission) *reinterpret_cast<uint64_t *>(submission + 0x48) = 0;
+    IOLog("HP-RECT4: allocation rejected reason=%s ndw=0x%x index=%d backing=0x%llx segment=0x%llx cursor=0x%llx end=0x%llx; blit fails\n",
+        reason, ndw, *reinterpret_cast<int16_t *>(p + 0x1842), hpPoolBackingBase(p),
+        *reinterpret_cast<uint64_t *>(p + 0x1848), *reinterpret_cast<uint64_t *>(p + 0x1858),
+        *reinterpret_cast<uint64_t *>(p + 0x1850));
+    return nullptr; // The installed emitter guard takes its canary/epilogue.
+}
+
+void hpTglResolveFailed() {
+    if (hpBlitLock) {
+        auto thread=reinterpret_cast<void *>(current_thread());
+        IOSimpleLockLock(hpBlitLock);
+        for(auto *s=hpBlitScopes;s;s=s->next) if(s->thread==thread) s->failed=true;
+        IOSimpleLockUnlock(hpBlitLock);
+    }
+    IOLog("HP-CCS6: resolve rejected; preserve dirty state and fail caller\n");
+}
+bool hpTglCCSPoolReady() { return hpPoolReady && hpPoolGPUAddress && hpPoolSetPtr && hpBlitLock; }
+void hpTglCCSArm(uint64_t commitReturn) { hpCCSCommitReturn=commitReturn; }
+
+bool hpTglCCSBegin(HpTglCCSScope &scope, void *pool, uint32_t count) {
+    if (!hpTglCCSPoolReady() || !pool || !HpTglRepair::ccsStateOffset(count)) return false;
+    auto *p=static_cast<uint8_t *>(pool);
+    uint64_t base=hpPoolBackingBase(p), cursor=*reinterpret_cast<uint64_t *>(p+0x1858);
+    uint64_t end=*reinterpret_cast<uint64_t *>(p+0x1850);
+    if (!base || (base&0xfff) || cursor<base || cursor>end || (cursor&3) ||
+        end-base<HpTglRepair::CCSPageDwords*4) return false;
+    uint32_t request=HpTglRepair::CCSPageDwords+uint32_t((0-cursor)&0xfff)/4;
+    auto *raw=reinterpret_cast<void *(*)(void *,uint32_t)>(orgPoolGetPtr)(pool,request);
+    cursor=reinterpret_cast<uint64_t>(raw);base=hpPoolBackingBase(p);
+    end=*reinterpret_cast<uint64_t *>(p+0x1850);
+    uint32_t pad=uint32_t((0-cursor)&0xfff);
+    if (!raw || !base || (base&0xfff) || cursor<base || cursor>end || (cursor&3) ||
+        pad>end-cursor || HpTglRepair::CCSPageDwords*4>end-cursor-pad) return false;
+    memset(raw,0,pad+HpTglRepair::CCSPageDwords*4);
+    scope={reinterpret_cast<void *>(current_thread()),pool,cursor+pad,count,false,false,nullptr};
+    *reinterpret_cast<uint64_t *>(p+0x1858)=scope.base;
+    IOSimpleLockLock(hpBlitLock);scope.next=hpCCSScopes;hpCCSScopes=&scope;IOSimpleLockUnlock(hpBlitLock);
+    return true;
+}
+
+bool hpTglCCSEnd(HpTglCCSScope &scope) {
+    IOSimpleLockLock(hpBlitLock);
+    auto **p=&hpCCSScopes;while(*p && *p!=&scope) p=&(*p)->next;
+    if (*p) *p=scope.next;
+    bool ok=scope.committed && !scope.failed;
+    IOSimpleLockUnlock(hpBlitLock);
+    if (!ok) hpTglResolveFailed();
+    return ok;
+}
+
+static void hpSetPoolPtr(void *pool, uint32_t *pointer) {
+    HpTglCCSScope *scope=nullptr;
+    if (hpCCSCommitReturn && reinterpret_cast<uint64_t>(__builtin_return_address(0))==hpCCSCommitReturn) {
+        auto thread=reinterpret_cast<void *>(current_thread());
+        IOSimpleLockLock(hpBlitLock);
+        for(auto *s=hpCCSScopes;s;s=s->next) if(s->thread==thread && s->pool==pool) {scope=s;break;}
+        IOSimpleLockUnlock(hpBlitLock);
+    }
+    if (scope) {
+        uint64_t finish=reinterpret_cast<uint64_t>(pointer);
+        if (HpTglRepair::ccsLayout(scope->base,finish,scope->count)) {
+            auto resume=scope->base+HpTglRepair::CCSResumeOffset;
+            auto gpu=reinterpret_cast<uint64_t (*)(void *,uint32_t *)>(hpPoolGPUAddress)(pool,reinterpret_cast<uint32_t *>(resume));
+            if (gpu && !(gpu&7) && (gpu>>48)==0) {
+                if (finish&7) *pointer++=0; // MI_NOOP alignment
+                pointer[0]=0x18800101;pointer[1]=uint32_t(gpu);pointer[2]=uint32_t(gpu>>32);
+                pointer=reinterpret_cast<uint32_t *>(resume);scope->committed=true;
+                static uint32_t logged=0;
+                if (__sync_fetch_and_add(&logged,1)==0)
+                    IOLog("HP-CCS6: real resolve command/state page committed rects=%u, jump skips state\n",scope->count);
+            }
+        }
+        if (!scope->committed) {
+            scope->failed=true;pointer=reinterpret_cast<uint32_t *>(scope->base);hpTglResolveFailed();
+        }
+    }
+    FunctionCast(hpSetPoolPtr,hpPoolSetPtr)(pool,pointer);
+}
+
 static void *wrapPoolGetPtr(void *that, uint32_t ndw) {
-	static int fixArg = -1, nlog = 0;
-	// HP-R6: the Tahoe 4KB command-pool mismatch also affects real TGL.
-	// Reuse only the upstream sizing/alignment algorithm below; preserve
-	// -ngreennopoolfix and do not turn on unrelated RPL-only xefix paths.
-	if (fixArg < 0) {
-		const bool hpTglTahoe = NGreen::callback && NGreen::callback->getIsRealTGL() &&
-			getKernelVersion() == KernelVersion::Tahoe;
-		fixArg = ((checkKernelArgument("-ngreenxefix") || hpTglTahoe) &&
-			!checkKernelArgument("-ngreennopoolfix")) ? 1 : 0;
-		if (hpTglTahoe) IOLog("HP-R6: real TGL/Tahoe upstream pool sizing/alignment enabled=%d\n", fixArg);
+	// Only the TGL rect-list emitter uses the bounded, page-local batch policy.
+	// Keep CPU and PPGTT offsets identical; never edit the GPU address alone.
+	if (hpRectReturn && reinterpret_cast<uint64_t>(__builtin_return_address(0)) == hpRectReturn) {
+		auto *p = static_cast<uint8_t *>(that);
+		auto base = hpPoolBackingBase(p);
+		auto cur = *reinterpret_cast<uint64_t *>(p + 0x1858);
+		auto end = *reinterpret_cast<uint64_t *>(p + 0x1850);
+		uint32_t request = ndw;
+		// A pool can have no current buffer yet. In that case the original
+		// allocator selects the first page-aligned slot and needs no padding.
+		if (base && !HpTglRepair::rectRequest(ndw, base, cur, end, request))
+            return hpRectAllocationFailed(p, ndw, "request");
+		auto *raw = FunctionCast(wrapPoolGetPtr, orgPoolGetPtr)(that, request);
+		if (!raw) return hpRectAllocationFailed(p, ndw, "allocator");
+		base = hpPoolBackingBase(p);
+		end = *reinterpret_cast<uint64_t *>(p + 0x1850);
+		cur = reinterpret_cast<uint64_t>(raw);
+		uint32_t pad = 0;
+		if (!HpTglRepair::rectResult(ndw, base, cur, end, pad))
+            return hpRectAllocationFailed(p, ndw, "result");
+		if (pad) bzero(raw, pad); // MI_NOOP padding is submitted with this slot.
+		*reinterpret_cast<uint64_t *>(p + 0x1858) = cur + pad;
+		static uint32_t checked = 0;
+		if (__sync_fetch_and_add(&checked, 1) == 0) {
+			IOLog("HP-RECT: first page-local batch ndw=0x%x request=0x%x pad=0x%x\n", ndw, request, pad);
+            IOLog("HP-RECT4: allocation backing=0x%llx segment=0x%llx batch=0x%llx ndw=0x%x\n",
+                base, *reinterpret_cast<uint64_t *>(p + 0x1848), cur + pad, ndw);
+        }
+		return reinterpret_cast<void *>(cur + pad);
 	}
+	static int fixArg = -1, nlog = 0;
+	if (fixArg < 0) fixArg = (checkKernelArgument("-ngreenxefix") && !checkKernelArgument("-ngreennopoolfix")) ? 1 : 0;
 	if (fixArg == 1 && ndw >= 0x400) {
 		auto *p = static_cast<uint8_t *>(that);
 		int16_t idx = *reinterpret_cast<int16_t *>(p + 0x1842);
@@ -520,6 +759,28 @@ static IOReturn wrapSetIdMode(void *that, uint32_t id, uint32_t mode) {
 }
 
 bool NGreen::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
+	if (kextIOSurface.loadIndex == index) {
+		if (getKernelVersion() == KernelVersion::Tahoe && getIsRealTGL()) {
+			SolveRequestPlus surfaceSymbols[] = {
+				{"__ZNK9IOSurface13getPlaneCountEv", hpSurfaceCount},
+				{"__ZNK9IOSurface19getPlaneBytesPerRowEj", hpSurfaceRow},
+				{"__ZNK9IOSurface23getPlaneBytesPerElementEj", hpSurfaceElement},
+				{"__ZNK9IOSurface12getPlaneSizeEj", hpSurfaceSize},
+				{"__ZNK9IOSurface14getPixelFormatEv", hpSurfaceFormat},
+				{"__ZNK9IOSurface9copyValueEPKcPj", hpSurfaceCopy},
+				{"_kIOSurfaceCreationProperties", hpCreationKey},
+			};
+			bool solved = SolveRequestPlus::solveAll(patcher, index, surfaceSymbols, address, size);
+			static const uint8_t planeLoad[] = {0x8b, 0x87, 0x98, 0, 0, 0};
+			static const uint8_t formatLoad[] = {0x8b, 0x87, 0x80, 0, 0, 0};
+			hpSurfaceReady = solved &&
+				!memcmp(reinterpret_cast<void *>(hpSurfaceCount + 4), planeLoad, sizeof(planeLoad)) &&
+				!memcmp(reinterpret_cast<void *>(hpSurfaceFormat + 4), formatLoad, sizeof(formatLoad));
+			patcher.clearError();
+			SYSLOG("ngreen", "HP-ABI: Tahoe IOSurface accessors/layout %s", hpSurfaceReady ? "ready" : "unsupported");
+		}
+		return true;
+	}
 	if (kextIOAcceleratorFamily2.loadIndex == index) {
 		SYSLOG("NGreen", "IOAccelF2: TEXT 0x%llx size 0x%lx", address, size);
 		
@@ -616,12 +877,30 @@ bool NGreen::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t
 		}
 
 		// xe/pool: tamanho mínimo dos buffers de comando (ver wrapPoolInit).
+		if (getKernelVersion() == KernelVersion::Tahoe && getIsRealTGL()) {
+			RouteRequestPlus surfaceRequest[] = {
+				{"__ZN16IOAccelResource235newResourceWithIOSurfaceDeviceCacheEP22IOGraphicsAccelerator2P20IOSurfaceDeviceCache",
+				 hpNewSurfaceResource, hpSurfaceResource},
+			};
+			bool ok = RouteRequestPlus::routeAll(patcher, index, surfaceRequest, address, size);
+			patcher.clearError();
+			SYSLOG("ngreen", "HP-ABI: IOSurface resource preflight %s", ok ? "ready" : "failed");
+		}
 		RouteRequestPlus poolRequest[] = {
 			{"__ZN25IOAccelCommandBufferPool24initEP22IOGraphicsAccelerator2P15IOAccelChannel2P11IOAccelTaskiijjjj",
 			 wrapPoolInit, orgPoolInit},
 			{"__ZN25IOAccelCommandBufferPool217getBufferPtrNoIncEj", wrapPoolGetPtr, orgPoolGetPtr},
 		};
-		if (RouteRequestPlus::routeAll(patcher, index, poolRequest, address, size)) {
+		hpPoolReady = RouteRequestPlus::routeAll(patcher, index, poolRequest, address, size);
+
+		if (getKernelVersion()==KernelVersion::Tahoe && getIsRealTGL()) {
+			SolveRequestPlus gpu[]={{"__ZNK25IOAccelCommandBufferPool220getGPUVirtualAddressEPj",hpPoolGPUAddress}};
+			bool solved=SolveRequestPlus::solveAll(patcher,index,gpu,address,size);
+			RouteRequestPlus commit[]={{"__ZN25IOAccelCommandBufferPool212setBufferPtrEPj",hpSetPoolPtr,hpPoolSetPtr}};
+			if (!solved || !RouteRequestPlus::routeAll(patcher,index,commit,address,size)) hpPoolGPUAddress=0;
+			patcher.clearError();
+		}
+		if (hpPoolReady) {
 			IOLog("XeNG POOL: hook IOAccelCommandBufferPool2::init OK\n");
 		} else {
 			patcher.clearError();
@@ -802,4 +1081,3 @@ bool NGreen::wrapApplePanelSetDisplay(IOService *that, IODisplay *display) {
 	bool ret = FunctionCast(wrapApplePanelSetDisplay, callback->orgApplePanelSetDisplay)(that, display);
 	return ret;
 }
-

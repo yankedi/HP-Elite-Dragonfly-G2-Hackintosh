@@ -58,3 +58,8 @@ See [Source index](provenance/SOURCE-INDEX.md),
 [SHA256SUMS](provenance/SHA256SUMS) for the detailed inventory. From this
 directory, verify the recorded files with `sha256sum -c provenance/SHA256SUMS`.
 That checksum list intentionally excludes itself.
+
+## 2026-11-05 Update (Horizon Detection Breakthrough)
+
+- `src/NootedGreen/` has been updated to the 2026-11-05 snapshot (`kern_gen11.cpp` SHA-256 `fb6ccf60b0c11df4e243cbb22cf474a6a113a785c32367bb26c0817ee2288c78`, `hp_repair_policy.hpp` SHA-256 `bc125aa5492eb8742f59e06480c980cfbc0a34922f18a08dc5aa433df895c682`, tested `NootedGreen` UUID `4C4C440C-5555-3144-A1CF-CF98321C87D2`, binary SHA-256 `e0d6fe75c2d4f4e488d3ff936f70f3551f71d5ea10a29158d364fd194139ad7c`).
+- Incremental patch: [`patches/nootedgreen-elsqwait-20261105.patch`](patches/nootedgreen-elsqwait-20261105.patch).
