@@ -11,7 +11,7 @@
     "macos": "26.6.2",
     "build": "25G83",
     "bootloader": "OpenCore 1.0.8",
-    "installation_status": "installed on internal Micron 2210 NVMe SSD; independent boot via /boot/EFI/OC verified"
+    "installation_status": "installed on internal Micron 2210 NVMe SSD; independent boot via /boot/EFI/OC verified and deployed with R32-PCFIX27-PMAPFIX"
   },
   "nix_flake_tooling": {
     "flake_files": ["../flake.nix", "../flake.lock"],
@@ -20,8 +20,16 @@
   "project_completion_policy": {
     "updated": "2026-11-06",
     "user_request": "完成gpu后停止适配，更新仓库，以及推送到远端",
-    "scope": "GPU three-stage stability and endurance adaptation is 100% complete in R32-PCFIX27-PMAPFIX (705,024 compute encoders across 3 full Geekbench 6.5.0 Metal runs + 90s 4-worker concurrent stress + 60s RC6 idle + 30s 4-worker burst wake, 0 GPU hangs, 0 GPURestart, 0 kernel panics). Per explicit user instruction, stop all further hardware trials and peripheral driver adaptations, finalize repository records, and push to the remote repository.",
-    "final_gpu_baseline": "R32-PCFIX27-PMAPFIX"
+    "user_internal_efi_deploy_permission": "2026-11-06T18:10:11+08:00 (确认)",
+    "scope": "GPU three-stage stability and endurance adaptation is 100% complete in R32-PCFIX27-PMAPFIX (705,024 compute encoders across 3 full Geekbench 6.5.0 Metal runs + 90s 4-worker concurrent stress + 60s RC6 idle + 30s 4-worker burst wake, 0 GPU hangs, 0 GPURestart, 0 kernel panics) and deployed to internal NVMe /boot/EFI/OC with SHA-256 readback verification. Per explicit user instruction, stop all further hardware trials and peripheral driver adaptations, finalize repository records, and push to the remote repository.",
+    "final_gpu_baseline": "R32-PCFIX27-PMAPFIX",
+    "internal_nvme_efi_deployment": {
+      "config_plist_sha256": "1dc6be22dcebd228fe9921b7733ccd7930b6e497fcab81d24e5ee43fa6dda414",
+      "nootedgreen_binary_sha256": "56c2d0758770803190b70b897e06b1ed5ab5318df97fef0c1fc4c07a2de2ffd9",
+      "nootedgreen_uuid": "4C4C44D2-5555-3144-A1F9-D192CDF39360",
+      "nootedgreen_info_plist_sha256": "b5fd1d0fe125a48f6045c3b07a8f5894f76fc406caf5065f126830a63ea4738e",
+      "nootedgreen_code_resources_sha256": "6686de10a28a2fe11b36cbb86dcbacc827cfc4ea116b4dabf1845e5aee629e9b"
+    }
   },
   "pmap_recycle_page_fix": {
     "status": "RESOLVED_ZERO_PMAP_PANICS_ACROSS_28_ENDURANCE_TRIALS",

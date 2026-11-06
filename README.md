@@ -9,7 +9,7 @@
 ## 核心实机成果总览（2026-11-06）
 
 1. **完整 macOS 26.6.2 (`25G83`) 系统安装与内置 NVMe SSD 独立引导**：
-   - 原生 macOS 26 Tahoe（`26.6.2`，Build `25G83`，Darwin `25.6.0` / `xnu-12377.161.14~5`）已完整安装至内置 Micron 2210 NVMe SSD，并通过内置盘 `/boot/EFI/OC`（OpenCore `1.0.8` + 自定义编译签名的 `NootedGreen.kext`）独立引导进入完整 macOS 桌面，97/97 引导文件经回读逐字节核验一致。
+   - 原生 macOS 26 Tahoe（`26.6.2`，Build `25G83`，Darwin `25.6.0` / `xnu-12377.161.14~5`）已完整安装至内置 Micron 2210 NVMe SSD，并通过内置盘 `/boot/EFI/OC`（OpenCore `1.0.8` `PMAPFIX` `config.plist` SHA256 `1dc6be22dcebd228fe9921b7733ccd7930b6e497fcab81d24e5ee43fa6dda414` + 已同步部署签名的 `R32-PCFIX27` `NootedGreen.kext` SHA256 `56c2d0758770803190b70b897e06b1ed5ab5318df97fef0c1fc4c07a2de2ffd9`、UUID `4C4C44D2-5555-3144-A1F9-D192CDF39360`）独立引导进入完整 macOS 桌面，99/99 引导文件经回读逐字节核验一致。
 2. **Intel Iris Xe 80 EU Metal 硬件加速与 GPU 三阶段稳定性与耐力实机测试计划 100% 全程零挂死通关（[`R32-PCFIX27-PMAPFIX`](graphics/patches/nootedgreen-pcfix27-20261106.patch)）**：
    - 在实机上 **100% 通过 GPU 三阶段稳定性与耐力实机测试计划**（`Trial 27` `trial-r32-pcfix27-endurance-20261106` 与 `Trial 28` `trial-r32-pcfix27-full3stage-20261106`，全程净化并执行 **`705,024` 个计算编码器**，`pre=705,264`、`pf=610,384`、`rf=0`、`prblk=228,740`、`def=378,784`、`wsk=0`，**全程 `0` 次 `GPU hang:`、`0` 次 `GPURestart`、`0` 次内核 panic**）：
      - **Stage 1（连续 3 轮完整 Geekbench 6.5.0 `--gpu Metal` 共 24 项计算工作负载）**：连续 3 轮跑完 `Background Blur`、`Face Detection`、`Horizon Detection`、`Edge Detection`、`Gaussian Blur`、`Feature Matching`、`Stereo Matching`、`Particle Physics`（Run 1 `enc=25,088` -> Run 2 `enc=50,176` -> Run 3 `enc=75,264`，进程退出码全部 `rc=0`，`hang_count=0`）；

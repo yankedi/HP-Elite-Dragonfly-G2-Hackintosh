@@ -14,7 +14,7 @@
 ## 1. 实机核心成果总览
 
 1. **内置 NVMe SSD 完整系统独立引导与长稳运行（`PMAPFIX`）**：
-   - macOS 26.6.2（`25G83`）已完整安装至内置 Micron 2210 NVMe SSD，并通过 `/boot/EFI/OC`（OpenCore 1.0.8 + 自定义编译签名的 `NootedGreen.kext`）独立引导。
+   - macOS 26.6.2（`25G83`）已完整安装至内置 Micron 2210 NVMe SSD，并通过 `/boot/EFI/OC`（OpenCore 1.0.8，`config.plist` SHA256 `1dc6be22dcebd228fe9921b7733ccd7930b6e497fcab81d24e5ee43fa6dda414` + 已同步部署并逐字节回读核验的 `R32-PCFIX27` `NootedGreen.kext` SHA256 `56c2d0758770803190b70b897e06b1ed5ab5318df97fef0c1fc4c07a2de2ffd9`、UUID `4C4C44D2-5555-3144-A1F9-D192CDF39360`）独立引导。
    - 通过离线解码 EFI NVRAM `AAPL,PanicInfo0000..0003` 锁定内置盘启动后约 6 分 34 秒必现的 `pmap_recycle_page: page 0x101310000 is referenced @pmap.c:1511` 根因，在 OpenCore `UEFI -> ReservedMemory` 中隔离物理内存窗口 `0x101000000..0x101400000`（`4 MiB`），并将 `boot-args` 的 `debug=0x100100` 调整为 `debug=0x100000`（移除 `DB_HALT`）。在后续连续 28 轮实机高负载压测中，**`pmap_recycle_page` 内核崩溃发生率为 0%**。
 2. **Iris Xe 80 EU Metal 硬件加速与三阶段实机稳定性及耐力压测 100% 零挂死通关（`R32-PCFIX27-PMAPFIX`）**：
    - 在 `R32-PCFIX27-PMAPFIX`（[`patches/nootedgreen-r32-pcfix27-20261106.patch`](../patches/nootedgreen-r32-pcfix27-20261106.patch)，镜像 `HP-UPSTREAM-6F03560-REPAIR32-PCFIX27-PMAPFIX.img` SHA256 `7b04c2999682b1c86b0b6f08234d8753828ed73ec072830d4f8cacfb7eca1311`，`NootedGreen` SHA256 `56c2d0758770803190b70b897e06b1ed5ab5318df97fef0c1fc4c07a2de2ffd9`、UUID `4C4C44D2-5555-3144-A1F9-D192CDF39360`）中，通过将 `ResetPreambleCmds` 紧随 `PIPELINE_SELECT (GPGPU)` 与 `MEDIA_STATE_FLUSH` 之后的 Packet 3（`dw[+19]`）从 `0x001010a0U` 改为 `0x001000a0U`（剥离 GPGPU 模式下的冗余 `0x1000 RT_CACHE_FLUSH` 重新锁存，同时保留 `dw[+1] = 0x001010a0U` 排空 3D/环级 RT cache 及 `AddPipeFlushCmd` 双包 `0x001000a0U + 0x00100480U`），**彻底消除了 `CSFLTRK [0x2208]` 全部 4 个缓存刷新跟踪位（`bits 28..25 = 0000b`）的残留死锁**。
