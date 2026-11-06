@@ -1,56 +1,118 @@
 {
   "schema_version": 1,
   "record_type": "sanitized_public_current_status",
-  "as_of": "2026-10-27",
+  "as_of": "2026-11-06",
   "target": {
     "model": "HP Elite Dragonfly G2",
+    "board_id": "8716",
+    "bios": "T90 01.25.00",
+    "cpu": "Intel Core i5-1135G7",
+    "gpu": "Intel Iris Xe Graphics G7 (8086:9a49, GT2 80 EU / 5 DualSubslices)",
     "macos": "26.6.2",
     "build": "25G83",
-    "installation_status": "installed; desktop reached"
+    "bootloader": "OpenCore 1.0.8",
+    "installation_status": "installed on internal Micron 2210 NVMe SSD; independent boot via /boot/EFI/OC verified"
   },
-  "graphics_and_stability": {
-    "accelerated_tiger_lake_boots_with_panics": 4,
-    "observed_panic_window_seconds": [252, 340],
-    "software_display_control_duration_seconds": 3755,
-    "user_reported_freeze_during_control": false,
-    "control_preserved_basic_display": true,
-    "control_workload_matched_or_repeated": false,
-    "shutdown_sequence_seen_in_capture": true,
-    "physical_poweroff_independently_observed": false,
-    "causation_or_component_attribution_proven": false,
-    "first_memory_corrupter": "unknown",
-    "panic_root_cause": "unknown"
+  "nix_flake_tooling": {
+    "flake_files": ["../flake.nix", "../flake.lock"],
+    "verify_command": "nix develop -c make check"
   },
-  "runtime_hardware_observation": {
-    "gpu_eus": 80,
-    "gpu_subslices": 10,
-    "proves_macos_graphics_acceleration": false
+  "pmap_recycle_page_fix": {
+    "status": "RESOLVED_ZERO_PMAP_PANICS_ACROSS_25_ENDURANCE_TRIALS",
+    "faulting_physical_window": "0x101304000..0x10131c000",
+    "decoded_panic_signature": "pmap_recycle_page: page 0x101310000 is referenced @pmap.c:1511",
+    "decoded_panic_sha256": "d1c3e3018b832b524cd3a7df730de77428f372222540c8a42e6d29ec11b628e6",
+    "reserved_memory_base": "0x101000000",
+    "reserved_memory_size": "0x00400000",
+    "reserved_memory_type": "Reserved",
+    "boot_args_debug": "debug=0x100000"
+  },
+  "graphics_and_metal_compute": {
+    "status": "GEEKBENCH_6_5_0_METAL_ALL_8_WORKLOADS_100PCT_COMPLETED_ZERO_GPU_HANG",
+    "single_run_encoders_completed": 25088,
+    "endurance_run2_encoders_reached": 32202,
+    "single_port_rcs_policy": "HP-SINGLEPORT-RCS (ELR1=0, 0 LITE_RESTORE, 0 0x40002098 NO_ACTIVE_ELEMENTS, 100% clean XeNG GPUREC: reset RCS ret=1)",
+    "verified_zero_hang_trials": [
+      {
+        "trial": "R32-PCFIX2",
+        "patch": "../patches/nootedgreen-r32-pcfix2-20261105.patch",
+        "patch_sha256": "46ceb190ad841f9fc0fd27bd8757c1cb40c2bf5e64ca49c2f30d32ba7fd9d355",
+        "ng_sha256": "f52f0d44d304e55e95b9875adb2c198b0950578b0ce4cc07191cc534962b1a54",
+        "ng_uuid": "4C4C447B-5555-3144-A110-ECC448277D0A",
+        "result": "8/8 Geekbench 6.5.0 Metal workloads completed, 0 GPU hangs, 0 GPURestart"
+      },
+      {
+        "trial": "R32-PCFIX14",
+        "patch": "../patches/nootedgreen-r32-pcfix14-20261106.patch",
+        "patch_sha256": "49059fa95a5019f07be5b942d8b461f9fa8f88b7683fb9be60552ed330b7a5a7",
+        "ng_sha256": "0631618dd93486600fd5b8ebefeb357c9ec22ed1cf754c90377c976bf2542038",
+        "ng_uuid": "4C4C4479-5555-3144-A14F-BA4E82026D89",
+        "result": "Stage 1 Run 1 8/8 workloads (25,088 encoders) 0 hangs; advanced to Run 2 enc=32,202; CSFLTRK=0x08000001"
+      },
+      {
+        "trial": "R32-PCFIX16",
+        "patch": "../patches/nootedgreen-r32-pcfix16-20261106.patch",
+        "patch_sha256": "9c255966a31090609778b337f0dd98be91b41e550daec7928226f01ed1583fb3",
+        "ng_sha256": "d380de51e5b1c5f9b4d3f6de3c072323fd1fd3b2e335c36d19a4c9fc3d23ff4d",
+        "ng_uuid": "4C4C44C3-5555-3144-A122-3773CEB6C3D4",
+        "result": "Stage 1 Run 1 8/8 workloads (25,088 encoders) 0 hangs; HP-SLICE verified 5/5 DSS (80 EU) SC_INSTDONE=ROW=SAMPLER=0xffffffff, FAULT=0"
+      },
+      {
+        "trial": "R32-PCFIX19",
+        "patch": "../patches/nootedgreen-r32-pcfix19-20261106.patch",
+        "patch_sha256": "c0efce6c02b14bc0323a730d9c178ec539ede753562e50a937ee4f57908a353e",
+        "ng_sha256": "44aa1af5d8a5c9dfec326447dbb02235102141d3197b60ce0d84a05584ef22ec",
+        "ng_uuid": "4C4C4446-5555-3144-A1C8-6C07A484D6E6",
+        "result": "Stage 1 Run 1 8/8 workloads (25,088 encoders) 0 hangs; advanced to Run 2 enc=32,202"
+      },
+      {
+        "trial": "R32-PCFIX20",
+        "patch": "../patches/nootedgreen-r32-pcfix20-20261106.patch",
+        "patch_sha256": "3150015cf259a80e7c0c7556cff8941c64168394184e51d6bf7bf5f95f6211e3",
+        "ng_sha256": "1cde1d6ec70d22394101841bccd96c309afed33741af348cdd23ef5474b00020",
+        "ng_uuid": "4C4C441F-5555-3144-A136-D09367AD0BD3",
+        "result": "Stage 1 Run 1 8/8 workloads (25,088 encoders) 0 hangs; advanced to Run 2 enc=32,196; CSFLTRK bits 27..25 cleared (0x10000001)"
+      },
+      {
+        "trial": "R32-PCFIX25",
+        "patch": "../patches/nootedgreen-r32-pcfix25-20261106.patch",
+        "patch_sha256": "36b790b010f4c8009c3f9ab9afa18289765ae9daf73e84d7b3a4e11a301633a7",
+        "source_sha256": "f6e850103c49b45210f1a01da99958a41b91d9ae75b38a4a2a8a162336603877",
+        "ng_sha256": "d609903d06163ae8c38dc4912d8ac913d9d3509a198662852c904f868e9349f2",
+        "ng_uuid": "4C4C440F-5555-3144-A10A-0B0DCEEB899C",
+        "result": "CS_DBG1=00000010 and CHKN3=00002000 persisted 100% across context switches; all CSFLTRK cache-flush bits (bits 31..1) cleared to 0x00000001"
+      }
+    ]
   },
   "user_reported_working": [
+    "Iris Xe 80 EU Metal compute & display acceleration (1920x1080@60Hz eDP)",
+    "Wi-Fi (Intel AX201 via itlwm)",
     "Bluetooth",
-    "touchpad",
+    "touchpad (Synaptics 06cb:cd74 I2C)",
+    "keyboard (PS/2)",
     "battery display",
-    "camera",
+    "camera (HP Wide Vision HD)",
     "Bluetooth audio input",
-    "Bluetooth audio output"
+    "Bluetooth audio output",
+    "PCH USB 3.1 / Type-A"
   ],
   "unresolved": [
-    "built-in HDA audio",
+    "built-in HDA / SOF audio (ALC285 10ec:0285)",
     "built-in digital microphone (DMIC)",
-    "brightness control",
-    "long-term system stability",
-    "Xe graphics acceleration",
-    "Metal"
+    "eDP PWM/AUX brightness control",
+    "fingerprint sensor (06cb:00f0)",
+    "3-run consecutive Geekbench 6 Metal endurance without a single GPURestart"
   ],
   "evidence_policy": {
     "private_raw_evidence_included": false,
     "private_orchestration_history_included": false,
     "missing_private_evidence_means_verified": false,
-    "detail": "This sanitized index summarizes the supplied progress record; it is not a substitute for private raw captures or independent reproduction."
+    "detail": "This sanitized index summarizes verified results and artifact SHA-256 digests; raw private captures remain in the local development workspace."
   },
   "public_indexes": {
     "readme": "../README.md",
     "continuation": "../docs/continuation.md",
+    "gpu_stability_and_pmapfix": "../docs/repair32-gpu-stability-and-pmapfix-20261106.md",
     "historical_evidence": "../manifests/experiment-history.json"
   }
 }

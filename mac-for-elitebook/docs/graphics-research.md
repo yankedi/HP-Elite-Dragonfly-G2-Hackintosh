@@ -1,6 +1,24 @@
-# Tiger Lake 9A49 图形适配来源核查
+# Tiger Lake 9A49 图形适配来源核查与实机演进
 
-审阅基准：2026-10-16。本文整理来源、Framebuffer-only 技术路线和待核实差异，不是可启动 EFI。
+## 2026-11-06 实机加速进展更新（`NootedGreen` + Metal 全部 8 项工作负载通关）
+
+在完成早期 WhateverGreen `0001–0003` Framebuffer-only 路线核查后，本工程转向基于固定上游 `NootedGreen`（commit `6f03560`）的 Tiger Lake（Gen12LP `8086:9a49`，80 EU / 5 DualSubslices）完整显示与 Metal 硬件加速适配，并在 macOS 26 Tahoe（`26.6.2` / `25G83`）实机上完成了从内屏点亮到 Metal 计算全面通关的闭环验证（完整技术细节见 [`docs/repair32-gpu-stability-and-pmapfix-20261106.md`](repair32-gpu-stability-and-pmapfix-20261106.md) 与 [`docs/repair32-pcfix2-20261105.md`](repair32-pcfix2-20261105.md)）：
+
+1. **RCS Execlist 提交队列、抢占控制与无损单端口调度（`ELSQWAIT` + `PCFIX5` + `PCFIX6`）**：
+   - 在 `xePrepSubmit` 与 `xeCs5Submit` 中对任意 `([0x2234] & 0x40000000U) != 0` 执行无条件 `elsqWait`，消除 39 微秒级高频提交导致的 `ExecListQueueFull`（`0x4000219a`）；
+   - 编程 `GFXREG_CS_CHICKEN1 [0x2580] = 0x00020002`（`WaDisableGPGPUMidThreadPreemption`，线程组级抢占）、`GEN8_ROW_CHICKEN2 [0xe4f4] = 0xc100c100` 并清零 `0x20e0` bit 14；
+   - 挂钩 `IGScheduler5::updateOptions`、`allowPreemption`、`isPreemptionAllowed` 阻断宿主驱动软件 mid-batch 抢占；
+   - 实施 `HP-SINGLEPORT-RCS` 无损单端口 RCS 策略（`xeDequeueExecList` + `f_rcs1_hp` `0x3d5d0` + `f_wait1_hp` `0x3b971`），100% 消除 `Port1`（`EL[1]`）填充、同上下文 `LITE_RESTORE`（`0x8002`）与 `0x3098 -> 0x40002098`（`NO ACTIVE ELEMENTS`）硬件仲裁冻结，并实现 `XeNG GPUREC: reset RCS ret=1` 100% 干净自愈恢复。
+2. **`AppleIntelTGLGraphicsMTLDriver`（`COCLGen8CommandTransport`）Gen8 遗留计算编码器就地净化（`PCFIX2` ~ `PCFIX25`）**：
+   - 挂钩 `IntelMTLComputeFunctions::execute`（`0x6bf20`，仅针对 `eToken == 0x40001U` 调用 `hpSanitizeComputeEncoder`），保留前导 `ResetPreambleCmds` 的 `dw[+1] = dw[+19] = 0x001010a0U`（在 EU 空闲期排空/引退环级 `RT_CACHE_FLUSH`），将 `dw[+7] = dw[+25]` 补齐 `CS_STALL` 为 `0x00100480U`，将 `dw[+15..+17]`（Gen8 `LRI 0xb134`）替换为 `MEDIA_STATE_FLUSH`（`0x70040000U`），并将末尾 `AddPipeFlushCmd`（`dw[83..94]`）剥离虚拟 `POST_SYNC_OP`（`0x4000`）后解耦为读写分离序列。
+   - 启用修正后的 Tiger Lake `_WA_TABLE` 偏移 `that[0xf5f] |= 0x80U`（`0x7010 = 0x20002000`）与 `that[0xf68] |= 0x01U`（`0x20d8 = 0x00100010`），使 `CS_DBG1` 与 `CHKN3` 跨上下文切换 100% 持久生效，首次将 `CSFLTRK [0x2208]` 全部缓存刷新位 `bits 31..1` 清零至 `0x00000001`。
+   - **实机效果**：Geekbench 6.5.0 `--gpu Metal` 全部 8 项计算工作负载 100% 零挂死通关（单轮 `25,088` 个计算编码器，`0` 次 `GPU hang:`、`0` 次 `GPURestart`）。
+
+---
+
+## 早期阶段审阅记录（2026-10-16 基线）
+
+审阅基准：2026-10-16。下文整理早期来源、Framebuffer-only 技术路线和待核实差异的历史记录。
 实机基线来自 2026-10-15 只读采集，证据清单及 SHA-256 校验见 [`hardware/elite-dragonfly-g2.json`](../hardware/elite-dragonfly-g2.json)、[`docs/hardware.md`](hardware.md)、[`docs/verification.md`](verification.md)。本轮文档工作未重新访问实机；macOS 尚未启动验证。
 固定源码快照、文件链接、API provenance、版本和许可证另见 [`manifests/graphics-sources.json`](../manifests/graphics-sources.json)。本次图形来源审阅未额外下载二进制；官方项目 release 缓存状态按主代理记录列于清单及 [`manifests/core-sources.json`](../manifests/core-sources.json)。
 
@@ -12,7 +30,7 @@
 |---|---|---|
 | 平台 / BIOS | HP Elite Dragonfly G2，board 8716；T90 01.25.00，BIOS date 原始记录 `06/05/2026` | DMI 文本 SHA-256 `b9b5ae1b197910f933e1938af75c8e8d7d7a3a1e8079ca88c97c35cf44f3d343`；固件设置文本 SHA-256 `5152508f6636e840be064abc73860933b3d4538e00aa2702662ee2f64d9f1a99` |
 | CPU | i5-1135G7；family 6 / model 140 (`0x8C`) / stepping 1；8 logical processors | `text/system.txt` SHA-256 `f8f7fe1ac5fdd0938df6eacc9c82b0aa2803bcfb48c035f3c59ee60be2375de0`；与参考补丁 `0x8C/0x8D` CPU gate 相符 |
-| iGPU | `0000:00:02.0`，8086:9A49 rev 01，subsys 103C:8716；Linux i915 旧采集报告 B0、80 EU、5 subslice；后续运行态观察为 80 EU / 10 subslices（见[当前状态](../configs/install-preparation.json)） | PCI / graphics SHA-256 分别为 `bc73d7f1deeebb0689deca97f3e46b18053a8f0bb0ded0534a9459c27834a2be` / `c7d60c98f4292d329a186b21bc282b24e115bb12ac1125a6490146a6d47941e9`；GT fuse 原始寄存器值尚未采集 |
+| iGPU | `0000:00:02.0`，8086:9A49 rev 01，subsys 103C:8716；i915 报告 B0、80 EU、5 subslice | PCI / graphics SHA-256 分别为 `bc73d7f1deeebb0689deca97f3e46b18053a8f0bb0ded0534a9459c27834a2be` / `c7d60c98f4292d329a186b21bc282b24e115bb12ac1125a6490146a6d47941e9`；GT fuse 原始寄存器值尚未采集 |
 | 内屏与时钟 | IVO8596 `X133NVFF R0`，1920×1080；pipe A / DDI A / PHY A / eDP-1，2 lanes；port clock 270000 kHz (=270 MHz)，pixel clock 138800 kHz (=138.8 MHz)，约 60 Hz | EDID 128 B SHA-256 `229597c3c0f0577d85202c7928c8ad4718a7624558e41afde1f8b7dce15adba5`；时钟单位已确认。i915 仅给出 DPCD revision 1.2 汇总，没有完整 AUX/DPCD dump |
 | 固件图形设置 | Video Memory Size 512 MB；host/GPU GGC 均 `0x10c1`；VMD disabled；Secure Boot enabled | 后续 GMS/BDSM 解码与内核预留范围交叉确认 512MiB，不再仅依赖 BIOS 菜单；见 [运行态补充](runtime-display-notes.md) |
 | VBT / ACPI / HID | 原始 VBT 8704 B；DSDT、23 张静态 SSDT、8 张动态 CPU SSDT（共 32 张 AML）；触控板/触屏 HID report descriptors 已取得 | VBT SHA-256 `715772cebbc951aef00ddec4bc76fe571c5f4f5dc5c0c26b8171a53f6333241d`；代表 ACPI hashes：DSDT `7afb4e662e79265a1a7c42c1af7ad448c003e8dbfa735b354e77dbb82f1ab343`、DMAR `2ca3fa2c612c438a8bd5a9f2583596f7c680202a4fc2212933c20db63963aa9b`、NHLT `a5778dc31aa1a8788ce91f0dd78dc112cb0135a1251fc818db3f77d11b76c096`；HID 原始文件哈希已在私有采集验证 |

@@ -1,7 +1,7 @@
 # R32-ELSQWAIT：无条件 ELSQ bit30 等待 + GEN8_ROW_CHICKEN2 0xc100c100 突破 Horizon Detection（2026-11-05）
 
 ## 1. 变更摘要
-在 `kern_gen11.cpp` 与 `hp_repair_policy.hpp`（补丁见 [`../patches/nootedgreen-r32-elsqwait-20261105.patch`](../patches/nootedgreen-r32-elsqwait-20261105.patch)） 中（基于 `R32-PERCTX`）：
+在 `kern_gen11.cpp` 与 `hp_repair_policy.hpp` 中（基于 `R32-PERCTX`，对应补丁 [`patches/nootedgreen-r32-elsqwait-20261105.patch`](../patches/nootedgreen-r32-elsqwait-20261105.patch)）：
 
 1. **`elsqWait`（`xeCs5Submit` 与 `xePrepSubmit`）**：
    - 将等待条件恢复为只要 `(EXECLIST_STATUS_LO & 0x40000000) != 0` 即轮询等待（5 µs 步进，上限 2000 µs），避免在 `0x2234` 的 bit 30 尚未落下时向 `0x2510..0x2550` 发起新的 Execlist 装载导致 Lite Restore / 跨上下文提交竞争。
@@ -12,7 +12,7 @@
    - `FF_DOP_CLOCK_GATE_DISABLE`（`0x20ec = 0x13`）、`NOAUX`、`NOCCS3`、`L3=6`、`FBABI`、`RECT4`、`XE-GPUREC`。
 
 ## 2. 构建与哈希
-- 镜像路径：`private-build/HP-UPSTREAM-6F03560-REPAIR32-ELSQWAIT.img`
+- 镜像路径：`.local/driver-repair-20261103/repair32-readback/HP-UPSTREAM-6F03560-REPAIR32-ELSQWAIT.img`
 - 镜像 SHA256：`cb62501d35fa12dc295f34fa49fa4ecda9b2751586ad1fde18a61ec580a766bc`
 - `NootedGreen` 二进制 SHA256：`e0d6fe75c2d4f4e488d3ff936f70f3551f71d5ea10a29158d364fd194139ad7c`
 - `NootedGreen` Mach-O UUID：`4C4C440C-5555-3144-A1CF-CF98321C87D2`

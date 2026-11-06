@@ -1,6 +1,16 @@
 # Tahoe 适配路线图
 
-> 当前状态：Tahoe 26.6.2 / 25G83 已安装。四次实验性 TGL 加速启动在约 252–340 秒后 panic；一次软件显示对照运行约 62 分 35 秒且无用户报告冻结，但不能据此证明因果。当前状态见[公开续接入口](continuation.md)；下文阶段状态与待办是早期规划，勿当成当前队列重放。
+> 续接入口：[continuation.md](continuation.md)；2026-11-06 最新技术总结见 [repair32-gpu-stability-and-pmapfix-20261106.md](repair32-gpu-stability-and-pmapfix-20261106.md) 与 [repair32-pcfix2-20261105.md](repair32-pcfix2-20261105.md)。
+>
+> **当前实机里程碑状态（2026-11-06）**：
+> - **M0（实机资料与版本库）**：已完成。
+> - **M1（可审计的 VESA 基础 EFI）**：已完成。
+> - **M2（外部启动、完整系统安装与内置盘引导）**：**已完成**。macOS 26 Tahoe（`26.6.2` / `25G83`）已完整安装至内置 Micron 2210 NVMe SSD，并通过 `/boot/EFI/OC` 独立引导；通过 `UEFI -> ReservedMemory` 保留 `0x101000000..0x101400000`（`4 MiB`）彻底根治了内置盘启动后约 6 分 34 秒必现的 `pmap_recycle_page: page 0x101310000` 内核崩溃。
+> - **M3（Tiger Lake 内屏 Framebuffer）**：**已完成**。内屏 IVO8596 `X133NVFF R0`（pipe A / DDI A / PHY A，`1920×1080@60Hz`）原生点亮。
+> - **M4（整机基础功能）**：**核心外设已可用**。Wi-Fi（`itlwm` AX201）、蓝牙（含蓝牙音频）、I²C 触控板（Synaptics `06cb:cd74`）、PS/2 键盘、电池状态、RGB 摄像头与 PCH USB 已正常工作；内置声卡（ALC285 SOF）、内屏背光调节与指纹（`06cb:00f0`）状态见 [peripheral-adaptation-status-20261104.md](peripheral-adaptation-status-20261104.md)。
+> - **M5（独立 Iris Xe 80 EU 硬件加速研发）**：**核心突破完成**。通过 `NootedGreen` 的无条件 `elsqWait`、线程组抢占修复（`0x2580 = 0x00020002`）、无损单端口 RCS 调度（`HP-SINGLEPORT-RCS`）与 `COCLGen8CommandTransport` 计算编码器就地净化（`hpSanitizeComputeEncoder`），在实机上 **100% 零挂死跑通 Geekbench 6.5.0 Metal 全部 8 项计算工作负载**（单轮 `25,088` 个计算编码器，`0` 次 `GPU hang:`、`0` 次 `GPURestart`），并在耐力测试中推进至第 2 轮 `32,202+` 个计算编码器且实现 GPU Reset 100% 干净自愈恢复。
+>
+> 下文保留早期阶段设计记录作为历史对照；最新介质身份与实际结果以 [`configs/install-preparation.json`](../configs/install-preparation.json) 和 [`manifests/experiment-history.json`](../manifests/experiment-history.json) 为准。
 
 ## 目标与执行边界
 

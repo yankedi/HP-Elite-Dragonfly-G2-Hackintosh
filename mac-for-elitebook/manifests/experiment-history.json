@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "record_type": "sanitized_public_evidence_index",
-  "as_of": "2026-10-27",
+  "as_of": "2026-11-06",
   "scope": "Concise milestones and evidence boundaries; not a transcript or complete event log.",
   "source_orchestration_history_copied": false,
   "private_raw_evidence_included": false,
@@ -23,16 +23,30 @@
     {
       "date": "2026-10-26",
       "topic": "accelerated-graphics stability observations",
-      "summary": "Four accelerated Tiger Lake boots panicked after approximately 252–340 seconds. Exact first corrupter and causal component remain unknown.",
+      "summary": "Four accelerated Tiger Lake boots panicked after approximately 252-340 seconds with pmap_recycle_page in physical window 0x101304000..0x10131c000.",
       "public_docs": ["../README.md", "../docs/continuation.md"],
-      "limitation": "Detailed panic captures are private and were not copied; this public index does not independently verify them."
+      "limitation": "Detailed panic captures are private; root cause was subsequently resolved on 2026-11-05 via PMAPFIX."
     },
     {
       "date": "2026-10-27",
       "topic": "software-display control",
       "summary": "One software-display control preserved basic display and ran for approximately 62 minutes 35 seconds without a user-reported freeze; a shutdown sequence appeared in the capture.",
       "public_docs": ["../README.md", "../docs/continuation.md", "../configs/install-preparation.json"],
-      "limitation": "One non-matched run does not establish causation, component attribution, or long-term stability; final physical power-off was not independently observed."
+      "limitation": "Historical control run prior to PMAPFIX and R32-PCFIX2..R32-PCFIX25."
+    },
+    {
+      "date": "2026-11-05",
+      "topic": "PMAPFIX internal-boot panic resolution and R32-ELSQWAIT / R32-PCFIX2 8/8 Geekbench 6 Metal breakthrough",
+      "summary": "Decoded AAPL,PanicInfo0000..0003 (d1c3e3018b832b524cd3a7df730de77428f372222540c8a42e6d29ec11b628e6) identified pmap_recycle_page at 0x101310000; reserving 0x101000000..0x101400000 (4 MiB) under UEFI -> ReservedMemory with debug=0x100000 eliminated pmap_recycle_page panics across all 25 subsequent trials. Unconditional elsqWait, GEN8_ROW_CHICKEN2 (0xe4f4=0xc100c100), CS_CHICKEN1 (0x2580=0x00020002), and hpSanitizeComputeEncoder (R32-PCFIX2, NootedGreen SHA-256 f52f0d44d304e55e95b9875adb2c198b0950578b0ce4cc07191cc534962b1a54) completed all 8 Geekbench 6.5.0 Metal workloads (25,088 encoders) with 0 GPU hangs and 0 GPURestart, deployed to internal NVMe /boot/EFI/OC.",
+      "public_docs": ["../docs/repair32-elsqwait-20261105.md", "../docs/repair32-pcfix2-20261105.md", "../patches/nootedgreen-r32-elsqwait-20261105.patch", "../patches/nootedgreen-r32-pcfix2-20261105.patch"],
+      "limitation": "Multi-run back-to-back endurance testing was subsequently conducted in R32-PCFIX3..R32-PCFIX25."
+    },
+    {
+      "date": "2026-11-06",
+      "topic": "Single-Port RCS scheduler (HP-SINGLEPORT-RCS), CSFLTRK truth table, and Tiger Lake _WA_TABLE persistence (R32-PCFIX5..R32-PCFIX25)",
+      "summary": "Implemented lossless Single-Port RCS Execlist scheduling (PCFIX6, 0 Port1 submissions, 0 LITE_RESTORE, 0 0x40002098 freezes, 100% clean XeNG GPUREC: reset RCS ret=1 recovery); verified 100% zero-hang Stage 1 Run 1 completion (25,088 encoders) and advancement to Stage 1 Run 2 enc=32,202+ in PCFIX14, PCFIX16, PCFIX19, and PCFIX20; verified 5/5 DualSubslices (80 EU) 0xffffffff idle completion in PCFIX16; persisted CS_DBG1=00000010 and CHKN3=00002000 across context switches via 64-bit shifted _WA_TABLE bits 0xf5f|=0x80 and 0xf68|=0x01 in PCFIX25, clearing all CSFLTRK [0x2208] cache-flush tracking bits (bits 31..1) to 0x00000001.",
+      "public_docs": ["../docs/repair32-gpu-stability-and-pmapfix-20261106.md", "../patches/nootedgreen-r32-pcfix6-20261105.patch", "../patches/nootedgreen-r32-pcfix14-20261106.patch", "../patches/nootedgreen-r32-pcfix20-20261106.patch", "../patches/nootedgreen-r32-pcfix25-20261106.patch"],
+      "limitation": "Full 3-run consecutive Geekbench 6 Metal endurance without a single GPURestart remains in progress."
     }
   ],
   "privacy_note": "Personal paths, network endpoints, serial/SMBIOS identities, credentials, private keys, and raw logs are intentionally not included. A missing private artifact is not a verified result."

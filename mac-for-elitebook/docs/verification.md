@@ -1,6 +1,20 @@
 # 验证记录
 
-> **状态说明（2026-10-27）：** 本文保留早期阶段的验证记录，其中“尚未启动 macOS”等表述只适用于各自记录日期。Tahoe 26.6.2 / 25G83 后续已安装；当前硬件功能和稳定性见 [README](../README.md) 与[公开续接入口](continuation.md)。原始 `.local/` 证据未随公开副本提供。
+> **状态说明（2026-11-06）：** 下方首先列出 2026-11-05 ~ 2026-11-06 内置 NVMe 完整系统、`PMAPFIX` 与 Iris Xe 80 EU Metal 计算加速（`R32-PCFIX2` ~ `R32-PCFIX25`）的最新实机验证结果；后续章节保留早期阶段的验证记录（其中“尚未启动 macOS”等表述只适用于各自记录日期）。当前硬件功能和稳定性见 [README](../README.md)、[2026-11-06 GPU 与 PMAPFIX 技术总结](repair32-gpu-stability-and-pmapfix-20261106.md) 与[公开续接入口](continuation.md)。原始 `.local/` 证据未随公开副本提供。
+
+## 2026-11-05 ~ 2026-11-06：内置 NVMe 完整系统、PMAPFIX 与 Iris Xe 80 EU Metal 计算加速实机验证（`R32-PCFIX2` ~ `R32-PCFIX25`）
+
+完整技术细节、寄存器转储与 `CSFLTRK [0x2208]` 硬件真值表见 [`docs/repair32-gpu-stability-and-pmapfix-20261106.md`](repair32-gpu-stability-and-pmapfix-20261106.md)、[`docs/repair32-pcfix2-20261105.md`](repair32-pcfix2-20261105.md) 与 [`configs/install-preparation.json`](../configs/install-preparation.json)。
+
+| 验证项目 | 证据 / 实机核验结果 |
+| --- | --- |
+| 内置 NVMe 独立引导部署 | EliteBook 内置盘 `/boot/EFI/OC`（`/dev/nvme0n1p1`）原子更新为 `R32-PCFIX2`（`NootedGreen` SHA256 `f52f0d44d304e55e95b9875adb2c198b0950578b0ce4cc07191cc534962b1a54`、UUID `4C4C447B-5555-3144-A110-ECC448277D0A`），完整回读 `after-boot-oc.tar`（SHA256 `0c210a89e0624d8894777611887fd48a0d6abb171a70550dac4a03b56dfc4f41`）97/97 文件逐字节吻合 |
+| 内置盘 `pmap_recycle_page` 根治（`PMAPFIX`） | 7-bit 无损往返解码 EFI NVRAM `AAPL,PanicInfo0000..0003`（`panic-decoded.txt` SHA256 `d1c3e3018b832b524cd3a7df730de77428f372222540c8a42e6d29ec11b628e6`）确认 `394.46s` 触发 `pmap_recycle_page: page 0x101310000 is referenced @pmap.c:1511`；在 `UEFI -> ReservedMemory` 保留 `0x101000000..0x101400000`（`4 MiB`）并将 `debug=0x100100` 改为 `debug=0x100000` 后，**连续 25 轮实机高负载压测中 `pmap_recycle_page` 崩溃发生率为 0%** |
+| 单轮 Geekbench 6.5.0 Metal 全通（`R32-PCFIX2`） | macOS boot `5AEDB40D-8795-4675-BC38-588E6588A28F`（补丁 [`patches/nootedgreen-r32-pcfix2-20261105.patch`](../patches/nootedgreen-r32-pcfix2-20261105.patch)）：12/12 门控通过，**100% 跑完 Geekbench 6.5.0 Metal 全部 8 项工作负载**（`enc=25,088+`，`dmesg-before-reboot.txt` SHA256 `41b67fff8c3e6813b0cc47b7c6f8e963edbc03fe8bafc7a199a777cee1ea6d1d` 中 **0 次 `GPU hang:`、0 次 `GPURestart`**） |
+| 无损单端口 RCS 调度（`R32-PCFIX6`） | macOS boot `558ACED6-8E42-411E-92FC-080F281F8B5B`（补丁 [`patches/nootedgreen-r32-pcfix6-20261105.patch`](../patches/nootedgreen-r32-pcfix6-20261105.patch)）：`HP-SINGLEPORT-RCS` 100% 消除 `Port1`（`ELR1 a=0 b=0`）、`LITE_RESTORE`（`0x8002`）与 `0x40002098`（`NO ACTIVE ELEMENTS`）硬件仲裁冻结；`XeNG GPUREC: reset RCS ret=1` 实现 100% 干净自愈恢复 |
+| 多轮耐力压测第 1 轮 100% 零挂死通关 + `CSFLTRK` 解耦（`R32-PCFIX14` / `PCFIX16` / `PCFIX19` / `PCFIX20`） | 在 `R32-PCFIX14`（boot `924782BA-EDBB-450A-A968-8B4138FDAB2F`）、`R32-PCFIX16`（boot `37574383-CE39-4847-B3A6-BE9FF89875BC`）、`R32-PCFIX19`（boot `F6A625B6-5B4C-4605-9E15-9991BC9F3002`）与 `R32-PCFIX20`（boot `580A970A-39ED-47BA-8352-BF86BC03C7B3`）中，**Stage 1 Run 1 全部 8 项工作负载（`25,088` 个计算编码器）100% 零挂死通关（`hang_count = 0`）**，并连续推进至 Stage 1 Run 2 `enc=32,202+`；`HP-SLICE` 证实全部 5 个 DualSubslice（80 EU）`SC_INSTDONE = 0xffffffff`、`ROW_INSTDONE[0..4] = 0xffffffff`、`SAMPLER_INSTDONE[0..4] = 0xffffffff`、`FAULT_REG = 0x00000000` |
+| Tiger Lake `_WA_TABLE` 跨上下文持久化与 `CSFLTRK` 缓存位清零（`R32-PCFIX25`） | macOS boot `E37C40BB-AFCD-434D-9D2B-FD67CD81595D`（补丁 [`patches/nootedgreen-r32-pcfix25-20261106.patch`](../patches/nootedgreen-r32-pcfix25-20261106.patch)）：启用 `that[0xf5f] |= 0x80`（`0x7010 = 0x20002000`）与 `that[0xf68] |= 0x01`（`0x20d8 = 0x00100010`）并在 RCS 提交路径加固后，`CS_DBG1=00000010`、`CHKN3=00002000` 100% 跨上下文持久化，**25 轮迭代中首次将 `CSFLTRK [0x2208]` 全部缓存刷新跟踪位（`bits 31..1`）清零至 `0x00000001`** |
+| Nix Flake 可复现构建与仓库校验 | `nix develop -c make check` 100% 通过 |
 
 ## 2026-10-16：在线采集与本机分析
 
