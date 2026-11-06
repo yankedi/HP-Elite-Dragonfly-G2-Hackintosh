@@ -579,33 +579,25 @@ static inline void xeDisableRcsPreemption(void *csObj) {
 }
 static void xeDequeueExecList(void *that, uint32_t flags) {
 	xeDisableRcsPreemption(that);
-	bool isRcs = false;
 	static int singlePort = -1;
 	if (singlePort < 0) singlePort = checkKernelArgument("-ngreenrcs2port") ? 0 : 1;
 	static int deferActive = -1;
 	if (deferActive < 0) deferActive = checkKernelArgument("-ngreenrcsliterestore") ? 0 : 1;
-	if (xeKptr((uint64_t)that)) {
+	if (singlePort == 1 && deferActive == 1 && xeKptr((uint64_t)that)) {
 		auto *cs = static_cast<uint8_t *>(that);
 		auto *c28 = *reinterpret_cast<uint8_t **>(cs + 0x28);
 		if (xeKptr((uint64_t)c28) && c28[0] == 0) {
-			isRcs = true;
-			if (singlePort == 1 && deferActive == 1) {
-				uint32_t bank = *reinterpret_cast<uint32_t *>(cs + 0x50);
-				if (bank <= 1) {
-					uint64_t cur0 = *reinterpret_cast<uint64_t *>(cs + 0x30 + (uint64_t)bank * 16);
-					if (cur0 != 0 || !cs[0x1c3c]) {
-						__sync_fetch_and_add(&gRcsDeferActiveN, 1);
-						return;
-					}
+			uint32_t bank = *reinterpret_cast<uint32_t *>(cs + 0x50);
+			if (bank <= 1) {
+				uint64_t cur0 = *reinterpret_cast<uint64_t *>(cs + 0x30 + (uint64_t)bank * 16);
+				if (cur0 != 0 || !cs[0x1c3c]) {
+					__sync_fetch_and_add(&gRcsDeferActiveN, 1);
+					return;
 				}
 			}
 		}
 	}
 	FunctionCast(xeDequeueExecList, gOrgDequeueExecList)(that, flags);
-	if (isRcs && NGreen::callback && NGreen::callback->getIsRealTGL()) {
-		NGreen::callback->writeReg32(0x20d8, (0x0010u << 16) | 0x0010u);
-		NGreen::callback->writeReg32(0x7010, (0x2000u << 16) | 0x2000u);
-	}
 }
 static void xeS5UpdateOptions(void *that) {
 	FunctionCast(xeS5UpdateOptions, gOrgS5UpdateOptions)(that);
@@ -817,15 +809,7 @@ static uint64_t xeCs5Submit(void *that, uint32_t x) {
 		if (st0 & 0x40000000) xeEv('WAI2', st0, st, us);
 	}
 	xeSameTail(that);
-	if (eb == 0x2000 && NGreen::callback && NGreen::callback->getIsRealTGL()) {
-		NGreen::callback->writeReg32(0x20d8, (0x0010u << 16) | 0x0010u);
-		NGreen::callback->writeReg32(0x7010, (0x2000u << 16) | 0x2000u);
-	}
 	uint64_t r = FunctionCast(xeCs5Submit, gOrgCs5Submit)(that, x);
-	if (eb == 0x2000 && NGreen::callback && NGreen::callback->getIsRealTGL()) {
-		NGreen::callback->writeReg32(0x20d8, (0x0010u << 16) | 0x0010u);
-		NGreen::callback->writeReg32(0x7010, (0x2000u << 16) | 0x2000u);
-	}
 	// xe/elsq (19/10): o que foi escrito na fila de submissão. Base do motor pelo descritor em cs+0x28
 	if (NGreen::callback) {
 		auto rr = [&](uint32_t o) { return NGreen::callback->readReg32(eb + o); };
@@ -1558,11 +1542,13 @@ static void hpSanitizeComputeEncoder(uint32_t *enc, uint32_t endOffDw, uint32_t 
                 enc[i + 16] = 0U;
                 enc[i + 17] = 0U;
             }
-            // Packet 3 at dw[+18..+23]: keep 0x001010a0U (CS_STALL | RT_CACHE_FLUSH | DC_FLUSH_ENABLE | FLUSH_ENABLE)
+            // Packet 3 at dw[+18..+23] (immediately after MEDIA_STATE_FLUSH):
+            // Emit 0x001000a0U (CS_STALL | DC_FLUSH_ENABLE | FLUSH_ENABLE, without 0x1000 RT_CACHE_FLUSH)
+            // so MEDIA_STATE_FLUSH -> PIPE_CONTROL(0x001000a0U) retires bit 28 without re-latching RT_CACHE_FLUSH in GPGPU mode.
             if (enc[i + 18] == 0x7a000004U &&
                 (enc[i + 19] == 0x001010a0U || enc[i + 19] == 0x00101820U ||
                  enc[i + 19] == 0x001000a0U || enc[i + 19] == 0x00101020U)) {
-                enc[i + 19] = 0x001010a0U;
+                enc[i + 19] = 0x001000a0U;
             }
             // Packet 4 at dw[+24..+29]: CS_STALL | TEXTURE_CACHE_INVALIDATE | FLUSH_ENABLE (no 0x800)
             if (enc[i + 24] == 0x7a000004U &&
@@ -1625,7 +1611,7 @@ static void hpSanitizeComputeEncoder(uint32_t *enc, uint32_t endOffDw, uint32_t 
         __asm__ volatile("mfence" ::: "memory");
         uint32_t n = __sync_fetch_and_add(&gHpPcFixEncoders, 1) + 1;
         if (n <= 8 || (n & 255) == 0) {
-            IOLog("HP-PCFIX: ver=PCFIX25 enc#%u endOffDw=%u totalDw=%u sigCnt=%u pre=%u pf=%u rf=%u prblk=%u def=%u wsk=%u\n",
+            IOLog("HP-PCFIX: ver=PCFIX27 enc#%u endOffDw=%u totalDw=%u sigCnt=%u pre=%u pf=%u rf=%u prblk=%u def=%u wsk=%u\n",
                   n, endOffDw, totalDw, sigCnt, gHpPcFixPreamble, gHpPcFixPipeFlush, gHpPcFixReadFlush,
                   gRcsPreemptBlockedN, gRcsDeferActiveN, gRcsWaitSkipPort1N);
         }
@@ -7977,15 +7963,6 @@ void Gen11::populateResetRegisterList(void *that)
 			NGreen::callback->readReg32(GEN7_FF_SLICE_CS_CHICKEN1));
 
 	}
-	if (NGreen::callback->isRealTGL && getKernelVersion() == KernelVersion::Tahoe) {
-		// Program Tiger Lake RCS engine workarounds before populateResetRegisterList snapshots registers:
-		// 1) Wa_1607297627:tgl -> RING_PSMI_CTL(RENDER_RING_BASE) (0x2050) bits 12|7 (RC_SEMA_IDLE_MSG_DISABLE | WAIT_FOR_EVENT_POWER_DOWN_DISABLE)
-		NGreen::callback->writeReg32(0x2050, (0x1080u << 16) | 0x1080u);
-		// 2) Wa_1606700617:tgl -> GEN9_CS_DEBUG_MODE1 (0x20d8) bit 4 (FF_DOP_CLOCK_GATE_DISABLE)
-		NGreen::callback->writeReg32(0x20d8, (0x0010u << 16) | 0x0010u);
-		// 3) Wa_1409142259:tgl -> GEN11_COMMON_SLICE_CHICKEN3 (0x7010) bit 13 (GEN12_DISABLE_CPS_AWARE_COLOR_PIPE)
-		NGreen::callback->writeReg32(0x7010, (0x2000u << 16) | 0x2000u);
-	}
 	FunctionCast(populateResetRegisterList, callback->opopulateResetRegisterList)(that);
 
 	// V503: Dump the exact values Apple just baked into the context reset register list.
@@ -8659,37 +8636,17 @@ unsigned long Gen11::startGraphicsEngine(void *that)
 		// COCLGen8CommandTransport::AddPipeFlushCmd emits two 6-dword PIPE_CONTROL packets
 		// (12 dwords total) at both mid-encoder and end-of-encoder flush sites.
 		static_cast<uint8_t *>(that)[0xf42] |= 0x01U;
-		// Enable _WA_TABLE bit 0x2f at IntelAccelerator+0xf5a (byte 0xf5a + 5 = 0xf5f, bit 7 = 0x80 -> 0x7010 = 0x20002000, Wa_1409142259:tgl)
-		static_cast<uint8_t *>(that)[0xf5f] |= 0x80U;
-		// Enable _WA_TABLE bit 0x30 at IntelAccelerator+0xf62 (byte 0xf62 + 6 = 0xf68, bit 0 = 0x01 -> 0x20d8 = 0x00100010, Wa_1606700617:tgl FF_DOP_CLOCK_GATE_DISABLE)
-		static_cast<uint8_t *>(that)[0xf68] |= 0x01U;
 	}
 
 	unsigned long ret = FunctionCast(startGraphicsEngine, callback->ostartGraphicsEngine)(that);
 	if (NGreen::callback->isRealTGL && getKernelVersion()==KernelVersion::Tahoe) {
 		if (that) {
 			static_cast<uint8_t *>(that)[0xf42] |= 0x01U;
-			static_cast<uint8_t *>(that)[0xf5f] |= 0x80U;
-			static_cast<uint8_t *>(that)[0xf68] |= 0x01U;
 		}
-		auto *cb = NGreen::callback;
-		cb->writeReg32(FORCEWAKE_RENDER_GEN9, (1u << 21) | (1u << 5));
-		for (int i = 0; i < 500 && !(cb->readReg32(FORCEWAKE_ACK_RENDER_GEN9) & (1u << 5)); i++) IODelay(100);
 		if (xePreemptDisabled()) {
-			cb->writeReg32(GEN7_FF_SLICE_CS_CHICKEN1,
+			NGreen::callback->writeReg32(GEN7_FF_SLICE_CS_CHICKEN1,
 				(GEN9_FFSC_PERCTX_PREEMPT_CTRL << 16) | 0);
 		}
-		uint32_t preDbg1 = cb->readReg32(0x20d8);
-		uint32_t preChkn3 = cb->readReg32(0x7010);
-		cb->writeReg32(0x2050, (0x1080u << 16) | 0x1080u);
-		cb->writeReg32(0x20d8, (0x0010u << 16) | 0x0010u);
-		cb->writeReg32(0x7010, (0x2000u << 16) | 0x2000u);
-		IOLog("HP-TGL-WA: pre_dbg1=%08x pre_chkn3=%08x psmi=%08x cs_dbg1=%08x chkn3=%08x ff_chkn1=%08x rc4=%08x samp=%08x fw_ack=%08x\n",
-			preDbg1, preChkn3,
-			cb->readReg32(0x2050), cb->readReg32(0x20d8), cb->readReg32(0x7010),
-			cb->readReg32(GEN7_FF_SLICE_CS_CHICKEN1), cb->readReg32(0xe48c), cb->readReg32(0xe18c),
-			cb->readReg32(FORCEWAKE_ACK_RENDER_GEN9));
-		cb->writeReg32(FORCEWAKE_RENDER_GEN9, (1u << 21));
 		uint64_t sample = __atomic_load_n(&hpR32Readback, __ATOMIC_RELAXED);
 		SYSLOG("ngreen", "HP-R32-READBACK: valid=%u cs=%08x scope=startup-last-writer",
 			static_cast<unsigned>(sample >> 32 == 1), static_cast<unsigned>(sample));

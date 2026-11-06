@@ -27,13 +27,15 @@ The staged progression is:
    changes.
 8. `nootedgreen-elsqwait-20261105.patch` — unconditional `EXECLIST_STATUS [0x2234]`
    bit 30 (`0x40000000`) drain wait (`elsqWait`) and `GEN8_ROW_CHICKEN2 [0xe4f4] = 0xc100c100`.
-9. `nootedgreen-pcfix2-20261105.patch` .. `nootedgreen-pcfix25-20261106.patch` —
+9. `nootedgreen-pcfix2-20261105.patch` .. `nootedgreen-pcfix27-20261106.patch` —
    `COCLGen8CommandTransport` 151-dword compute encoder sanitization (`hpSanitizeComputeEncoder`),
    host software mid-batch preemption block (`PCFIX5`), lossless Single-Port RCS
    Execlist scheduler (`HP-SINGLEPORT-RCS` in `PCFIX6`), `CSFLTRK [0x2208]`
-   decoupling (`PCFIX14`, `PCFIX16`, `PCFIX19`, `PCFIX20`), and Tiger Lake
-   `_WA_TABLE` `0x20d8`/`0x7010` cross-context persistence (`PCFIX25`, corresponding
-   to the current `src/NootedGreen/kern_gen11.cpp` snapshot).
+   decoupling (`PCFIX14`, `PCFIX16`, `PCFIX19`, `PCFIX20`), Tiger Lake
+   `_WA_TABLE` `0x20d8`/`0x7010` cross-context persistence (`PCFIX25`, `PCFIX26`),
+   and `ResetPreambleCmds` Packet 3 (`dw[+19] = 0x001000a0U`) GPGPU-mode
+   `RT_CACHE_FLUSH` decoupling (`PCFIX27`, corresponding to the current
+   `src/NootedGreen/kern_gen11.cpp` snapshot).
 
 `NootedGreen-upstream-to-GA416.diff` is the cumulative source comparison from
 NootedGreen upstream commit `95f81898be65cb9f7b3d370ca78054be4cc8a62d` to the
