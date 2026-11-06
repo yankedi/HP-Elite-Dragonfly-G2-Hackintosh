@@ -7,7 +7,7 @@
 ## 最终 / 当前实机成果总览
 
 1. **完整 macOS 26.6.2 (`25G83`) 系统安装与内置 NVMe SSD 独立引导**：
-   - 已将完整 macOS 26.6.2（`25G83`）安装至内置 Micron 2210 NVMe SSD，并在内置 EFI 分区（`/boot/EFI/OC`）部署经实机闭环验证的 OpenCore 1.0.8 引导与自定义交叉编译签名的 `NootedGreen.kext`。
+   - 已将完整 macOS 26.6.2（`25G83`）安装至内置 Micron 2210 NVMe SSD，并在内置 EFI 分区（`/boot/EFI/OC`）同步部署经三阶段实机耐力验证的 OpenCore 1.0.8 `PMAPFIX` 配置（`config.plist` SHA256 `1dc6be22dcebd228fe9921b7733ccd7930b6e497fcab81d24e5ee43fa6dda414`）与自定义交叉编译签名的 `R32-PCFIX27` `NootedGreen.kext`（`Contents/MacOS/NootedGreen` SHA256 `56c2d0758770803190b70b897e06b1ed5ab5318df97fef0c1fc4c07a2de2ffd9`、UUID `4C4C44D2-5555-3144-A1F9-D192CDF39360`、`Info.plist` SHA256 `b5fd1d0fe125a48f6045c3b07a8f5894f76fc406caf5065f126830a63ea4738e`、`CodeResources` SHA256 `6686de10a28a2fe11b36cbb86dcbacc827cfc4ea116b4dabf1845e5aee629e9b`），99/99 引导文件经回读逐字节核验一致。
    - 内屏 eDP（IVO8596 `X133NVFF R0`，`1920×1080@60Hz`，pipe A / DDI A / PHY A）、Wi-Fi（`itlwm` AX201）、蓝牙（含蓝牙音频）、I²C 触控板（Synaptics `06cb:cd74`）、PS/2 键盘、电池状态、RGB 摄像头与 PCH USB 均已在完整系统中正常工作。
 2. **Iris Xe 80 EU Metal 硬件加速与三阶段实机稳定性及耐力压测 100% 零挂死通关（`R32-PCFIX27-PMAPFIX`）**：
    - 在实机上一次性 **100% 跑通全部三阶段 GPU 稳定性与耐力测试计划**（[`Trial 27` `trial-r32-pcfix27-endurance-20261106` 与 `Trial 28` `trial-r32-pcfix27-full3stage-20261106`](docs/repair32-gpu-stability-and-pmapfix-20261106.md)，对应补丁 [`patches/nootedgreen-r32-pcfix27-20261106.patch`](patches/nootedgreen-r32-pcfix27-20261106.patch)），单次启动连续净化并执行 **705,024 个 Metal 计算编码器**，全程 **0 次 `GPU hang:`、0 次 `GPURestart`、0 次内核 panic**：
