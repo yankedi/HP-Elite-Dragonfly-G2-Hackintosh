@@ -6,28 +6,30 @@
 
 ---
 
-## 核心实机成果总览（2026-11-06）
+## 核心实机成果总览（2026-11-11）
 
-1. **完整 macOS 26.6.2 (`25G83`) 系统安装与内置 NVMe SSD 独立引导**：
-   - 原生 macOS 26 Tahoe（`26.6.2`，Build `25G83`，Darwin `25.6.0` / `xnu-12377.161.14~5`）已完整安装至内置 Micron 2210 NVMe SSD，并通过内置盘 `/boot/EFI/OC`（OpenCore `1.0.8` `PMAPFIX` `config.plist` SHA256 `1dc6be22dcebd228fe9921b7733ccd7930b6e497fcab81d24e5ee43fa6dda414` + 已同步部署签名的 `R32-PCFIX27` `NootedGreen.kext` SHA256 `56c2d0758770803190b70b897e06b1ed5ab5318df97fef0c1fc4c07a2de2ffd9`、UUID `4C4C44D2-5555-3144-A1F9-D192CDF39360`）独立引导进入完整 macOS 桌面，99/99 引导文件经回读逐字节核验一致。
-2. **Intel Iris Xe 80 EU Metal 硬件加速与 GPU 三阶段稳定性与耐力实机测试计划 100% 全程零挂死通关（[`R32-PCFIX27-PMAPFIX`](graphics/patches/nootedgreen-pcfix27-20261106.patch)）**：
-   - 在实机上 **100% 通过 GPU 三阶段稳定性与耐力实机测试计划**（`Trial 27` `trial-r32-pcfix27-endurance-20261106` 与 `Trial 28` `trial-r32-pcfix27-full3stage-20261106`，全程净化并执行 **`705,024` 个计算编码器**，`pre=705,264`、`pf=610,384`、`rf=0`、`prblk=228,740`、`def=378,784`、`wsk=0`，**全程 `0` 次 `GPU hang:`、`0` 次 `GPURestart`、`0` 次内核 panic**）：
-     - **Stage 1（连续 3 轮完整 Geekbench 6.5.0 `--gpu Metal` 共 24 项计算工作负载）**：连续 3 轮跑完 `Background Blur`、`Face Detection`、`Horizon Detection`、`Edge Detection`、`Gaussian Blur`、`Feature Matching`、`Stereo Matching`、`Particle Physics`（Run 1 `enc=25,088` -> Run 2 `enc=50,176` -> Run 3 `enc=75,264`，进程退出码全部 `rc=0`，`hang_count=0`）；
-     - **Stage 2（90 秒 4 线程 `metal-concurrent-stress` Blit+Compute 并发压测 + `WindowServer` 合成）**：完成 `67,430` 批次、`404,570` 个编码器（`errors=0`、`avg_ms=2.264`、`max_ms=12.746`），推进至 `enc#547,328`（`hang_count=0`）；
-     - **Stage 3（60 秒 RC6 深度休眠静置 + 30 秒 4 线程唤醒突发压测）**：完成 `22,513` 批次、`135,068` 个编码器（`errors=0`、`avg_ms=2.255`、`max_ms=9.398`），推进至 **`enc#705,024`**（`hang_count=0`，详见 [`mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md`](mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md)）。
-3. **RCS 无损单端口 Execlist 调度（`HP-SINGLEPORT-RCS`）与 GPU Reset 100% 无损自愈**：
-   - 100% 消除了 `WindowServer`（Context `0xa0`）与 Metal 计算上下文（Context `0x5c0` / `0xcc0`）并发时的双端口 `Port1`（`EL[1]`）填充（`ELR1 = 0`）、同上下文 `LITE_RESTORE`（`0x8002`）以及 `EXECLIST_STATUS [0x2234]` 从 `0x00003098` 跌落为 `0x40002098`（`NO ACTIVE ELEMENTS`）的硬件仲裁冻结；
-   - 在极端耐力压测触发 Watchdog 时，`XeNG GPUREC: reset RCS ret=1` 实现 **100% 干净自愈恢复**（无需重启系统即可继续高速执行后续数千个计算编码器）。
-4. **内置 SSD 引导长稳运行零 Panic（`PMAPFIX` 根治 `pmap_recycle_page`）**：
-   - 通过 7-bit 无损解码 EFI NVRAM `AAPL,PanicInfo0000..0003`，定位并隔离了物理内存窗口 `0x101000000..0x101400000`（`4 MiB`，覆盖早期 GA416/GA419 及内置盘启动约 252–394 秒必现的 `pmap_recycle_page: page 0x101310000 is referenced @pmap.c:1511` 故障区间 `0x101304000..0x10131c000`），配合 `debug=0x100000` 彻底消除了该内核崩溃，在 **连续 28 轮实机高负载耐力测试中 `pmap_recycle_page` 崩溃发生率为 0%**。
-5. **可复现 Nix Flake 工具链与双系统闭环验证体系**：
-   - 基于 [`flake.nix`](flake.nix) 与 [`flake.lock`](flake.lock) 封装完整 LLVM 21（`clang_21` / `llvm_21` / `lld_21`）、`ld64`、`rcodesign`、`grub2`、`mtools`、`dosfstools`、`acpica-tools` 交叉构建环境，配合硬件寄存器快照采集与自动化校验脚本。
+1. **完整 macOS 26.6.2 (`25G83`) 系统安装、内置 NVMe SSD 独立引导与一键重装/净室重编译闭环**：
+   - 原生 macOS 26 Tahoe（`26.6.2`，Build `25G83`，Darwin `25.6.0` / `xnu-12377.161.14~5`）已完整安装至内置 Micron 2210 NVMe SSD，并通过内置盘 `disk0s1` `/boot/EFI/OC`（OpenCore `1.0.8` `config.plist` SHA256 `6043726e373a131f44b3c01e4a0c376d8678791848bf331f4627ce274b3a30cd` + `R32-PCFIX37` `NootedGreen.kext` SHA256 `94b2cb33f67fa07d0a0c441da89378a53d096d11e067b4d5a16a3f03cc39f7e1`、UUID `4C4C44EC-5555-3144-A1CA-55B34DC29F79`，`112/112` 引导文件经回读逐字节核验一致）独立引导运行；完整全新重装流程与从零源码净室重编译指南见 [`mac-for-elitebook/docs/clean-install-guide.md`](mac-for-elitebook/docs/clean-install-guide.md) 与 [`mac-for-elitebook/docs/from-source-rebuild-guide.md`](mac-for-elitebook/docs/from-source-rebuild-guide.md)。
+2. **Intel Iris Xe 80 EU Metal 硬件加速、三阶段耐力测试 100% 零挂死通关（[`R32-PCFIX27`](graphics/patches/nootedgreen-pcfix27-20261106.patch)）与 `420v` NV12 视频零绿屏渲染（[`R32-PCFIX35`](graphics/patches/nootedgreen-pcfix35-blitalign-20261108.patch)）**：
+   - 在实机上 **100% 通过 GPU 三阶段稳定性与耐力实机测试计划**（`Trial 27` 与 `Trial 28`，全程净化并执行 **`705,024` 个计算编码器**，**全程 `0` 次 `GPU hang:`、`0` 次 `GPURestart`、`0` 次内核 panic**）：
+     - **Stage 1（连续 3 轮完整 Geekbench 6.5.0 `--gpu Metal` 共 24 项计算工作负载）**：`enc=25,088 -> 50,176 -> 75,264`（`rc=0`，`hang_count=0`）；
+     - **Stage 2（90 秒 4 线程 `metal-concurrent-stress` Blit+Compute 并发压测 + `WindowServer` 合成）**：`67,430` 批次、`404,570` 个编码器（`errors=0`，推进至 `enc#547,328`）；
+     - **Stage 3（60 秒 RC6 深度休眠静置 + 30 秒 4 线程唤醒突发压测）**：`22,513` 批次、`135,068` 个编码器（`errors=0`，推进至 **`enc#705,024`**，详见 [`mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md`](mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md)）。
+   - **`HP-BLITALIGN`（[`R32-PCFIX35`](graphics/patches/nootedgreen-pcfix35-blitalign-20261108.patch)）+ `xe-h264sw-fixd`**：修复 Tiger Lake `420v` NV12 `IOSurface` 64 字节行距对齐与 UV 平面偏移，配合 `AppleH264SW` + Metal 合成彻底消除 Bilibili / Safari / QuickTime 视频绿边与花屏。
+3. **Modern Standby `S0ix` 深度休眠唤醒（`51m 37s` 实测通过）、禁用 USB 误唤醒与唤醒零绿屏（[`SSDT-DEEPIDLE.dsl`](EFI/ACPI/SSDT-DEEPIDLE.dsl) + `S0ixStandby 1.1.0` + [`R32-PCFIX37`](graphics/patches/nootedgreen-pcfix37-wakergb-20261111.patch)）**：
+   - 通过 [`SSDT-DEEPIDLE.dsl`](EFI/ACPI/SSDT-DEEPIDLE.dsl)（注入 `_SB.LPS0` / `_GPE.LXEN` / `PEPD._STA` 并在 Darwin 下置 `\USWE = Zero` 关闭 `XHCI._PRW` USB 唤醒，仅保留开盖与电源键唤醒）、`S0ixStandby.kext`（`1.1.0`，挂起期间静默 `CNVW` PCI `BME/MSE`）、[`R32-PCFIX32`..`PCFIX37`](graphics/patches/nootedgreen-pcfix37-wakergb-20261111.patch)（`HP-S0IX-IDLE` / `HP-S0IX-DRM` + 唤醒无条件清除 Pipe A `PLCA_CTL_A [0x70190]` YUV 位、`PIPE_CSC_MODE_A [0x49028]` 与 `GAMMA_MODE_A [0x4a480]`）以及 `hp-wake-helper` ICC/Gamma 立即重刷，打通 XNU `sleepType=7`（`acpi_idle_kernel()`）深度休眠与秒级 RGB 唤醒（`PCFIX37` + `S0ixStandby 1.1.0` + `SSDT-DEEPIDLE` 新版已同步内置 ESP 待下次开机载入 BootKC）。
+4. **全外设驱动、守护进程稳固与持久化日志闭环**：
+   - **声卡与四阵列数字麦克风**：Realtek ALC285 四扬声器 + 3.5 mm 耳机自动切换（`AppleALC` layout-id `11` + `SimpleHDA.kext` + `alc285-ampinit`）与自研 Tiger Lake Intel SST NHLT + sDMA 四麦克风驱动 `TGLDmic.kext`（48 kHz 双声道 16-bit PCM）；
+   - **原生屏幕亮度与全套 Fn 热键**：[`R32-PCFIX31`](graphics/patches/nootedgreen-pcfix31-backlight-20261107.patch)（`AppleBacklightDisplay` + PCH PWM `0x2e84` 同步）+ `hp-brightness-daemon` v2 原生 OSD + [`SSDT-HP-Hotkeys.dsl`](EFI/ACPI/SSDT-HP-Hotkeys.dsl) + `hp-bridge`（`Fn+F1`..`Fn+F11` 全覆盖）；
+   - **安全隔区、蓝牙 `decmpfs` 锁页防崩、网络共存与持久化日志**：`RidgeKey` 虚拟安全隔区 Touch ID / Passkey（`SepManager` `enrolled=true`）；`hp-syslogger.py` 对 `/usr/sbin/bluetoothd` 执行 `MAP_PRIVATE + mlock()` 锁页彻底消除 `BlueToolFixup` 热补丁页与 APFS `decmpfs` 16 KB 压缩簇换页校验冲突导致的 `error 94` (`EBADMSG`) `SIGBUS` 崩溃循环；配置 Unified Log `persist:info`、跨关机 `/var/log/hp/boot-<STAMP>-<UUID8>/` 归档与 `/etc/newsyslog.d/com.hp.conf` 轮转；完成 Clash Verge（`find-process-mode: 'off'`）与 Tailscale TUN/DNS/系统代理无损共存。
+5. **内置 SSD 引导长稳运行零 Panic（`PMAPFIX` 根治 `pmap_recycle_page`）与可复现 Nix Flake 工具链**：
+   - 隔离物理内存窗口 `0x101000000..0x101400000`（`4 MiB`）+ `debug=0x100000`，`pmap_recycle_page` 崩溃发生率 **0%**；基于 [`flake.nix`](flake.nix) / [`flake.lock`](flake.lock) 与 [`verify_release_artifacts.py`](mac-for-elitebook/scripts/verify_release_artifacts.py) 实现 6 项核心产物净室重编译逐字节确定性核验。
 
 ---
 
-## 四大核心技术修复详解
+## 核心技术修复详解
 
-> 完整寄存器取证、反汇编偏移、补丁 SHA-256 与 28 轮实机演进记录见 **[`mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md`](mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md)**。
+> 完整寄存器取证、反汇编偏移、补丁 SHA-256 与演进记录见 **[`mac-for-elitebook/README.md`](mac-for-elitebook/README.md)**、**[`mac-for-elitebook/docs/clean-install-guide.md`](mac-for-elitebook/docs/clean-install-guide.md)**、**[`mac-for-elitebook/docs/from-source-rebuild-guide.md`](mac-for-elitebook/docs/from-source-rebuild-guide.md)** 与 **[`mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md`](mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md)**。
 
 ### 修复一：Tiger Lake (Gen12LP) RCS Execlist 硬件提交队列竞争、跨上下文抢占与无损单端口调度（`ELSQWAIT` + `PCFIX5` + `PCFIX6`）
 
@@ -47,24 +49,22 @@
     2. 当多个计算编码器串联于同一 `MTLCommandBuffer` 时，均走 `0xac == 1` 慢路径而从不发射 `MEDIA_STATE_FLUSH`（`0x70040000`）；
     3. 编码器末尾 `AddPipeFlushCmd`（`dw[83..94]`）发射了 `7a000004 001044a0 <m_pScratchPage+0x10> 0 0 0`，在同一个 `PIPE_CONTROL` 包内同时混用 `POST_SYNC_OP = Write Immediate`（`0x4000`）、读缓存失效 `TEXTURE_CACHE_INVALIDATE`（`0x400`）与写缓存刷新 `DC_FLUSH_ENABLE`（`0x20`）。
   - **`HP-SLICE` 80 EU 硬件级空闲证实（`PCFIX22` ~ `PCFIX26`）**：挂死瞬间全部 5 个活动 DualSubslice（80 个 EU）100% 空闲完成（`SC_INSTDONE [0x7100] = 0xffffffff`、`ROW_INSTDONE[0..4] = 0xffffffff`、`SAMPLER_INSTDONE[0..4] = 0xffffffff`、`FAULT_REG [0xcec4] = 0x00000000`），死锁 **100% 发生在前端 Command Streamer Flush Tracker**（`CSFLFLAG [0x2204] = 0x50000000`、`CSFLTRK [0x2208]` bits 28..25 锁存未引退）。
-- **修复机制**（[`graphics/src/NootedGreen/kern_gen11.cpp`](graphics/src/NootedGreen/kern_gen11.cpp)，最终版补丁 [`graphics/patches/nootedgreen-pcfix27-20261106.patch`](graphics/patches/nootedgreen-pcfix27-20261106.patch)）：
+- **修复机制**（[`graphics/src/NootedGreen/kern_gen11.cpp`](graphics/src/NootedGreen/kern_gen11.cpp)，计算耐力补丁 [`graphics/patches/nootedgreen-pcfix27-20261106.patch`](graphics/patches/nootedgreen-pcfix27-20261106.patch)，最新累积补丁 [`graphics/patches/nootedgreen-pcfix37-wakergb-20261111.patch`](graphics/patches/nootedgreen-pcfix37-wakergb-20261111.patch)）：
   - 在 `nativeRowPrefix` 写入 `GEN8_ROW_CHICKEN2 [0xe4f4] = 0xc100c100`；启用 `IntelAccelerator+0xf42 bit 0`（`_WA_TABLE+0x14 bit 0`）使 `AddPipeFlushCmd` 分配 12-dword 双包空间（`endOffDw = 95, totalDw = 151`）；
   - 挂钩 `IntelMTLComputeFunctions::execute`（仅针对计算编码器提交 token `eToken == 0x40001U` 调用 `hpSanitizeComputeEncoder`）：
     - **前导净化与 `PIPELINE_SELECT` 前后 `RT_CACHE_FLUSH` 解耦（`ResetPreambleCmds` `dw[0..32]`，`PCFIX27` 核心突破）**：保留 `dw[+12] PIPELINE_SELECT = GPGPU` 之前的 Packet 1（`dw[+1] = 0x001010a0U` = `CS_STALL | RT_CACHE_FLUSH | FLUSH_ENABLE | DC_FLUSH_ENABLE`）在 EU 空闲态排空并引退 3D/ring Render Target Cache；为 Packet 2（`dw[+7]`）与 Packet 4（`dw[+25]`）补齐 `CS_STALL`（`0x00100480U`）；将 `dw[+15..+17]` 的非法 `LRI 0xb134` 就地替换为 `MEDIA_STATE_FLUSH`（`0x70040000U, 0U`）+ `MI_NOOP`（`0U`）；并将紧随 `MEDIA_STATE_FLUSH` 之后（已处于 GPGPU 模式）的 **Packet 3（`dw[+19]`）从 `0x001010a0U` 改写为 `0x001000a0U`**（剥离 `0x1000 RT_CACHE_FLUSH`），使 `CSFLTRK bit 28`（`0x10000000`）在进入 `GPGPU_WALKER` 前彻底引退为 `0`；
     - **末尾刷新双包解耦（`AddPipeFlushCmd` `dw[83..94]`）**：解耦写刷新 Packet 0（`0x001000a0U` = `CS_STALL | FLUSH_ENABLE | DC_FLUSH_ENABLE`）与读缓存失效 Packet 1（`0x00100480U` = `CS_STALL | TEXTURE_CACHE_INVALIDATE | FLUSH_ENABLE`）；
   - **Tiger Lake `_WA_TABLE` 64 位偏移修正与黄金上下文镜像持久化验证（`PCFIX23` ~ `PCFIX27`）**：在 `PCFIX25` / `PCFIX26` 中证实通过 `that[0xf5f] |= 0x80U`（`0x7010 = 0x20002000`）与 `that[0xf68] |= 0x01U`（`0x20d8 = 0x00100010`）将 `CS_DBG1 = 0x00000010` 与 `CHKN3 = 0x00002000` 烘焙进 `_safeHardwareContextBufferRCS` 即可跨数千次上下文切换 100% 持久保留（`PCFIX25` 首次将 `CSFLTRK bits 31..1` 清零至 `0x00000001`），并在 **`R32-PCFIX27`** 中回退会产生副作用的 `0x7010`/`0x20d8`/`0x2050` 至干净 `PCFIX20` 基底，仅凭 `dw[+1]=0x001010a0U` + `MEDIA_STATE_FLUSH` + `dw[+19]=0x001000a0U` + 双包 `AddPipeFlushCmd` 实现 `CSFLTRK bits 28..25 = 0000b` 全清零，**100% 零挂死通过全部三阶段实机耐力测试（`705,024` 个计算编码器）**。
 
-| 实机版本 | 补丁文件 | Stage 1 Run 1（8/8 项工作负载，`25,088` 编码器） | 耐力压测 `CSFLTRK [0x2208]` 锁存值 | 硬件验证结论 |
-| --- | --- | --- | --- | --- |
-| `R32-PCFIX2` | [`nootedgreen-pcfix2-20261105.patch`](graphics/patches/nootedgreen-pcfix2-20261105.patch) | 单轮基准 **100% 零挂死通关** | `0x06000001`（bits `26, 25`） | 首版就地净化，单轮 8/8 全通 |
-| `R32-PCFIX6` | [`nootedgreen-pcfix6-20261105.patch`](graphics/patches/nootedgreen-pcfix6-20261105.patch) | 验证 `HP-SINGLEPORT-RCS` | `0x18000001`（bits `28, 27`） | 100% 消除 `Port1`、`LITE_RESTORE` 与 `0x40002098` 冻结 |
-| `R32-PCFIX14` | [`nootedgreen-pcfix14-20261106.patch`](graphics/patches/nootedgreen-pcfix14-20261106.patch) | **100% 零挂死通关**（推进至 Run 2 `enc=32,142`） | `0x08000001`（仅剩 bit `27`） | `MEDIA_STATE_FLUSH` + `0x001000a0` 清除 bits `28, 26, 25` |
-| `R32-PCFIX16` | [`nootedgreen-pcfix16-20261106.patch`](graphics/patches/nootedgreen-pcfix16-20261106.patch) | **100% 零挂死通关**（`enc=21,504`，推进至 Run 2 `enc=27,348`） | `0x06000001`（bits `28..27 = 0`） | `q+0x620=1` 关闭命令合并 + 双包 `0x00100000 / 0x001000a0` |
-| `R32-PCFIX19` | [`nootedgreen-pcfix19-20261106.patch`](graphics/patches/nootedgreen-pcfix19-20261106.patch) | **100% 零挂死通关**（推进至 Run 2 `enc=32,202`） | `0x1e000001`（bits `28..25`） | 反证：`PIPE_CONTROL` 置于 `MEDIA_STATE_FLUSH` 之前会导致前导阻塞 |
-| `R32-PCFIX20` | [`nootedgreen-pcfix20-20261106.patch`](graphics/patches/nootedgreen-pcfix20-20261106.patch) | **100% 零挂死通关**（推进至 Run 2 `enc=32,196`） | `0x10000001`（仅剩 bit `28`） | 前导 `MEDIA_STATE_FLUSH` + 末尾双包 `0x001000a0 + 0x00100480` 清除 bits `27..25` |
-| `R32-PCFIX25` | [`nootedgreen-pcfix25-20261106.patch`](graphics/patches/nootedgreen-pcfix25-20261106.patch) | 验证 `_WA_TABLE` 跨上下文持久化 | **`0x00000001`（bits `31..1` 全清零）** | `CS_DBG1=0x10` 与 `CHKN3=0x2000` 跨上下文持久化，**首次清除全部缓存刷新位** |
-| `R32-PCFIX26` | [`nootedgreen-pcfix26-20261106.patch`](graphics/patches/nootedgreen-pcfix26-20261106.patch) | 验证无运行时 MMIO 写黄金镜像持久化（`enc=7,186`） | `0x06000001`（bits `28..27 = 0`） | 证实黄金上下文镜像跨 7,158 次切换持久保留 `CS_DBG1`/`CHKN3`；隔离出 `0x7010`/`0x20d8`/`0x2050` 回退副作用 |
-| **`R32-PCFIX27`** | **[`nootedgreen-pcfix27-20261106.patch`](graphics/patches/nootedgreen-pcfix27-20261106.patch)** | **三阶段全通（3 轮 24/24 项 GB6 + 90s 并发 + RC6 唤醒，`705,024` 编码器）** | **`0` 次挂死（`CSFLTRK bits 28..25 = 0000b`）** | **保留 `dw[+1]=0x001010a0` + 将 GPGPU 后 `dw[+19]` 改为 `0x001000a0`（回退 `0x7010`/`0x20d8`/`0x2050`），三阶段耐力测试 100% 零挂死通关** |
+| 实机版本 | 补丁文件 | 核心验证结果 | 硬件验证结论 |
+| --- | --- | --- | --- |
+| `R32-PCFIX2` | [`nootedgreen-pcfix2-20261105.patch`](graphics/patches/nootedgreen-pcfix2-20261105.patch) | 单轮基准 **100% 零挂死通关** | 首版就地净化，单轮 Geekbench 6 Metal 8/8 全通 |
+| `R32-PCFIX6` | [`nootedgreen-pcfix6-20261105.patch`](graphics/patches/nootedgreen-pcfix6-20261105.patch) | 验证 `HP-SINGLEPORT-RCS` | 100% 消除 `Port1`、`LITE_RESTORE` 与 `0x40002098` 冻结 |
+| **`R32-PCFIX27`** | **[`nootedgreen-pcfix27-20261106.patch`](graphics/patches/nootedgreen-pcfix27-20261106.patch)** | **三阶段耐力全通（`705,024` 编码器，`0` 挂死）** | **保留 `dw[+1]=0x001010a0` + 将 GPGPU 后 `dw[+19]` 改为 `0x001000a0`，`CSFLTRK bits 28..25 = 0000b`** |
+| `R32-PCFIX31` | [`nootedgreen-pcfix31-backlight-20261107.patch`](graphics/patches/nootedgreen-pcfix31-backlight-20261107.patch) | 原生 eDP 亮度滑块 + HUD | `AppleBacklightDisplay` 挂载 + PCH PWM `0x2e84` 占空比同步 |
+| `R32-PCFIX32..34` | [`nootedgreen-pcfix34-s0ix-drm-20261108.patch`](graphics/patches/nootedgreen-pcfix34-s0ix-drm-20261108.patch) | `51m 37s` Deep Idle `S0ix` 睡眠唤醒 | `HP-S0IX-IDLE` / `HP-S0IX-DRM` GT 与显示管线挂起/恢复 |
+| `R32-PCFIX35` | [`nootedgreen-pcfix35-blitalign-20261108.patch`](graphics/patches/nootedgreen-pcfix35-blitalign-20261108.patch) | `420v` NV12 视频零绿边/花屏 | `HP-BLITALIGN` 64 字节行距对齐与 UV 平面偏移修正 |
+| **`R32-PCFIX36..37`** | **[`nootedgreen-pcfix37-wakergb-20261111.patch`](graphics/patches/nootedgreen-pcfix37-wakergb-20261111.patch)** | **唤醒立即清除 Pipe A YUV/CSC/Gamma 绿偏** | **`HP-WAKE-RGB` 无条件重置 `PLCA_CTL_A`、`PIPE_CSC_MODE_A` 与 `GAMMA_MODE_A`（已部署内置 ESP）** |
 
 ### 修复三：内置 SSD 启动 `pmap_recycle_page: page 0x101310000 is referenced` 内核崩溃根治（`PMAPFIX`）
 
@@ -75,14 +75,14 @@
 - **修复机制**：
   1. 在 OpenCore `config.plist` 的 `UEFI -> ReservedMemory` 中新增 `4 MiB` 物理内存保留条目（`Address = 0x101000000`、`Size = 0x00400000`、`Type = Reserved`、`Enabled = true`），使 XNU `pmap` 永不分配 `0x101000000..0x101400000` 物理页；
   2. 将 `boot-args` 中的 `debug=0x100100` 改为 `debug=0x100000`（去掉 `DB_HALT = 0x100`）。
-- **实机验证效果**：在随后的 **连续 28 轮实机高负载压测** 中，**`pmap_recycle_page` 崩溃发生率为 0%**。
+- **实机验证效果**：在随后的 **连续 28 轮实机高负载压测及日常多日运行** 中，**`pmap_recycle_page` 崩溃发生率为 0%**。
 
-### 修复四：可复现 Nix Flake 构建环境与外设/引导工程化整合
+### 修复四：Modern Standby `S0ix`、全外设驱动、蓝牙 `decmpfs` 锁页防崩与可复现 Nix Flake 工程体系
 
-- **Nix Flake 持久化构建环境**：新增 [`flake.nix`](flake.nix) 与 [`flake.lock`](flake.lock)，统一提供 `clang_21`、`llvm_21`、`lld_21`、`rcodesign`、`grub2`、`mtools`、`dosfstools`、`acpica-tools`、`python3`、`openssh`、`rsync`、`jq`、`gnumake`、`git`，消除硬编码 `/nix/store/...` 路径或临时 `nix-shell` 调用。
-- **ACPI 与外设基线**：
-  - [`EFI/ACPI/SSDT-EC-USBX-HP.dsl`](EFI/ACPI/SSDT-EC-USBX-HP.dsl)、[`EFI/ACPI/SSDT-RHUB-HP.dsl`](EFI/ACPI/SSDT-RHUB-HP.dsl)、[`EFI/ACPI/SSDT-PNLF-HP-GA419.dsl`](EFI/ACPI/SSDT-PNLF-HP-GA419.dsl) 与 [`mac-for-elitebook/acpi/SSDT-PLUG.dsl`](mac-for-elitebook/acpi/SSDT-PLUG.dsl)；
-  - Wi-Fi（Intel AX201 `itlwm`）、蓝牙（含双向蓝牙音频）、I²C 触控板（Synaptics `06cb:cd74`）、PS/2 键盘、电池状态、RGB 摄像头与 PCH USB 均已实机工作（外设完整状态见 [`docs/STATUS.md`](docs/STATUS.md) 与 [`mac-for-elitebook/docs/peripheral-adaptation-status-20261104.md`](mac-for-elitebook/docs/peripheral-adaptation-status-20261104.md)）。
+- **Nix Flake 持久化构建与发布校验**：基于 [`flake.nix`](flake.nix)、[`flake.lock`](flake.lock) 与 [`mac-for-elitebook/scripts/verify_release_artifacts.py`](mac-for-elitebook/scripts/verify_release_artifacts.py)，一键校验 49 项产物哈希、426 项部署包一致性、112 项 EFI 引导文件与 6 项核心组件净室源码确定性重编译。
+- **ACPI 与外设全栈基线**：
+  - [`EFI/ACPI/SSDT-DEEPIDLE.dsl`](EFI/ACPI/SSDT-DEEPIDLE.dsl)（Modern Standby `S0ix` + Darwin `\USWE = Zero` 禁 USB 唤醒）、[`EFI/ACPI/SSDT-HP-Hotkeys.dsl`](EFI/ACPI/SSDT-HP-Hotkeys.dsl)（全套 Fn 热键）、[`EFI/ACPI/SSDT-EC-USBX-HP.dsl`](EFI/ACPI/SSDT-EC-USBX-HP.dsl)、[`EFI/ACPI/SSDT-RHUB-HP.dsl`](EFI/ACPI/SSDT-RHUB-HP.dsl)、[`EFI/ACPI/SSDT-PNLF-HP-GA419.dsl`](EFI/ACPI/SSDT-PNLF-HP-GA419.dsl) 与 [`mac-for-elitebook/acpi/SSDT-PLUG.dsl`](mac-for-elitebook/acpi/SSDT-PLUG.dsl)；
+  - 内置四扬声器/耳机（`ALC285` + `SimpleHDA` + `alc285-ampinit`）、内置四阵列数字麦克风（`TGLDmic.kext`）、eDP 原生亮度与 HUD（`PCFIX31` + `hp-brightness-daemon`）、Wi-Fi（`itlwm` AX201）、蓝牙（含 `hp-syslogger.py` `MAP_PRIVATE + mlock()` 锁页消除 APFS `decmpfs` `error 94` 崩溃）、I²C 触控板、PS/2 键盘与全套 Fn 热键、电池状态、720p 摄像头、`RidgeKey` Touch ID / Passkey 以及 `com.hp.syslogger` 跨关机持久化日志均已完成验证（详见 [`docs/STATUS.md`](docs/STATUS.md) 与 [`mac-for-elitebook/README.md`](mac-for-elitebook/README.md)）。
 
 ---
 
@@ -90,14 +90,16 @@
 
 | 内容 | 入口 |
 | --- | --- |
+| **全新重装与一键部署操作手册（2026-11-11）** | **[`mac-for-elitebook/docs/clean-install-guide.md`](mac-for-elitebook/docs/clean-install-guide.md)** |
+| **从零源码净室重编译完整指南（2026-11-11）** | **[`mac-for-elitebook/docs/from-source-rebuild-guide.md`](mac-for-elitebook/docs/from-source-rebuild-guide.md)** |
+| **安装、S0ix、声卡/DMIC、视频对齐与持久化日志主文档** | **[`mac-for-elitebook/README.md`](mac-for-elitebook/README.md)** |
 | **2026-11-06 GPU Metal 加速、单端口 RCS 与 `PMAPFIX` 技术总结** | **[`mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md`](mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md)** |
 | **2026-11-05 Geekbench 6.5.0 Metal 8/8 全通记录（`R32-PCFIX2`）** | **[`mac-for-elitebook/docs/repair32-pcfix2-20261105.md`](mac-for-elitebook/docs/repair32-pcfix2-20261105.md)** |
 | **2026-11-05 Horizon Detection 突破记录（`R32-ELSQWAIT`）** | **[`mac-for-elitebook/docs/repair32-elsqwait-20261105.md`](mac-for-elitebook/docs/repair32-elsqwait-20261105.md)** |
 | 当前硬件支持矩阵与功能状态 | [`docs/STATUS.md`](docs/STATUS.md) |
 | 实测图形源码（`NootedGreen` + `HookCase`）、补丁链与 SHA-256 清单 | [`graphics/README.md`](graphics/README.md) |
 | OpenCore 配置示例与 ACPI 源码 | [`EFI/README.md`](EFI/README.md) |
-| 安装、ACPI、外设与诊断工程主文档 | [`mac-for-elitebook/README.md`](mac-for-elitebook/README.md) |
-| 外设适配现状与驱动深度调研（2026-11-04） | [`mac-for-elitebook/docs/peripheral-adaptation-status-20261104.md`](mac-for-elitebook/docs/peripheral-adaptation-status-20261104.md)、[`mac-for-elitebook/docs/peripheral-driver-research-20261104.md`](mac-for-elitebook/docs/peripheral-driver-research-20261104.md) |
+| 外设适配现状与驱动深度调研（2026-11-04 早期归档） | [`mac-for-elitebook/docs/peripheral-adaptation-status-20261104.md`](mac-for-elitebook/docs/peripheral-adaptation-status-20261104.md)、[`mac-for-elitebook/docs/peripheral-driver-research-20261104.md`](mac-for-elitebook/docs/peripheral-driver-research-20261104.md) |
 | 早期 `pmap_recycle_page` 加速 panic 与软件显示对照（已由 `PMAPFIX` 根治） | [`docs/GRAPHICS-STABILITY.md`](docs/GRAPHICS-STABILITY.md)、[`evidence/README.md`](evidence/README.md) |
 | 历代图形实验与自研工具 | [`tgl26-usb/README.md`](tgl26-usb/README.md) |
 | 构建与验证说明 | [`docs/BUILDING.md`](docs/BUILDING.md) |

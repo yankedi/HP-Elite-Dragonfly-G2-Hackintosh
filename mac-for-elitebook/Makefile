@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: check collect verify-evidence acpi prototype vbt framebuffer-objects framebuffer nonboot-graphics nonboot-vm nonboot-hid recovery-probe
+.PHONY: check collect verify-evidence acpi prototype vbt framebuffer-objects framebuffer nonboot-graphics nonboot-vm nonboot-hid recovery-probe verify-release
 
 check:
 	$(PYTHON) scripts/check_repository.py
@@ -44,3 +44,6 @@ recovery-probe:
 
 nonboot-hid:
 	$(PYTHON) scripts/check_nonboot_hid.py
+
+verify-release:
+	$(PYTHON) scripts/verify_release_artifacts.py --check-source-rebuilds

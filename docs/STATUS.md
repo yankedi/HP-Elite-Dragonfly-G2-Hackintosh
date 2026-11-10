@@ -1,33 +1,34 @@
 # Hardware and support status
 
-Snapshot: **2026-11-06**. Machine: HP Elite Dragonfly G2 (`8716`) / i5-1135G7 / Iris Xe `8086:9a49` (80 EU / 5 DualSubslices) / 16 GiB LPDDR4X / macOS 26.6.2 (`25G83`).
+Snapshot: **2026-11-11**. Machine: HP Elite Dragonfly G2 (`8716`) / i5-1135G7 / Iris Xe `8086:9a49` (80 EU / 5 DualSubslices) / 16 GiB LPDDR4X / macOS 26.6.2 (`25G83`).
 
 | Function | Current result | Evidence and remaining scope |
 | --- | --- | --- |
-| macOS installation / internal NVMe boot | **Installed and booting independently (`R32-PCFIX27-PMAPFIX` deployed)** | Installed on internal Micron 2210 NVMe SSD (`/boot/EFI/OC`, OpenCore `1.0.8` `config.plist` SHA-256 `1dc6be22dcebd228fe9921b7733ccd7930b6e497fcab81d24e5ee43fa6dda414` + `R32-PCFIX27` `NootedGreen.kext` SHA-256 `56c2d0758770803190b70b897e06b1ed5ab5318df97fef0c1fc4c07a2de2ffd9`, UUID `4C4C44D2-5555-3144-A1F9-D192CDF39360`), 99/99 `/boot/EFI/OC` files verified byte-for-byte via readback |
-| Internal-boot `pmap_recycle_page` stability (`PMAPFIX`) | **Resolved (0 panics across 28 endurance trials)** | `UEFI -> ReservedMemory` reserves `0x101000000..0x101400000` (`4 MiB`, `Type = Reserved`) with `debug=0x100000`, eliminating the `pmap_recycle_page: page 0x101310000` crash ([details](../mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md)) |
-| Tiger Lake Iris Xe 80 EU Metal acceleration | **100% 3-Stage Endurance Plan passed (`705,024` encoders, 0 hangs)** | `R32-PCFIX27-PMAPFIX` ([nootedgreen-pcfix27-20261106.patch](../graphics/patches/nootedgreen-pcfix27-20261106.patch)) passed all 3 stages: 3 consecutive Geekbench 6.5.0 Metal runs (`24/24` workloads, `enc=75,264`) + 90s 4-worker concurrent stress (`404,570` encoders) + 60s RC6 idle & 30s 4-worker burst wake (`135,068` encoders, total `705,024` encoders) with `0` `GPU hang:` and `0` `GPURestart` ([details](../mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md)) |
+| macOS installation / internal NVMe boot | **Installed and booting independently (`R32-PCFIX36` live-booted; `R32-PCFIX37` staged)** | Installed on internal Micron 2210 NVMe SSD (`disk0s1` `/boot/EFI/OC`, OpenCore `1.0.8` `config.plist` SHA-256 `6043726e373a131f44b3c01e4a0c376d8678791848bf331f4627ce274b3a30cd` + `R32-PCFIX37` `NootedGreen.kext` SHA-256 `94b2cb33f67fa07d0a0c441da89378a53d096d11e067b4d5a16a3f03cc39f7e1`, UUID `4C4C44EC-5555-3144-A1CA-55B34DC29F79`, 112/112 ESP files verified; see [clean-install-guide.md](../mac-for-elitebook/docs/clean-install-guide.md)) |
+| Internal-boot `pmap_recycle_page` stability (`PMAPFIX`) | **Resolved (0 panics across 28+ endurance trials & multi-day daily use)** | `UEFI -> ReservedMemory` reserves `0x101000000..0x101400000` (`4 MiB`, `Type = Reserved`) with `debug=0x100000`, eliminating the `pmap_recycle_page: page 0x101310000` crash ([details](../mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md)) |
+| Tiger Lake Iris Xe 80 EU Metal acceleration | **100% 3-Stage Endurance Plan passed (`705,024` encoders, 0 hangs)** | `R32-PCFIX27` ([nootedgreen-pcfix27-20261106.patch](../graphics/patches/nootedgreen-pcfix27-20261106.patch)) passed 3 consecutive Geekbench 6.5.0 Metal runs (`24/24` workloads, `enc=75,264`) + 90s 4-worker concurrent stress (`404,570` encoders) + 60s RC6 idle & 30s burst wake (`135,068` encoders, total `705,024` encoders) with `0` `GPU hang:` and `0` `GPURestart` ([details](../mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md)) |
+| `420v` NV12 H.264/HEVC video rendering (`HP-BLITALIGN`) | **Working (0 green/corrupted frames)** | `R32-PCFIX35` ([nootedgreen-pcfix35-blitalign-20261108.patch](../graphics/patches/nootedgreen-pcfix35-blitalign-20261108.patch)) aligns NV12 `IOSurface` row pitch to 64 B and fixes UV plane offset; `xe-h264sw-fixd` routes `VideoToolbox` cleanly to `AppleH264SW` + Metal compositing |
 | Firmware/basic display | Usable 1920×1080 desktop | IONDRVFramebuffer, no active Intel accelerator; one ~62 min run without user-reported freeze ([comparison](GRAPHICS-STABILITY.md)) |
-| Bluetooth | User confirmed working | Firmware, patcher and BlueToolFixup loaded; long-term reconnect coverage not established |
+| Bluetooth | **Working (hardened against APFS `decmpfs` eviction)** | Intel AX201 Bluetooth (`v8787`); `hp-syslogger.py` wires `/usr/sbin/bluetoothd` (`MAP_PRIVATE` + `mlock()`, `11.2 MiB`) in RAM to prevent `decmpfs_pagein_compressed` `EBADMSG` (`error 94`) `SIGBUS` crashes on `BlueToolFixup`-patched pages |
 | Bluetooth audio output + microphone | User confirmed both working | Registered input/output endpoints corroborate route; successful use is user evidence |
 | Touchpad | User confirmed working | GPIO-based TPD0, VoodooGPIO Tiger Lake LP / INT34C5, pin 175 |
-| Keyboard | Usable during testing | Complete Fn/JIS/special-key coverage not established |
-| Battery display | User confirmed visible | SMCBatteryManager + ECEnabler; full charge/discharge/suspend validation pending |
-| Camera | User confirmed working | USB UVC enumeration alone was not counted as success; later user test supplied the functional result |
-| Wi-Fi | Tested during installation/SSH work | AirportItlwm-based configuration; all advanced Continuity features not established |
-| Internal speakers / HDA | **Not working** | ALC285 10ec:0285 / subsystem103c:8716; no verified working internal output path |
-| Internal microphone / SOF DMIC | **Not working** | Bluetooth microphone success does not resolve the internal SOF path |
-| Actual backlight brightness | **Not working** | BrightnessKeys/PNLF/AppleBacklightDisplay registration does not prove panel PWM control |
-| Touchscreen / pen | Incomplete acceptance | A registered HID service is not a complete physical test |
-| USB mapping | Incomplete acceptance | Earlier boot/ownership work preserved; full per-port USB2/3/Type-C orientation mapping pending |
-| Thunderbolt/USB4 tunnelling | No verified complete implementation/test | Requires actual downstream hardware and implementation validation |
-| ISH / fingerprint | No verified complete macOS implementation | No success claimed from PCI matching alone |
-| Sleep, wake, advanced power management | Not fully validated | Display sleep is not system sleep; no blanket success claim |
-| Advanced Continuity | Not fully supported/validated | Bluetooth and Wi-Fi functionality do not establish complete Apple integration |
+| Keyboard & top-row Fn hotkeys | **Working (`Fn+F1`..`Fn+F11` verified)** | PS/2 keyboard + [`SSDT-HP-Hotkeys.dsl`](../EFI/ACPI/SSDT-HP-Hotkeys.dsl) (`EC0._Q86/_Q87` + `WMIV.GVWE`) + `hp-bridge` Aqua LaunchAgent |
+| Battery display | **Working (1% granularity & cycle/health telemetry)** | `SMCBatteryManager` + `ECEnabler` + `SSDT-EC0-ITLB` |
+| Camera | **Working (720p UVC verified)** | HP Wide Vision HD Camera (`0408:5347`), verified by user and AVFoundation capture |
+| Wi-Fi | **Working (802.11ax + Tailscale coexistence verified)** | Intel Wi-Fi 6 AX201 (`itlwm.kext` + HeliPort); Clash Verge `find-process-mode: 'off'` + Tailscale TUN/DNS/proxy bypass verified |
+| Internal speakers & 3.5 mm jack (`ALC285`) | **Working (quad-speakers + auto-switching)** | Realtek ALC285 (`10ec:0285`, layout-id `11`) via `AppleALC` + `SimpleHDA.kext` + `alc285-ampinit` GPIO/EAPD amplifier init across boot & wake |
+| Internal microphone / Intel SST DMIC | **Working (48 kHz 2-ch 16-bit PCM)** | Custom `TGLDmic.kext` (`1.0.0`, SHA-256 `56620031521cd99c36459f5b726f39dfdd206b5ed584208ba930315e9331d675`) driving Tiger Lake Intel SST NHLT + sDMA quad-DMIC |
+| Actual backlight brightness | **Working (native GUI slider + `Fn+F3`/`F4` HUD)** | `R32-PCFIX31` ([nootedgreen-pcfix31-backlight-20261107.patch](../graphics/patches/nootedgreen-pcfix31-backlight-20261107.patch)) `AppleBacklightDisplay` + `0x2e84` PCH PWM sync + `hp-brightness-daemon` v2 native OSD |
+| Sleep, wake, Modern Standby (`S0ix` Deep Idle) | **Working (`51m 37s` Deep Idle verified; `PCFIX37` + USB-wake-off staged)** | [`SSDT-DEEPIDLE.dsl`](../EFI/ACPI/SSDT-DEEPIDLE.dsl) + `S0ixStandby.kext` (`1.1.0`) + `R32-PCFIX32`..`PCFIX37` ([nootedgreen-pcfix37-wakergb-20261111.patch](../graphics/patches/nootedgreen-pcfix37-wakergb-20261111.patch)) + `hp-wake-helper` ICC/Gamma refresh; `\USWE = Zero` disables USB wake while keeping Lid/Power-button wake (`PCFIX37` + `S0ixStandby 1.1.0` + `SSDT-DEEPIDLE` staged on ESP for next boot) |
+| Touch ID / Passkey (`RidgeKey` Secure Enclave) | **Working via FIDO2 / Apple Watch; internal `06cb:00f0` unsupported** | `RidgeKeyBridge` + `RidgeKeyKext` (`SepManager` `enrolled=true`) provides Touch ID / Passkey; built-in Synaptics `06cb:00f0` Match-on-Chip USB sensor has no macOS driver |
+| Touchscreen / pen | Incomplete acceptance | Registered HID service present; full multi-touch/pen acceptance not claimed |
+| USB & Thunderbolt 4 / USB-C | PCH USB 3.1 & TB4/USB-C enumerated | USB wake disabled on Darwin via `\USWE = Zero`; full downstream TB4 PCIe tunnelling matrix not claimed |
+| Persistent system & daemon logging | **Configured and verified** | Unified Log subsystem `level:info,persist:info` + `com.hp.syslogger` (`/var/log/hp/boot-<STAMP>-<UUID8>/` 15-boot archive + `SIGTERM` shutdown capture) + `/etc/newsyslog.d/com.hp.conf` |
+| Advanced Continuity | Partial (Wi-Fi via `itlwm` Ethernet emulation) | AirDrop / Sidecar wireless Continuity not claimed |
 
 ## Graphics configuration identities
 
-## 2026-11-05 ~ 2026-11-06 Complete Three-Stage GPU Endurance Pass (`R32-PCFIX27-PMAPFIX`, `705,024` Encoders), Single-Port RCS Scheduler, and `PMAPFIX` Update
+## 2026-11-05 ~ 2026-11-11 Complete GPU Endurance (`R32-PCFIX27`), eDP Backlight (`PCFIX31`), `420v` `HP-BLITALIGN` (`PCFIX35`), Modern Standby `S0ix` & Post-Wake RGB (`PCFIX32`..`PCFIX37`)
 
 Full technical analysis, disassembly offsets, and the 28-trial `CSFLTRK [0x2208]` hardware truth table are documented in [repair32-gpu-stability-and-pmapfix-20261106.md](../mac-for-elitebook/docs/repair32-gpu-stability-and-pmapfix-20261106.md) and [repair32-pcfix2-20261105.md](../mac-for-elitebook/docs/repair32-pcfix2-20261105.md):
 

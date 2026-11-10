@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "record_type": "sanitized_public_evidence_index",
-  "as_of": "2026-11-06",
+  "as_of": "2026-11-11",
   "scope": "Concise milestones and evidence boundaries; not a transcript or complete event log.",
   "source_orchestration_history_copied": false,
   "private_raw_evidence_included": false,
@@ -44,9 +44,30 @@
     {
       "date": "2026-11-06",
       "topic": "100% Three-Stage GPU Stability & Endurance Pass (R32-PCFIX27-PMAPFIX, 705,024 compute encoders, 0 hangs) & Internal NVMe /boot/EFI/OC Deployment",
-      "summary": "Implemented lossless Single-Port RCS Execlist scheduling (PCFIX6, 0 Port1 submissions, 0 LITE_RESTORE, 0 0x40002098 freezes, 100% clean XeNG GPUREC: reset RCS ret=1 recovery); verified 5/5 DualSubslices (80 EU) 0xffffffff idle completion in PCFIX22..PCFIX26; persisted CS_DBG1=00000010 and CHKN3=00002000 across context switches via 64-bit shifted _WA_TABLE bits 0xf5f|=0x80 and 0xf68|=0x01 in PCFIX25/PCFIX26; and in R32-PCFIX27 (NootedGreen SHA-256 56c2d0758770803190b70b897e06b1ed5ab5318df97fef0c1fc4c07a2de2ffd9, UUID 4C4C44D2-5555-3144-A1F9-D192CDF39360), preserved ResetPreambleCmds Packet 1 (dw[+1]=0x001010a0U before PIPELINE_SELECT=GPGPU) while changing Packet 3 (dw[+19] after MEDIA_STATE_FLUSH in GPGPU mode) to 0x001000a0U on the clean PCFIX20 baseline, passing 100% of all three stages of the Real-Machine GPU Stability & Endurance Test Plan (Stage 1: 3 consecutive full Geekbench 6.5.0 Metal runs, 24 workloads, enc=75,264; Stage 2: 90s 4-worker concurrent stress, 67,430 batches, 404,570 encoders, enc=547,328; Stage 3: 60s RC6 idle + 30s 4-worker burst wake, 22,513 batches, 135,068 encoders, enc=705,024; 0 GPU hangs, 0 GPURestart, 0 kernel panics). Per user confirmation on 2026-11-06, deployed R32-PCFIX27-PMAPFIX to internal NVMe /boot/EFI/OC and verified byte-for-byte SHA-256 readback.",
+      "summary": "Implemented lossless Single-Port RCS Execlist scheduling (PCFIX6, 0 Port1 submissions, 0 LITE_RESTORE, 0 0x40002098 freezes, 100% clean XeNG GPUREC: reset RCS ret=1 recovery); verified 5/5 DualSubslices (80 EU) 0xffffffff idle completion in PCFIX22..PCFIX26; persisted CS_DBG1=00000010 and CHKN3=00002000 across context switches via 64-bit shifted _WA_TABLE bits 0xf5f|=0x80 and 0xf68|=0x01 in PCFIX25/PCFIX26; and in R32-PCFIX27 (NootedGreen SHA-256 56c2d0758770803190b70b897e06b1ed5ab5318df97fef0c1fc4c07a2de2ffd9, UUID 4C4C44D2-5555-3144-A1F9-D192CDF39360), preserved ResetPreambleCmds Packet 1 (dw[+1]=0x001010a0U before PIPELINE_SELECT=GPGPU) while changing Packet 3 (dw[+19] after MEDIA_STATE_FLUSH in GPGPU mode) to 0x001000a0U on the clean PCFIX20 baseline, passing 100% of all three stages of the Real-Machine GPU Stability & Endurance Test Plan (705,024 encoders, 0 GPU hangs, 0 GPURestart, 0 kernel panics).",
       "public_docs": ["../docs/repair32-gpu-stability-and-pmapfix-20261106.md", "../patches/nootedgreen-r32-pcfix6-20261105.patch", "../patches/nootedgreen-r32-pcfix14-20261106.patch", "../patches/nootedgreen-r32-pcfix20-20261106.patch", "../patches/nootedgreen-r32-pcfix25-20261106.patch", "../patches/nootedgreen-r32-pcfix26-20261106.patch", "../patches/nootedgreen-r32-pcfix27-20261106.patch"],
-      "limitation": "Per explicit user instruction ('完成gpu后停止适配，更新仓库，以及推送到远端'), adaptation is stopped after completing GPU stability and endurance verification and deploying R32-PCFIX27-PMAPFIX to /boot/EFI/OC."
+      "limitation": "Subsequent peripheral, S0ix, and video blit adaptations continued in 2026-11-07..2026-11-11."
+    },
+    {
+      "date": "2026-11-07",
+      "topic": "ALC285 physical audio, RidgeKey Secure Enclave Touch ID, R32-PCFIX31 eDP PWM brightness, and all-Fn hotkeys",
+      "summary": "Deployed Realtek ALC285 internal speakers + headphone jack auto-switching (AppleALC + SimpleHDA + alc285-ampinit), enrolled RidgeKey virtual Secure Enclave authentication (RidgeKeyBridge + RidgeKeyKext), implemented R32-PCFIX31 AppleBacklightDisplay + PCH PWM 0x2e84 duty-cycle synchronization with hp-brightness-daemon v2 native HUD, and enabled full top-row Fn+F1..Fn+F11 hotkeys via SSDT-HP-Hotkeys + hp-bridge.",
+      "public_docs": ["../README.md", "../patches/nootedgreen-r32-pcfix31-backlight-20261107.patch"],
+      "limitation": "Built-in Synaptics 06cb:00f0 Match-on-Chip USB fingerprint sensor remains unsupported natively in macOS."
+    },
+    {
+      "date": "2026-11-09",
+      "topic": "Tiger Lake quad-DMIC (TGLDmic), 420v NV12 HP-BLITALIGN (R32-PCFIX35), and Modern Standby S0ix Deep Idle (S0ixStandby + R32-PCFIX32..PCFIX36)",
+      "summary": "Implemented TGLDmic.kext (48 kHz 2-ch 16-bit internal quad-DMIC via Intel SST NHLT + sDMA), eliminated 420v NV12 video green/corruption via R32-PCFIX35 HP-BLITALIGN + xe-h264sw-fixd, and verified 51m 37s Modern Standby S0ix Deep Idle sleep/wake via S0ixStandby.kext + SSDT-DEEPIDLE + R32-PCFIX32..PCFIX36.",
+      "public_docs": ["../README.md", "../docs/clean-install-guide.md", "../docs/from-source-rebuild-guide.md", "../patches/nootedgreen-r32-pcfix35-blitalign-20261108.patch", "../patches/nootedgreen-r32-pcfix36-wakecolor-20261109.patch"],
+      "limitation": "Post-wake transient green tint and unwanted USB wake were subsequently refined on 2026-11-11."
+    },
+    {
+      "date": "2026-11-11",
+      "topic": "R32-PCFIX37 immediate post-wake RGB restore, USB wake disable, bluetoothd decmpfs mlock fix, persistent logging, and release verification",
+      "summary": "Built and staged R32-PCFIX37 (SHA-256 94b2cb33f67fa07d0a0c441da89378a53d096d11e067b4d5a16a3f03cc39f7e1, UUID 4C4C44EC-5555-3144-A1CA-55B34DC29F79) + S0ixStandby 1.1.0 (be55592c46109e66d03d3b8709333e70a3249435af2c54cf150f7f375029e53d) + SSDT-DEEPIDLE (280e3a4af2b1df899d3b6ef3c497e37ba976ab631e86600668f6189e0c6b3b2c, clearing USWE=Zero on Darwin to disable USB wake while keeping Lid/Power-button wake) alongside live-deployed hp-wake-helper ICC/Gamma refresh; resolved bluetoothd APFS decmpfs EBADMSG (error 94) SIGBUS crash loop via MAP_PRIVATE+mlock page-wiring in hp-syslogger.py; configured Unified Log persistence + per-boot /var/log/hp archives + newsyslog rotation; adapted Clash Verge (find-process-mode: off) + Tailscale coexistence; verified deterministic source rebuilds (verify_release_artifacts.py) and cleanly powered off the target.",
+      "public_docs": ["../README.md", "../docs/clean-install-guide.md", "../docs/from-source-rebuild-guide.md", "../patches/nootedgreen-r32-pcfix37-wakergb-20261111.patch", "../scripts/verify_release_artifacts.py"],
+      "limitation": "R32-PCFIX37, S0ixStandby 1.1.0, and SSDT-DEEPIDLE (USB wake disabled) were staged on internal ESP disk0s1 without rebooting prior to shutdown and take effect in BootKC on the next power-on."
     }
   ],
   "privacy_note": "Personal paths, network endpoints, serial/SMBIOS identities, credentials, private keys, and raw logs are intentionally not included. A missing private artifact is not a verified result."

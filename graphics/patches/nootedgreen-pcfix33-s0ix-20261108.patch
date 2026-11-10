@@ -1,0 +1,1469 @@
+--- a/src/NootedGreen/kern_gen11.cpp
++++ b/src/NootedGreen/kern_gen11.cpp
+@@ -39,6 +39,7 @@
+ static void *volatile gTopoAcc = nullptr;
+ static volatile uint32_t gRc2Pre = 0xFFFFFFFFU, gRc2Post = 0xFFFFFFFFU, gRc2N = 0;   // xe/rowchk: 0xe4f4 before/after (last start)
+ static volatile uint32_t hpNativeRowState[6] = {};
++alignas(8) static uint64_t hpR32Readback = 0;
+ // xe/auxbl (#15): backlight over eDP AUX for panels that ignore the PWM pin (OLED). Off by default.
+ //   ngreenauxbl=1  VESA eDP (DPCD 0x720-0x723, like Linux drm_edp_backlight); =2 same and PWM duty pinned at 100% (test)
+ //   ngreenauxbl=3  Intel HDR TCON (Linux intel_dp_aux_hdr_*: 0x344 bit 4 AUX enable, nits at 0x354); =4 same + PWM pinned
+@@ -517,8 +518,9 @@
+ static uint32_t gThrtN = 0, gThrtSimN = 0;
+ static volatile uint32_t gCsbResyncN = 0;  // 21/10: active->idle salvos pelo xeCsbResync (CSBR)
+ static volatile uint32_t gCsbSkipN = 0;  // 19/10: eventos active->idle descartados pelo xeCsbA2I
++static volatile uint32_t gSubSkipN = 0;  // 05/11: prepareExecListAndSubmit vazios ignorados pelo xePrepSubmit
+ // 20/10: brilho (PWM sul 0xC8254 período / 0xC8258 duty), estilo BacklightRegistersFix do WhateverGreen
+-static volatile uint32_t gBlHwFreq = 0, gBlAppleFreq = 0, gBlLastDuty = 0, gBlMaxDuty = 0, gBlLastOut = 0, gBlFreqWrites = 0;
++static volatile uint32_t gBlHwFreq = 0, gBlAppleFreq = 0, gBlLastDuty = 0, gBlMaxDuty = 0, gBlLastOut = 0, gBlLastNonZeroOut = 0x3900u, gBlFreqWrites = 0;
+ static volatile uint32_t gIdlwN = 0, gIdlwMax = 0, gIdlwTimeout = 0;  // 19/10: esperas do IDLW (medir travadas)
+ static volatile uint64_t gIdlwUs = 0;
+ static volatile uint32_t gPageoffN = 0, gPageonN = 0;  // 19/10: chamadas de pageoff/pageon ignoradas (XE-NOPAGE)
+@@ -546,6 +548,88 @@
+ static void xeCsbFlush();
+ static void xeEvFlush();
+ static void xeEvDumpRecent(uint32_t count, int seq);
++static inline bool xeKptr(uint64_t p) { return (p >> 47) == 0x1ffff; }
++static inline uint32_t xeCsMmioBase(const uint8_t *c28) {
++	if (!xeKptr((uint64_t)c28)) return 0x2000;
++	uint32_t cspReg = *reinterpret_cast<const uint32_t *>(c28 + 0x25);
++	if ((cspReg & 0xfff) == 0x3a0 && cspReg >= 0x23a0 && cspReg < 0x200000) {
++		return cspReg & ~0xfffU;
++	}
++	return c28[0] == 0 ? 0x2000 : (c28[0] == 1 ? 0x1a000 : 0x22000);
++}
++static mach_vm_address_t gOrgS5UpdateOptions = 0, gOrgRcsAllowPreempt = 0, gOrgRcsIsPreemptAllowed = 0, gOrgDequeueExecList = 0;
++static volatile uint32_t gRcsPreemptBlockedN = 0, gRcsDeferActiveN = 0, gRcsWaitSkipPort1N = 0;
++static inline bool xePreemptDisabled() {
++	static int off = -1;
++	if (off < 0) off = checkKernelArgument("-ngreenpreempt") ? 0 : 1;
++	return off == 1;
++}
++static inline void xeDisableRcsPreemption(void *csObj) {
++	if (!xePreemptDisabled() || !xeKptr((uint64_t)csObj)) return;
++	auto *cs = static_cast<uint8_t *>(csObj);
++	auto *c28 = *reinterpret_cast<uint8_t **>(cs + 0x28);
++	if (!xeKptr((uint64_t)c28) || c28[0] != 0) return;
++	if (cs[0x1c50] || cs[0x1c5d]) {
++		cs[0x1c50] = 0;
++		cs[0x1c5d] = 0;
++		__sync_fetch_and_add(&gRcsPreemptBlockedN, 1);
++	}
++	auto *sched = *reinterpret_cast<uint8_t **>(cs + 0x20);
++	if (xeKptr((uint64_t)sched)) sched[0x0c] &= ~0x04u;
++}
++static void xeDequeueExecList(void *that, uint32_t flags) {
++	xeDisableRcsPreemption(that);
++	static int singlePort = -1;
++	if (singlePort < 0) singlePort = checkKernelArgument("-ngreenrcs2port") ? 0 : 1;
++	static int deferActive = -1;
++	if (deferActive < 0) deferActive = checkKernelArgument("-ngreenrcsliterestore") ? 0 : 1;
++	if (singlePort == 1 && deferActive == 1 && xeKptr((uint64_t)that)) {
++		auto *cs = static_cast<uint8_t *>(that);
++		auto *c28 = *reinterpret_cast<uint8_t **>(cs + 0x28);
++		if (xeKptr((uint64_t)c28) && c28[0] == 0) {
++			uint32_t bank = *reinterpret_cast<uint32_t *>(cs + 0x50);
++			if (bank <= 1) {
++				uint64_t cur0 = *reinterpret_cast<uint64_t *>(cs + 0x30 + (uint64_t)bank * 16);
++				if (cur0 != 0 || !cs[0x1c3c]) {
++					__sync_fetch_and_add(&gRcsDeferActiveN, 1);
++					return;
++				}
++			}
++		}
++	}
++	FunctionCast(xeDequeueExecList, gOrgDequeueExecList)(that, flags);
++}
++static void xeS5UpdateOptions(void *that) {
++	FunctionCast(xeS5UpdateOptions, gOrgS5UpdateOptions)(that);
++	if (xePreemptDisabled() && xeKptr((uint64_t)that)) {
++		static_cast<uint8_t *>(that)[0x0c] &= ~0x04u;
++	}
++}
++static void xeRcsAllowPreemption(void *that) {
++	if (!xePreemptDisabled()) {
++		FunctionCast(xeRcsAllowPreemption, gOrgRcsAllowPreempt)(that);
++		return;
++	}
++	if (xeKptr((uint64_t)that)) {
++		auto *cs = static_cast<uint8_t *>(that);
++		cs[0x1c50] = 0;
++		cs[0x1c5d] = 0;
++		auto *sched = *reinterpret_cast<uint8_t **>(cs + 0x20);
++		if (xeKptr((uint64_t)sched)) sched[0x0c] &= ~0x04u;
++	}
++	__sync_fetch_and_add(&gRcsPreemptBlockedN, 1);
++}
++static bool xeRcsIsPreemptionAllowed(const void *that) {
++	if (!xePreemptDisabled()) {
++		return FunctionCast(xeRcsIsPreemptionAllowed, gOrgRcsIsPreemptAllowed)(that);
++	}
++	if (xeKptr((uint64_t)that)) {
++		auto *cs = const_cast<uint8_t *>(static_cast<const uint8_t *>(that));
++		cs[0x1c50] = 0;
++		cs[0x1c5d] = 0;
++	}
++	return false;
++}
+ static void xeCsStateWorker(thread_call_param_t, thread_call_param_t) {
+ 	static uint32_t tick = 0;
+ 	tick++;
+@@ -569,14 +653,16 @@
+ 		uint8_t *c = gCs5Obj[i];
+ 		if (!c) continue;
+ 		uint32_t cur = *reinterpret_cast<volatile uint32_t *>(c + 0x50);
+-		IOLog("XeNG CS t=%u cs%d cur=%u p0=%d/%d p1=%d/%d f1c00=%u f1c38=%u f1c3c=%u\n", tick, i, cur,
++		auto *c28 = *reinterpret_cast<uint8_t *volatile *>(c + 0x28);
++		uint32_t engId = xeKptr((uint64_t)c28) ? c28[0] : 99;
++		IOLog("XeNG CS t=%u cs%d id=%u cur=%u p0=%d/%d p1=%d/%d f1c00=%u f1c38=%u f1c3c=%u def=%u wsk=%u\n", tick, i, engId, cur,
+ 			  *reinterpret_cast<void *volatile *>(c + 0x30) != nullptr, *reinterpret_cast<void *volatile *>(c + 0x38) != nullptr,
+ 			  *reinterpret_cast<void *volatile *>(c + 0x40) != nullptr, *reinterpret_cast<void *volatile *>(c + 0x48) != nullptr,
+-			  c[0x1c00], *reinterpret_cast<volatile uint32_t *>(c + 0x1c38), c[0x1c3c]);
++			  c[0x1c00], *reinterpret_cast<volatile uint32_t *>(c + 0x1c38), c[0x1c3c], gRcsDeferActiveN, gRcsWaitSkipPort1N);
+ 	}
+ 	if (gAccelObj && tick % 8 == 0)
+-		IOLog("XeNG CS t=%u dpsm1458=0x%x cfg1190=0x%x (push %u exec %u) thrt=%u thrtSim=%u csbx=%u csbr=%u idlw=%u/%llums max=%uus to=%u pgoff=%u pgon=%u pgfix=%u stail=%u resfix=%u orf=%u dpms=%u fbdpms=%u gtf=%u/0x%x bl hw=%u apple=%u fw=%u duty=%u max=%u out=%u rc1474=%u\n", tick, *reinterpret_cast<volatile uint32_t *>(gAccelObj + 0x1458),
+-			  *reinterpret_cast<volatile uint32_t *>(gAccelObj + 0x1190), gS5PushN, gCs5SubmitN, gThrtN, gThrtSimN, gCsbSkipN, gCsbResyncN, gIdlwN, (unsigned long long)(gIdlwUs / 1000), gIdlwMax, gIdlwTimeout, gPageoffN, gPageonN, gPageonFix, gSameTailForced, gXeResFreeFix, gXeOrphanMiss, gXeDpmsBlocked, gXeFbDpmsN, gXeGtFreqN, gXeGtFreqApple, gBlHwFreq, gBlAppleFreq, gBlFreqWrites, gBlLastDuty, gBlMaxDuty, gBlLastOut,
++		IOLog("XeNG CS t=%u dpsm1458=0x%x cfg1190=0x%x (push %u exec %u) thrt=%u thrtSim=%u csbx=%u csbr=%u subsk=%u idlw=%u/%llums max=%uus to=%u pgoff=%u pgon=%u pgfix=%u stail=%u resfix=%u orf=%u dpms=%u fbdpms=%u gtf=%u/0x%x bl hw=%u apple=%u fw=%u duty=%u max=%u out=%u rc1474=%u\n", tick, *reinterpret_cast<volatile uint32_t *>(gAccelObj + 0x1458),
++			  *reinterpret_cast<volatile uint32_t *>(gAccelObj + 0x1190), gS5PushN, gCs5SubmitN, gThrtN, gThrtSimN, gCsbSkipN, gCsbResyncN, gSubSkipN, gIdlwN, (unsigned long long)(gIdlwUs / 1000), gIdlwMax, gIdlwTimeout, gPageoffN, gPageonN, gPageonFix, gSameTailForced, gXeResFreeFix, gXeOrphanMiss, gXeDpmsBlocked, gXeFbDpmsN, gXeGtFreqN, gXeGtFreqApple, gBlHwFreq, gBlAppleFreq, gBlFreqWrites, gBlLastDuty, gBlMaxDuty, gBlLastOut,
+ 			  (unsigned)*reinterpret_cast<volatile uint8_t *>(gAccelObj + 0x1474));
+ 	if (tick < 2400 && gCsStateTc) {  // a cada 250 ms por ~10 min
+ 		uint64_t deadline;
+@@ -601,7 +687,7 @@
+ 		st = cb->readReg32(0x2234);
+ 		if (!(st & 0x40000000)) { resultado = 1; break; }  // o hardware aceitou sozinho
+ 		if (cb->readReg32(0x2510) != gRetryQ[0] || cb->readReg32(0x2514) != gRetryQ[1]) { resultado = 2; break; }  // driver escreveu outra
+-		if ((st & 0xff) == 0x01 || !(st & 0x18)) {  // ocioso: repete a carga
++		if ((st & 0x0007c000) == 0 || !(st & 0x18)) {  // ocioso (NO ACTIVE ELEMENTS): repete a carga
+ 			cb->writeReg32(0x2550, 1);
+ 			IODelay(20);
+ 			resultado = 3; st = cb->readReg32(0x2234);
+@@ -618,35 +704,79 @@
+ // one-shot de restauração forçada do contexto da Apple (ctx+0xc9; o código em 0x3a7b6 o converte em FORCE_RESTORE no
+ // descritor). Layout conferido com o mesmo driver 16.0.32. -ngreennosametail desliga.
+ struct XeSameTailEnt { uint64_t item, ctx, desc, image; uint32_t tail; };
+-static XeSameTailEnt gSameTailPrev = {};
+-static inline bool xeKptr(uint64_t p) { return (p >> 47) == 0x1ffff; }
++static XeSameTailEnt gSameTailPrev[3] = {};
++static void xeRepairSlotTail(uint64_t item, uint64_t *outCtx, uint64_t *outDesc, uint64_t *outImage, uint32_t *outItemTail, bool *outClobbered) {
++	if (outCtx) *outCtx = 0;
++	if (outDesc) *outDesc = 0;
++	if (outImage) *outImage = 0;
++	if (outItemTail) *outItemTail = 0;
++	if (outClobbered) *outClobbered = false;
++	if (!xeKptr(item)) return;
++	uint64_t ctx = *reinterpret_cast<uint64_t *>(item);
++	if (!xeKptr(ctx)) return;
++	uint8_t engId = *reinterpret_cast<uint8_t *>(ctx + 0x6c);
++	if (engId > 2) return;
++	uint64_t desc = 0;
++	memcpy(&desc, reinterpret_cast<void *>(ctx + 0x89), 8);
++	uint64_t buf = *reinterpret_cast<uint64_t *>(ctx + 0x98);
++	uint64_t bsz = xeKptr(buf) ? *reinterpret_cast<uint64_t *>(buf + 0x20) : 0;
++	if (!(desc & 1) || (bsz != 81920 && bsz != 8192)) return;
++	uint64_t image = *reinterpret_cast<uint64_t *>(buf + 0x38);
++	if (!xeKptr(image)) return;
++	uint32_t itemTail = *reinterpret_cast<uint32_t *>(item + 0x8);
++	uint32_t lrcaTail = *reinterpret_cast<volatile uint32_t *>(image + 0x101c);
++	if ((itemTail & 7) == 0 && itemTail < 0x20000 && lrcaTail != itemTail) {
++		*reinterpret_cast<volatile uint32_t *>(image + 0x101c) = itemTail;
++		__asm__ volatile("mfence" ::: "memory");
++		uint32_t ctxId = *reinterpret_cast<uint32_t *>(ctx + 0x7c);
++		xeEv('TCLB', lrcaTail, itemTail, (static_cast<uint32_t>(engId) << 16) | (ctxId & 0xffff));
++		if (outClobbered) *outClobbered = true;
++	}
++	if (outCtx) *outCtx = ctx;
++	if (outDesc) *outDesc = desc;
++	if (outImage) *outImage = image;
++	if (outItemTail) *outItemTail = itemTail;
++}
+ static void xeSameTail(void *that) {
+ 	static int on = -1;
+ 	if (on < 0) on = checkKernelArgument("-ngreennosametail") ? 0 : 1;
+ 	if (on != 1 || !that) return;
+ 	auto *st = static_cast<uint8_t *>(that);
+ 	auto *desc = *reinterpret_cast<uint8_t **>(st + 0x28);
+-	if (!xeKptr((uint64_t)desc) || desc[0] != 0) return;  // só o RCS
++	if (!xeKptr((uint64_t)desc) || desc[0] > 2) return;
++	uint8_t engId = desc[0];
++	uint32_t eb = xeCsMmioBase(desc);
+ 	uint32_t bank = *reinterpret_cast<uint32_t *>(st + 0x50);
+-	if (bank >= 2) { gSameTailPrev = {}; return; }
++	if (bank >= 2) { gSameTailPrev[engId] = {}; return; }
+ 	uint64_t active = *reinterpret_cast<uint64_t *>(st + 0x30 + bank * 16);
+ 	uint64_t next = *reinterpret_cast<uint64_t *>(st + 0x30 + (1 - bank) * 16);
++	uint64_t next1 = *reinterpret_cast<uint64_t *>(st + 0x38 + (1 - bank) * 16);
+ 	XeSameTailEnt e = {};
+ 	e.item = next;
+-	if (!xeKptr(next)) { gSameTailPrev = {}; return; }
+-	e.ctx = *reinterpret_cast<uint64_t *>(next);
+-	if (!xeKptr(e.ctx) || *reinterpret_cast<uint8_t *>(e.ctx + 0x6c) != 0) { gSameTailPrev = {}; return; }
+-	memcpy(&e.desc, reinterpret_cast<void *>(e.ctx + 0x89), 8);
+-	uint64_t buf = *reinterpret_cast<uint64_t *>(e.ctx + 0x98);
+-	if (!(e.desc & 1) || !xeKptr(buf) || *reinterpret_cast<uint64_t *>(buf + 0x20) != 81920) { gSameTailPrev = {}; return; }
+-	e.image = *reinterpret_cast<uint64_t *>(buf + 0x38);
+-	if (!xeKptr(e.image)) { gSameTailPrev = {}; return; }
+-	e.tail = *reinterpret_cast<uint32_t *>(e.image + 0x101c);
+-	if (active == next && !memcmp(&e, &gSameTailPrev, sizeof(e))) {
++	bool clobbered0 = false, clobbered1 = false;
++	xeRepairSlotTail(next, &e.ctx, &e.desc, &e.image, &e.tail, &clobbered0);
++	if (!e.ctx || !e.image) { gSameTailPrev[engId] = {}; return; }
++	if (xeKptr(next1)) {
++		uint64_t ctx1 = 0;
++		xeRepairSlotTail(next1, &ctx1, nullptr, nullptr, nullptr, &clobbered1);
++		if (clobbered1 && ctx1) {
++			auto *forced1 = reinterpret_cast<volatile uint8_t *>(ctx1 + 0xc9);
++			if (!*forced1) { *forced1 = 1; gSameTailForced++; }
++		}
++	}
++	uint32_t ctxId = *reinterpret_cast<uint32_t *>(e.ctx + 0x7c);
++	uint32_t st234 = NGreen::callback ? NGreen::callback->readReg32(eb + 0x234) : 0;
++	uint32_t hwCtxId = NGreen::callback ? ((NGreen::callback->readReg32(eb + 0x238) >> 5) & 0x7ff) : 0;
++	bool engineIdle = (st234 & 0x18001) == 0x18001;
++	bool samePrev = (active == next && e.ctx == gSameTailPrev[engId].ctx && e.desc == gSameTailPrev[engId].desc &&
++	                 e.image == gSameTailPrev[engId].image && e.tail == gSameTailPrev[engId].tail);
++	static int forceSame = -1;
++	if (forceSame < 0) forceSame = checkKernelArgument("-ngreensametailforce") ? 1 : 0;
++	if (clobbered0 || (forceSame == 1 && (samePrev || (engineIdle && ctxId != 0 && ctxId == hwCtxId)))) {
+ 		auto *forced = reinterpret_cast<volatile uint8_t *>(e.ctx + 0xc9);
+ 		if (!*forced) { *forced = 1; gSameTailForced++; }
+ 	}
+-	gSameTailPrev = e;
++	gSameTailPrev[engId] = e;
+ }
+ static uint64_t xeCs5Submit(void *that, uint32_t x) {
+ 	for (int i = 0; i < 4; i++) {
+@@ -659,17 +789,61 @@
+ 	}
+ 	uint32_t n = ++gCs5SubmitN;
+ 	xeEv('EXEC', n, x, gS5PushN);
++	uint64_t sub0 = 0, sub1 = 0;
++	if (that) {
++		auto *st = static_cast<uint8_t *>(that);
++		uint32_t bank = *reinterpret_cast<uint32_t *>(st + 0x50);
++		if (bank < 2) {
++			sub0 = *reinterpret_cast<uint64_t *>(st + 0x30 + (1 - bank) * 16);
++			sub1 = *reinterpret_cast<uint64_t *>(st + 0x38 + (1 - bank) * 16);
++		}
++	}
++	auto *c28 = *reinterpret_cast<uint8_t **>(static_cast<uint8_t *>(that) + 0x28);
++	xeDisableRcsPreemption(that);
++	uint32_t eb = xeCsMmioBase(c28);
++	static int elsqWaitCs5 = -1;
++	if (elsqWaitCs5 < 0) elsqWaitCs5 = checkKernelArgument("-ngreennoelsqwait") ? 0 : 1;
++	if (elsqWaitCs5 == 1 && NGreen::callback && c28) {
++		uint32_t st0 = NGreen::callback->readReg32(eb + 0x234), st = st0, us = 0;
++		while ((st & 0x40000000) && us < 2000) { IODelay(5); us += 5; st = NGreen::callback->readReg32(eb + 0x234); }
++		if (st0 & 0x40000000) xeEv('WAI2', st0, st, us);
++	}
+ 	xeSameTail(that);
+ 	uint64_t r = FunctionCast(xeCs5Submit, gOrgCs5Submit)(that, x);
+-	// xe/elsq (19/10): o que foi escrito na fila de submissão. Base do motor pelo tipo do CS (cs+0x28 -> byte 0: 0=RCS)
+-	auto *c28 = *reinterpret_cast<uint8_t **>(static_cast<uint8_t *>(that) + 0x28);
+-	uint32_t eb = (c28 && c28[0] != 0) ? 0x22000 : 0x2000;
++	// xe/elsq (19/10): o que foi escrito na fila de submissão. Base do motor pelo descritor em cs+0x28
+ 	if (NGreen::callback) {
+ 		auto rr = [&](uint32_t o) { return NGreen::callback->readReg32(eb + o); };
+-		uint32_t tag = eb == 0x2000 ? 'ELR0' : 'ELB0';
++		uint32_t tag = eb == 0x2000 ? 'ELR0' : (eb == 0x1a000 ? 'ELC0' : 'ELB0');
+ 		xeEv(tag, rr(0x510), rr(0x514), rr(0x518));
+ 		xeEv(tag + 1, rr(0x51c), rr(0x550), rr(0x234));
+ 		xeEv(tag + 2, rr(0x238), rr(0x3a0), rr(0x034) | (rr(0x030) << 16));
++		bool clob0 = false, clob1 = false;
++		if (xeKptr(sub0)) xeRepairSlotTail(sub0, nullptr, nullptr, nullptr, nullptr, &clob0);
++		if (xeKptr(sub1)) xeRepairSlotTail(sub1, nullptr, nullptr, nullptr, nullptr, &clob1);
++		static int rlodArg = -1;
++		if (rlodArg < 0) rlodArg = checkKernelArgument("-ngreenelsqrlod") ? 1 : 0;
++		if (rlodArg == 1 && (eb == 0x2000 || eb == 0x1a000)) {
++			uint32_t stAfter = rr(0x234);
++			int maxW = (clob0 || clob1) ? 10 : 5;
++			for (int w = 0; w < maxW && ((clob0 || clob1) ? ((stAfter & 0x0007c000) != 0) : ((stAfter & 0x40000000) && (stAfter & 0x0007c000) == 0)); w++) {
++				IODelay(5);
++				stAfter = rr(0x234);
++			}
++			if ((stAfter & 0x0007c000) == 0 && ((clob0 || clob1) || (stAfter & 0x40000000))) {
++				if (xeKptr(sub0)) xeRepairSlotTail(sub0, nullptr, nullptr, nullptr, nullptr, nullptr);
++				if (xeKptr(sub1)) xeRepairSlotTail(sub1, nullptr, nullptr, nullptr, nullptr, nullptr);
++				uint32_t q0 = rr(0x510), q1 = rr(0x514);
++				if (q0 & 1) {
++					if (!(q0 & 4)) {
++						NGreen::callback->writeReg32(eb + 0x510, q0 | 4);
++						NGreen::callback->writeReg32(eb + 0x514, q1);
++					}
++					NGreen::callback->writeReg32(eb + 0x550, 1);
++					IODelay(5);
++					xeEv('RLOD', stAfter, rr(0x234), n);
++				}
++			}
++		}
+ 		static int retryArg = -1;
+ 		// 19/10: desligado por padrão (suspeito do pânico "EL[0] was invalidated!!": recarregar 0x2550 com a lista já
+ 		// aceita invalida o elemento 0); -ngreenelsqretry religa
+@@ -895,7 +1069,25 @@
+ // Em vez de descartar: se EL[cur] está vazio e o slot pendente tem exatamente esse contexto, sintetiza o
+ // idle->active que faltou (csbProcessIdleToActive original: troca cur e limpa o slot velho) e processa o evento.
+ // Eventos realmente repetidos/atrasados (nenhum slot bate) continuam descartados. -ngreennocsbresync desliga.
+-static mach_vm_address_t gOrgCsbI2A = 0;  // só resolvido, não roteado
++static mach_vm_address_t gOrgCsbI2A = 0;
++static void xeCsbI2A(void *that, const uint32_t *e) {
++	static int guard = -1;
++	if (guard < 0) guard = checkKernelArgument("-ngreennocsbguard") ? 0 : 1;
++	if (guard == 1 && that && e) {
++		auto *cs = static_cast<uint8_t *>(that);
++		uint32_t idx = *reinterpret_cast<uint32_t *>(cs + 0x50);
++		if (idx <= 1) {
++			uint32_t pend = 1 - idx;
++			auto *elPend = *reinterpret_cast<uint8_t **>(cs + 0x30 + (uint64_t)pend * 16);
++			if (!elPend) {
++				uint32_t id = (e[1] >> 5) & 0x7ff;
++				xeEv('CSBI', idx, id, ++gCsbSkipN);
++				return;
++			}
++		}
++	}
++	FunctionCast(xeCsbI2A, gOrgCsbI2A)(that, e);
++}
+ static bool xeCsbResync(void *that, const uint32_t *e) {
+ 	static int on = -1;
+ 	if (on < 0) on = checkKernelArgument("-ngreennocsbresync") ? 0 : 1;
+@@ -909,6 +1101,26 @@
+ 	auto *ctxPend = elPend ? *reinterpret_cast<uint8_t **>(elPend) : nullptr;
+ 	uint32_t id = (e[1] >> 5) & 0x7ff;
+ 	if (elCur || !ctxPend || *reinterpret_cast<uint32_t *>(ctxPend + 0x7c) != id) return false;
++	uint32_t csbIdx = *reinterpret_cast<uint32_t *>(cs + 0x1c04);
++	uint32_t writePtr = 0xff;
++	auto *acc = *reinterpret_cast<uint8_t **>(cs + 0x10);
++	auto *c28 = *reinterpret_cast<uint8_t **>(cs + 0x28);
++	if (acc) {
++		if (static_cast<int8_t>(acc[0x1190]) < 0) {
++			auto *base = *reinterpret_cast<uint8_t **>(acc + 0x1240);
++			if (base && c28) writePtr = *reinterpret_cast<volatile uint32_t *>(base + *reinterpret_cast<uint32_t *>(c28 + 0x25)) & 0xf;
++		} else {
++			auto *b68 = *reinterpret_cast<uint8_t **>(cs + 0x68);
++			if (b68) writePtr = *reinterpret_cast<volatile uint32_t *>(b68 + 0xbc) & 0xf;
++		}
++	}
++	if (writePtr <= 5 && csbIdx != writePtr) return false;
++	if (NGreen::callback && c28) {
++		uint32_t eb = xeCsMmioBase(c28);
++		uint32_t hwCsp = NGreen::callback->readReg32(eb + 0x3a0) & 0x7;
++		uint32_t st234 = NGreen::callback->readReg32(eb + 0x234);
++		if ((hwCsp <= 5 && csbIdx != hwCsp) || (st234 & 0x18001) != 0x18001) return false;
++	}
+ 	reinterpret_cast<void (*)(void *, const uint32_t *)>(gOrgCsbI2A)(that, e);  // não lê 'e'; cur := pend
+ 	xeEv('CSBR', idx, id, ++gCsbResyncN);
+ 	return true;
+@@ -918,17 +1130,90 @@
+ 		if (!xeCsbResync(that, e)) return;
+ 		if (xeCsbEventoInvalido(that, e, false, 'CSBY')) return;  // não deveria acontecer
+ 	}
++	if (that) {
++		auto *cs = static_cast<uint8_t *>(that);
++		uint32_t idx = *reinterpret_cast<uint32_t *>(cs + 0x50);
++		if (idx <= 1) {
++			uint64_t next0 = *reinterpret_cast<uint64_t *>(cs + 0x30 + (1 - idx) * 16);
++			uint64_t next1 = *reinterpret_cast<uint64_t *>(cs + 0x38 + (1 - idx) * 16);
++			if (xeKptr(next0)) xeRepairSlotTail(next0, nullptr, nullptr, nullptr, nullptr, nullptr);
++			if (xeKptr(next1)) xeRepairSlotTail(next1, nullptr, nullptr, nullptr, nullptr, nullptr);
++		}
++	}
+ 	FunctionCast(xeCsbA2I, gOrgCsbA2I)(that, e);
++	if (that) {
++		auto *cs = static_cast<uint8_t *>(that);
++		uint32_t idx = *reinterpret_cast<uint32_t *>(cs + 0x50);
++		if (idx <= 1 && cs[0x1c3c] && *reinterpret_cast<uint64_t *>(cs + 0x30 + (uint64_t)idx * 16) == 0) {
++			*reinterpret_cast<uint64_t *>(cs + 0x30 + (uint64_t)(1 - idx) * 16) = 0;
++			*reinterpret_cast<uint64_t *>(cs + 0x38 + (uint64_t)(1 - idx) * 16) = 0;
++		}
++	}
+ }
+ static void xeCsbPreempt(void *that, const uint32_t *e) {
+ 	if (xeCsbEventoInvalido(that, e, false, 'CSBP')) return;
++	static int guard = -1;
++	if (guard < 0) guard = checkKernelArgument("-ngreennocsbguard") ? 0 : 1;
++	if (guard == 1 && that && e) {
++		auto *cs = static_cast<uint8_t *>(that);
++		uint32_t idx = *reinterpret_cast<uint32_t *>(cs + 0x50);
++		if (idx <= 1) {
++			uint32_t pend = 1 - idx;
++			auto *elPend = *reinterpret_cast<uint8_t **>(cs + 0x30 + (uint64_t)pend * 16);
++			if (!elPend) {
++				uint32_t id = (e[1] >> 5) & 0x7ff;
++				xeEv('CSBP', idx, id, ++gCsbSkipN);
++				return;
++			}
++		}
++	}
+ 	FunctionCast(xeCsbPreempt, gOrgCsbPreempt)(that, e);
+ }
+ static void xeCsbElSwitch(void *that, const uint32_t *e) {
+ 	if (xeCsbEventoInvalido(that, e, true, 'CSBS')) return;
+ 	FunctionCast(xeCsbElSwitch, gOrgCsbElSwitch)(that, e);
+ }
++using t_iofb_handle_event = IOReturn (*)(void *, int, void *);
++static t_iofb_handle_event gHpIOFBHandleEvent = nullptr;
++static mach_vm_address_t gOrgCsResetOnWake = 0;
++static void hpCsResetOnWake(void *that) {
++	if (that && NGreen::callback) {
++		auto *cs = static_cast<uint8_t *>(that);
++		auto *accel = *reinterpret_cast<void **>(cs + 0x10);
++		uint32_t hwsPga = NGreen::callback->readReg32(0x2080);
++		if ((hwsPga == 0 || hwsPga == 0xFFFFFFFFu) && gOrgSafeForceWake && xeKptr(reinterpret_cast<uint64_t>(accel))) {
++			xeSafeForceWake(accel, true, 1);
++			hwsPga = NGreen::callback->readReg32(0x2080);
++			xeSafeForceWake(accel, false, 1);
++		}
++		if (hwsPga != 0 && hwsPga != 0xFFFFFFFFu) {
++			auto *hws = *reinterpret_cast<uint8_t **>(cs + 0x68);
++			uint32_t swIdx = *reinterpret_cast<uint32_t *>(cs + 0x1c04);
++			uint32_t hwIdx = xeKptr(reinterpret_cast<uint64_t>(hws)) ? (*reinterpret_cast<uint32_t *>(hws + 0xbc) & 0x7u) : swIdx;
++			if (xeKptr(reinterpret_cast<uint64_t>(hws))) {
++				*reinterpret_cast<uint32_t *>(cs + 0x1c04) = hwIdx;
++			}
++			SYSLOG("ngreen", "HP-S0IX: resetOnWake skipped (live GT HWS_PGA=0x%x swIdx=%u->%u)", hwsPga, swIdx, hwIdx);
++			return;
++		}
++	}
++	FunctionCast(hpCsResetOnWake, gOrgCsResetOnWake)(that);
++}
+ static uint64_t xeEvalWait(void *that, const bool *thr, bool x, bool y) {
++	static int singlePort = -1;
++	if (singlePort < 0) singlePort = checkKernelArgument("-ngreenrcs2port") ? 0 : 1;
++	if (singlePort == 1 && xeKptr((uint64_t)that)) {
++		auto *cs = static_cast<uint8_t *>(that);
++		auto *c28 = *reinterpret_cast<uint8_t **>(cs + 0x28);
++		if (xeKptr((uint64_t)c28) && c28[0] == 0) {
++			x = false;
++			uint32_t bank = *reinterpret_cast<uint32_t *>(cs + 0x50);
++			if (bank <= 1 && *reinterpret_cast<uint64_t *>(cs + 0x30 + (uint64_t)(1 - bank) * 16) != 0) {
++				__sync_fetch_and_add(&gRcsWaitSkipPort1N, 1);
++				return 0;
++			}
++		}
++	}
+ 	uint64_t r = FunctionCast(xeEvalWait, gOrgEvalWait)(that, thr, x, y);
+ 	auto *cs = static_cast<uint8_t *>(that);
+ 	(void)cs; (void)thr; (void)x; (void)y;  // 19/10: EVAL não é mais registrado (tempestade enchia o buffer)
+@@ -944,7 +1229,27 @@
+ // xe/fwsubmit (19/10): a execlist escrita logo depois do fim do CSB se perdia (motor recém-ocioso em RC6). Segura o
+ // forcewake de Render+Blitter num bit próprio (ctx=3) em volta da submissão. Desliga com -ngreennofwsubmit.
+ static uint64_t xePrepSubmit(void *that, uint32_t a, uint32_t b, const uint32_t *c) {
+-	xeEv('SUBM', (uint32_t)(uintptr_t)that & 0xfff0, a, b);
++	xeDisableRcsPreemption(that);
++	uint32_t c0 = c ? c[0] : 0xffffu, c1 = c ? c[1] : 0xffffu;
++	static int skipEmpty = -1;
++	if (skipEmpty < 0) skipEmpty = checkKernelArgument("-ngreennoskipempty") ? 0 : 1;
++	if (skipEmpty == 1 && that && (b & 0x60u) == 0 && c && c0 == 0 && c1 == 0) {
++		auto *st = static_cast<uint8_t *>(that);
++		uint32_t bank = *reinterpret_cast<uint32_t *>(st + 0x50);
++		if (bank <= 1) {
++			uint64_t cur0 = *reinterpret_cast<uint64_t *>(st + 0x30 + (uint64_t)bank * 16);
++			uint64_t cur1 = *reinterpret_cast<uint64_t *>(st + 0x38 + (uint64_t)bank * 16);
++			uint64_t pend0 = *reinterpret_cast<uint64_t *>(st + 0x30 + (uint64_t)(1 - bank) * 16);
++			uint64_t pend1 = *reinterpret_cast<uint64_t *>(st + 0x38 + (uint64_t)(1 - bank) * 16);
++			if (cur0 == pend0 && cur1 == pend1) {
++				*reinterpret_cast<uint64_t *>(st + 0x30 + (uint64_t)(1 - bank) * 16) = 0;
++				*reinterpret_cast<uint64_t *>(st + 0x38 + (uint64_t)(1 - bank) * 16) = 0;
++				xeEv('SUBS', ((uint32_t)(uintptr_t)that & 0xfff0u) | (a & 0xffu), b, ++gSubSkipN);
++				return 0;
++			}
++		}
++	}
++	xeEv('SUBM', ((uint32_t)(uintptr_t)that & 0xfff0u) | (a & 0xffu), b, (c0 & 0xffffu) | ((c1 & 0xffffu) << 16));
+ 	static int fwSub = -1;
+ 	if (fwSub < 0) fwSub = checkKernelArgument("-ngreennofwsubmit") ? 0 : 1;
+ 	auto *acc = *reinterpret_cast<void **>(static_cast<uint8_t *>(that) + 0x10);
+@@ -956,46 +1261,31 @@
+ 	if (elsqWait < 0) elsqWait = checkKernelArgument("-ngreennoelsqwait") ? 0 : 1;
+ 	auto *c28 = *reinterpret_cast<uint8_t **>(static_cast<uint8_t *>(that) + 0x28);
+ 	if (elsqWait == 1 && NGreen::callback && c28) {
+-		uint32_t eb = c28[0] == 0 ? 0x2000 : 0x22000;
++		uint32_t eb = xeCsMmioBase(c28);
+ 		uint32_t st0 = NGreen::callback->readReg32(eb + 0x234), st = st0, us = 0;
+ 		while ((st & 0x40000000) && us < 2000) { IODelay(5); us += 5; st = NGreen::callback->readReg32(eb + 0x234); }
+ 		if (st0 & 0x40000000) xeEv('WAIT', st0, st, us);
+-		// xe/elsqdelay (19/10): a submissão escrita no mesmo instante em que o contexto anterior termina se perde
+-		// (com ctx7 também, não só ctx16). Atraso curto antes de cada submissão do RCS; ngreenelsqdelay=N (us), 0 desliga.
++		// xe/elsqdelay (19/10): desligado por padrão (atrasar entre evalWorkQueues e submitExecList permite que a GPU
++		// termine o lote anterior e salve o tail velho por cima do LRCA+0x101c recém-atualizado); ngreenelsqdelay=N religa.
+ 		static int dly = -1;
+-		if (dly < 0) { int v = 0; PE_parse_boot_argn("ngreenelsqdelay", &v, sizeof(v)); dly = (v >= 0 && v <= 5000) ? v : 50; }
+-		if (eb == 0x2000) {
++		if (dly < 0) { int v = 0; PE_parse_boot_argn("ngreenelsqdelay", &v, sizeof(v)); dly = (v >= 0 && v <= 5000) ? v : 0; }
++		if (eb == 0x2000 || eb == 0x1a000) {
+ 			uint32_t pre = NGreen::callback->readReg32(eb + 0x234), preHi = NGreen::callback->readReg32(eb + 0x238);
+ 			uint32_t csp = NGreen::callback->readReg32(eb + 0x3a0);
+-			xeEv('PRE0', pre, preHi, csp);
+-			// xe/elsqidle (19/10): submissões boas encontram EXECLIST_STATUS lo = 0x...01 (ocioso, hi=0); a perdida
+-			// encontrou 0x00018098 com o contexto anterior ainda atual (hi=ID), mesmo depois do CSB "terminou".
+-			// Espera o motor sair desse estado (bit 0x80 ou byte baixo != 0x01), passos de 5 us, até 2 ms.
+-			// Só quando havia contexto atual (hi != 0); -ngreennoelsqidle desliga.
++			xeEv(eb == 0x2000 ? 'PRE0' : 'PRC0', pre, preHi, csp);
++			// xe/elsqidle: desligado por padrão; esperar a GPU ficar ociosa dentro de prepareExecListAndSubmit (depois de
++			// evalWorkQueues já ter escrito o novo tail em LRCA+0x101c) faz o Context Save de ACTIVE_TO_IDLE sobrescrever
++			// LRCA+0x101c com o tail antigo e dessincronizar fBank. Religado apenas com -ngreenelsqidle.
+ 			static int idleW = -1;
+-			// 20/10: DESLIGADO por padrão: com o SAMETAIL não houve mais eventos inválidos (csbx=0) e as esperas somavam
+-			// 8-16 s de CPU parada em ~3 min (mouse a cada 20 s, congelamento). -ngreenelsqidle religa.
+-			// 20/10 02h30: RELIGADO: sem ele voltou o hang do Blit3D lendo página scratch (c01dbead) — 2 boots seguidos,
+-			// nunca com a espera ligada. Limite agora de 5 ms. -ngreennoelsqidle desliga.
+-			if (idleW < 0) idleW = checkKernelArgument("-ngreennoelsqidle") ? 0 : 1;
+-			// 19/10 (XE-NOPREEMPT): as recusas acontecem com arbitragem ligada (bit 16) e contexto atual — a nova
+-			// submissão dispara preempção, que emperra o RCS no RPL. Espera até 50 ms (ngreenpreemptwait=us) o motor
+-			// ficar ocioso (byte baixo 0x01) ou a arbitragem desligar, para nunca preemptar.
++			if (idleW < 0) idleW = checkKernelArgument("-ngreenelsqidle") ? 1 : 0;
+ 			static int maxw = -1;
+-			// 19/10: 50 ms -> 2 ms. Medido: 1444 esperas = 5,4 s em ~3 min, 8 batendo no limite (travadas visíveis). A causa dos
+-				// hangs que a espera contornava (kernels blit3d zerados, VS herdado) já foi corrigida.
+-				// 19/10 23h45: 2 ms trouxe de volta artefatos (861 envios com o motor ocupado em ~3 min); meio-termo de 15 ms.
+-				// 20/10: de volta a 50 ms (valor da "versão boa"); 2 e 15 ms vieram junto com glitches novos
+-				if (maxw < 0) { int v = 5000; PE_parse_boot_argn("ngreenpreemptwait", &v, sizeof(v)); maxw = (v >= 0 && v <= 200000) ? v : 5000; }
+-			// 19/10 (XE-IDLEANY): o hang do login começou numa submissão com o RCS ocupado SEM bit 16 (0x3098, ctx5
+-			// rodando o clear) que reenviou o ctx5 (lite restore) com o ctx7 no elemento 1. Agora espera o ocioso
+-			// mesmo sem arbitragem; -ngreenidlearb volta à condição antiga (só com bit 16).
++			if (maxw < 0) { int v = 5000; PE_parse_boot_argn("ngreenpreemptwait", &v, sizeof(v)); maxw = (v >= 0 && v <= 200000) ? v : 5000; }
+ 			static int arbOnly = -1;
+ 			if (arbOnly < 0) arbOnly = checkKernelArgument("-ngreenidlearb") ? 1 : 0;
+-			uint32_t arbMask = arbOnly ? 0x10000 : 0;
+-			if (idleW == 1 && preHi != 0 && (pre & 0xff) != 0x01 && (!arbMask || (pre & arbMask))) {
++			uint32_t arbMask = arbOnly ? 0x10000 : 0x0007c000;
++			if (idleW == 1 && (pre & 0x0007c000) != 0 && (pre & arbMask)) {
+ 				uint32_t st = pre, hi = preHi, us = 0;
+-				while (((st & 0xff) != 0x01) && (!arbMask || (st & arbMask)) && hi != 0 && us < (uint32_t)maxw) {
++				while ((st & 0x0007c000) != 0 && (st & arbMask) && us < (uint32_t)maxw) {
+ 					IODelay(5); us += 5;
+ 					st = NGreen::callback->readReg32(eb + 0x234); hi = NGreen::callback->readReg32(eb + 0x238);
+ 				}
+@@ -1020,7 +1310,7 @@
+ 	}
+ 	uint32_t n = __atomic_load_n(&gEvN, __ATOMIC_RELAXED);
+ 	uint32_t from = n > count ? n - count : 0;
+-	IOLog("XeNG CSBDUMP #%d: eventos %u..%u (skip=%u)\n", seq, from + 1, n, gCsbSkipN);
++	IOLog("XeNG CSBDUMP #%d: eventos %u..%u (skip=%u subSkip=%u)\n", seq, from + 1, n, gCsbSkipN, gSubSkipN);
+ 	for (uint32_t i = from; i < n; i++) {
+ 		auto &e = gEvLog[i % XE_EV_MAX];
+ 		uint64_t ns = 0; absolutetime_to_nanoseconds(e.t, &ns);
+@@ -1085,6 +1375,12 @@
+ 	if (!img) return r;
+ 	volatile uint32_t *pg1 = img + 0x400;
+ 	for (int k = 1; k + 1 < 0x100; k++) {
++		if (pg1[k] == 0x2244 && (pg1[k + 1] & 0x10u)) {
++			uint32_t antes = pg1[k + 1];
++			pg1[k + 1] = (antes & ~0x00100010u) | 0x00100000u;
++			static volatile uint32_t nCtrl = 0;
++			if (++nCtrl <= 32) IOLog("XeNG POSH ctx lrca=%x CTX_CTRL %x -> %x (DW%x)\n", *reinterpret_cast<uint32_t *>(ctx + 0x89) & ~0xfffu, antes, pg1[k + 1], k + 1);
++		}
+ 		if (pg1[k] == 0x21b0) {
+ 			uint32_t antes = pg1[k + 1];
+ 			pg1[k + 1] = 0;
+@@ -1167,12 +1463,17 @@
+ static mach_vm_address_t gHpBtOrgSubmitBb = 0;
+ static mach_vm_address_t gHpBtOrgSubmitCh = 0;
+ static mach_vm_address_t gHpBtOrgHang = 0;
++static mach_vm_address_t gHpBtOrgComputeExec = 0;
+ static volatile uint32_t gHpBtBbSeq = 0;
+ static volatile uint32_t gHpBtCopySeq = 0;
+ static volatile uint32_t gHpBtCdSeq = 0;
+ static volatile uint32_t gHpBtHangSeq = 0;
+ static volatile uint32_t gHpBtRcsHangSeq = 0;
+ static volatile uint32_t gHpBtDumpBusy = 0;
++static volatile uint32_t gHpPcFixEncoders = 0;
++static volatile uint32_t gHpPcFixPreamble = 0;
++static volatile uint32_t gHpPcFixPipeFlush = 0;
++static volatile uint32_t gHpPcFixReadFlush = 0;
+ 
+ struct HpBtBb {
+ 	void *ring;
+@@ -1238,9 +1539,130 @@
+ 	return slot + 1; // zero means no copy
+ }
+ 
+-// R30: only scalar call arguments; never dereference ring, hdr or descriptor.
+-// This is a diagnostic candidate, not proof of execution or address-space identity.
+-struct HpR30Entry { void *ring; uint64_t gpu; uint64_t ticket; uint32_t ndwArg; uint32_t stamp; };
++static void hpSanitizeComputeEncoder(uint32_t *enc, uint32_t endOffDw, uint32_t totalDw, uint16_t sigCnt) {
++    if (!hpBtKernelPtr(enc) || (reinterpret_cast<uintptr_t>(enc) & 3) != 0) return;
++    if (endOffDw < 6 || endOffDw > 65536 || totalDw < endOffDw) return;
++    bool touched = false;
++    for (uint32_t i = 0; i + 6 <= endOffDw; ) {
++        if (i + 33 <= endOffDw &&
++            enc[i + 0] == 0x7a000004U &&
++            enc[i + 6] == 0x7a000004U &&
++            enc[i + 12] == 0x69041310U &&
++            enc[i + 30] == 0x69041302U) {
++            // Packet 1 at dw[+0..+5]: keep 0x001010a0U (CS_STALL | RT_CACHE_FLUSH | DC_FLUSH_ENABLE | FLUSH_ENABLE)
++            if (enc[i + 1] == 0x001010a0U || enc[i + 1] == 0x00101820U ||
++                enc[i + 1] == 0x001000a0U || enc[i + 1] == 0x00100000U ||
++                enc[i + 1] == 0x00101020U) {
++                enc[i + 1] = 0x001010a0U;
++            }
++            // Packet 2 at dw[+6..+11]: CS_STALL | TEXTURE_CACHE_INVALIDATE | FLUSH_ENABLE (no 0x800)
++            if (enc[i + 7] == 0x00000480U || enc[i + 7] == 0x00000c80U ||
++                enc[i + 7] == 0x00100480U || enc[i + 7] == 0x00100c80U ||
++                enc[i + 7] == 0x00100400U || enc[i + 7] == 0x00000400U) {
++                enc[i + 7] = 0x00100480U;
++            }
++            // Gen8 L3ALLOCREG 0xb134 LRI at dw[+15..+17] -> MEDIA_STATE_FLUSH (2 dwords) + MI_NOOP (1 dword)
++            if ((enc[i + 15] == 0x11000001U && enc[i + 16] == 0x0000b134U) ||
++                (enc[i + 15] == 0U && enc[i + 16] == 0U && enc[i + 17] == 0U)) {
++                enc[i + 15] = 0x70040000U;
++                enc[i + 16] = 0U;
++                enc[i + 17] = 0U;
++            }
++            // Packet 3 at dw[+18..+23] (immediately after MEDIA_STATE_FLUSH):
++            // Emit 0x001000a0U (CS_STALL | DC_FLUSH_ENABLE | FLUSH_ENABLE, without 0x1000 RT_CACHE_FLUSH)
++            // so MEDIA_STATE_FLUSH -> PIPE_CONTROL(0x001000a0U) retires bit 28 without re-latching RT_CACHE_FLUSH in GPGPU mode.
++            if (enc[i + 18] == 0x7a000004U &&
++                (enc[i + 19] == 0x001010a0U || enc[i + 19] == 0x00101820U ||
++                 enc[i + 19] == 0x001000a0U || enc[i + 19] == 0x00101020U)) {
++                enc[i + 19] = 0x001000a0U;
++            }
++            // Packet 4 at dw[+24..+29]: CS_STALL | TEXTURE_CACHE_INVALIDATE | FLUSH_ENABLE (no 0x800)
++            if (enc[i + 24] == 0x7a000004U &&
++                (enc[i + 25] == 0x00000480U || enc[i + 25] == 0x00000c80U ||
++                 enc[i + 25] == 0x00100480U || enc[i + 25] == 0x00100c80U ||
++                 enc[i + 25] == 0x00100400U || enc[i + 25] == 0x00000400U)) {
++                enc[i + 25] = 0x00100480U;
++            }
++            __sync_fetch_and_add(&gHpPcFixPreamble, 1);
++            touched = true;
++            i += 33;
++            continue;
++        }
++        if (enc[i] == 0x7a000004U) {
++            if ((enc[i + 1] == 0x00000480U || enc[i + 1] == 0x00000c80U) &&
++                enc[i + 2] == 0U && enc[i + 3] == 0U && enc[i + 4] == 0U && enc[i + 5] == 0U) {
++                enc[i + 1] = 0x00100480U;
++                __sync_fetch_and_add(&gHpPcFixReadFlush, 1);
++                touched = true;
++                i += 6;
++                continue;
++            }
++            if (enc[i + 1] == 0x001044a0U && (enc[i + 2] & 0xfffU) == 0x010U &&
++                enc[i + 3] == 0U && enc[i + 4] == 0U && enc[i + 5] == 0U) {
++                if (i >= 6U &&
++                    enc[i - 6] == 0x7a000004U &&
++                    (enc[i - 5] == 0x00100000U || enc[i - 5] == 0x001000a0U) &&
++                    enc[i - 4] == 0U && enc[i - 3] == 0U && enc[i - 2] == 0U && enc[i - 1] == 0U) {
++                    // Proven PCFIX14/16/19/20 2-packet AddPipeFlushCmd sequence:
++                    // 1) Packet 0 at dw[83..88]: CS_STALL | FLUSH_ENABLE | DC_FLUSH_ENABLE
++                    enc[i - 6] = 0x7a000004U;
++                    enc[i - 5] = 0x001000a0U;
++                    enc[i - 4] = 0U;
++                    enc[i - 3] = 0U;
++                    enc[i - 2] = 0U;
++                    enc[i - 1] = 0U;
++                    // 2) Packet 1 at dw[89..94]: CS_STALL | TEXTURE_CACHE_INVALIDATE | FLUSH_ENABLE
++                    enc[i + 0] = 0x7a000004U;
++                    enc[i + 1] = 0x00100480U;
++                    enc[i + 2] = 0U;
++                    enc[i + 3] = 0U;
++                    enc[i + 4] = 0U;
++                    enc[i + 5] = 0U;
++                } else {
++                    enc[i + 1] = 0x001004a0U;
++                    enc[i + 2] = 0U;
++                    enc[i + 3] = 0U;
++                    enc[i + 4] = 0U;
++                    enc[i + 5] = 0U;
++                }
++                __sync_fetch_and_add(&gHpPcFixPipeFlush, 1);
++                touched = true;
++                i += 6;
++                continue;
++            }
++        }
++        ++i;
++    }
++    if (touched) {
++        __asm__ volatile("mfence" ::: "memory");
++        uint32_t n = __sync_fetch_and_add(&gHpPcFixEncoders, 1) + 1;
++        if (n <= 8 || (n & 255) == 0) {
++            IOLog("HP-PCFIX: ver=PCFIX27 enc#%u endOffDw=%u totalDw=%u sigCnt=%u pre=%u pf=%u rf=%u prblk=%u def=%u wsk=%u\n",
++                  n, endOffDw, totalDw, sigCnt, gHpPcFixPreamble, gHpPcFixPipeFlush, gHpPcFixReadFlush,
++                  gRcsPreemptBlockedN, gRcsDeferActiveN, gRcsWaitSkipPort1N);
++        }
++    }
++}
++
++static uint32_t hpBtComputeExecute(uint32_t eToken, void *queue, void *resList, const void *cmd,
++                                   void *desc, void *accel, void *ctx, void *event) {
++    if (hpBtKernelPtr(cmd) && hpBtKernelPtr(desc)) {
++        auto *c = static_cast<const uint8_t *>(cmd);
++        auto *d = static_cast<const uint8_t *>(desc);
++        if (eToken == 0x40001U) {
++            uint32_t *enc = *reinterpret_cast<uint32_t *const *>(d + 0x20);
++            uint32_t endOffDw = *reinterpret_cast<const uint32_t *>(c + 0x08);
++            uint32_t totalDw = *reinterpret_cast<const uint32_t *>(c + 0x0c);
++            uint16_t sigCnt = *reinterpret_cast<const uint16_t *>(c + 0x1a);
++            hpSanitizeComputeEncoder(enc, endOffDw, totalDw, sigCnt);
++        }
++    }
++    return FunctionCast(hpBtComputeExecute, gHpBtOrgComputeExec)(
++        eToken, queue, resList, cmd, desc, accel, ctx, event);
++}
++
++// R30: scalar call arguments plus optional compute page copy slot.
++struct HpR30Entry { void *ring; uint64_t gpu; uint64_t ticket; uint32_t ndwArg; uint32_t stamp; uint32_t copySlot; };
+ static HpR30Entry gHpR30Entries[256] {};
+ static volatile uint32_t gHpR30Lock = 0;
+ static volatile uint64_t gHpR30Drops = 0;
+@@ -1249,6 +1671,14 @@
+ 
+ static bool hpBtSubmitBatchBuffer(void *ring, uint64_t addr, uint32_t seq, uint32_t *hdr, uint32_t flags,
+                                  bool b1, bool b2) {
++    uint32_t copySlot = 0;
++    if (hpBtKernelPtr(hdr) && (reinterpret_cast<uintptr_t>(hdr) & 3) == 0) {
++        const uint32_t *pageBase = reinterpret_cast<const uint32_t *>(reinterpret_cast<uintptr_t>(hdr) & ~0xfffULL);
++        if ((pageBase[0] == 0x7a000004U && pageBase[12] == 0x69041310U) ||
++            (hdr[0] == 0x7a000004U && hdr[12] == 0x69041310U)) {
++            copySlot = hpBtCopyBatch(addr & ~0xfffULL, pageBase);
++        }
++    }
+     if (!__sync_lock_test_and_set(&gHpR30Lock, 1)) {
+         uint64_t ticket = gHpR30Next++;
+         HpR30Entry &e = gHpR30Entries[ticket & 255];
+@@ -1257,6 +1687,7 @@
+         e.ticket = ticket;
+         e.ndwArg = flags;
+         e.stamp = seq;
++        e.copySlot = copySlot;
+         if (gHpR30Count < 256) ++gHpR30Count;
+         __sync_lock_release(&gHpR30Lock);
+     } else {
+@@ -1286,10 +1717,11 @@
+         if (recentCount < 4) recentSameRing[recentCount++] = e;
+         uint64_t bytes = static_cast<uint64_t>(e.ndwArg) * 4;
+         if (!bytes) { ++zeroLength; continue; }
+-        if (e.gpu > UINT64_MAX - bytes) { ++overflow; continue; }
++        uint64_t window = bytes > 0x10000ULL ? bytes : 0x10000ULL;
++        if (e.gpu > UINT64_MAX - window) { ++overflow; continue; }
+         if (target < e.gpu) continue;
+         ++preceding;
+-        if (target - e.gpu >= bytes) continue;
++        if (target - e.gpu >= window) continue;
+         if (hits < 8) matches[hits] = e;
+         ++hits;
+     }
+@@ -1297,9 +1729,32 @@
+     uint64_t drops = __sync_fetch_and_add(&gHpR30Drops, 0);
+     for (uint32_t i = 0; i < hits && i < 8; ++i) {
+         const HpR30Entry &e = matches[i];
+-        IOLog("HP-R30: hang=%u ticket=%llu gpu=%llx ndwArg=%u offset=%llx stamp=%u\n", hang,
++        uint64_t offBytes = target - e.gpu;
++        uint64_t pageBaseGpu = e.gpu & ~0xfffULL;
++        uint64_t pageOffBytes = target >= pageBaseGpu ? (target - pageBaseGpu) : 0x1000ULL;
++        IOLog("HP-R30: hang=%u ticket=%llu gpu=%llx ndwArg=%u offset=%llx pageOff=%llx stamp=%u copySlot=%u\n", hang,
+               (unsigned long long)e.ticket, (unsigned long long)e.gpu, e.ndwArg,
+-              (unsigned long long)(target - e.gpu), e.stamp);
++              (unsigned long long)offBytes, (unsigned long long)pageOffBytes, e.stamp, e.copySlot);
++        if (i == 0 && e.copySlot > 0 && e.copySlot <= 64 && pageOffBytes < 0x1000ULL) {
++            const HpBtCopy &c = gHpBtCopies[e.copySlot - 1];
++            if (c.valid && c.addr == pageBaseGpu && c.n == 1024) {
++                uint32_t offDw = static_cast<uint32_t>(pageOffBytes >> 2);
++                uint32_t s = offDw >= 12 ? offDw - 12 : 0;
++                if (s + 24 > 1024) s = 1000;
++                IOLog("HP-R30-BB: hang=%u baseDw=%u (+0x%03x): %08x %08x %08x %08x %08x %08x %08x %08x\n",
++                      hang, s, s * 4,
++                      c.dw[s+0], c.dw[s+1], c.dw[s+2], c.dw[s+3],
++                      c.dw[s+4], c.dw[s+5], c.dw[s+6], c.dw[s+7]);
++                IOLog("HP-R30-BB: hang=%u baseDw=%u (+0x%03x): %08x %08x %08x %08x %08x %08x %08x %08x\n",
++                      hang, s + 8, (s + 8) * 4,
++                      c.dw[s+8], c.dw[s+9], c.dw[s+10], c.dw[s+11],
++                      c.dw[s+12], c.dw[s+13], c.dw[s+14], c.dw[s+15]);
++                IOLog("HP-R30-BB: hang=%u baseDw=%u (+0x%03x): %08x %08x %08x %08x %08x %08x %08x %08x\n",
++                      hang, s + 16, (s + 16) * 4,
++                      c.dw[s+16], c.dw[s+17], c.dw[s+18], c.dw[s+19],
++                      c.dw[s+20], c.dw[s+21], c.dw[s+22], c.dw[s+23]);
++            }
++        }
+     }
+     for (uint32_t i = 0; i < recentCount; ++i) {
+         const HpR30Entry &e = recentSameRing[i];
+@@ -1665,7 +2120,31 @@
+     }
+     IOLog("HP-BBTRACE: HANG #%u ring=%p ACTHD=%08x ACTHD_HI=%08x BB=%08x BB_HI=%08x IPEHR=%08x HEAD=%08x TAIL=%08x BB_STATE=%08x\n",
+         hang, ring, acthd, acthdHi, bb, bbHi, ipehr, head, tail, bbState);
++    IOLog("HP-CSFL: hang=%u INSTDONE=%08x BB_PREEMPT=%08x CSFLFSM=%08x CSFLFLAG=%08x CSFLTRK=%08x CSCMDOP=%08x CSCMDVLD=%08x PREEMPT_DLY=%08x EL_ST=%08x:%08x PREMP_DBG=%08x PCFIX(enc=%u pre=%u pf=%u rf=%u prblk=%u def=%u wsk=%u)\n",
++        hang, hpBtRd(mmio, 0x206c), hpBtRd(mmio, 0x2148), hpBtRd(mmio, 0x2200), hpBtRd(mmio, 0x2204), hpBtRd(mmio, 0x2208),
++        hpBtRd(mmio, 0x220c), hpBtRd(mmio, 0x2210), hpBtRd(mmio, 0x2214), hpBtRd(mmio, 0x2238),
++        hpBtRd(mmio, 0x2234), hpBtRd(mmio, 0x2248),
++        gHpPcFixEncoders, gHpPcFixPreamble, gHpPcFixPipeFlush, gHpPcFixReadFlush,
++        gRcsPreemptBlockedN, gRcsDeferActiveN, gRcsWaitSkipPort1N);
++    const uint32_t *dbg = nullptr;
++    if (hpBtKernelPtr(ring)) {
++        auto *d = *reinterpret_cast<const uint32_t *const *>(static_cast<const uint8_t *>(ring) + 0x8b8);
++        if (hpBtKernelPtr(d) && (reinterpret_cast<uintptr_t>(d) & 3) == 0) dbg = d;
++    }
++    IOLog("HP-SLICE: hang=%u SC_INSTDONE=%08x FAULT=%08x DBG_SC=%08x ROW=%08x:%08x:%08x:%08x:%08x:%08x SAMP=%08x:%08x:%08x:%08x:%08x:%08x PSMI=%08x CS_DBG1=%08x CHKN3=%08x\n",
++          hang, hpBtRd(mmio, 0x7100), hpBtRd(mmio, 0xcec4),
++          dbg ? dbg[0x28 / 4] : 0U,
++          dbg ? dbg[0x2c / 4] : 0U, dbg ? dbg[0x30 / 4] : 0U, dbg ? dbg[0x34 / 4] : 0U,
++          dbg ? dbg[0x38 / 4] : 0U, dbg ? dbg[0x3c / 4] : 0U, dbg ? dbg[0x40 / 4] : 0U,
++          dbg ? dbg[0x44 / 4] : 0U, dbg ? dbg[0x48 / 4] : 0U, dbg ? dbg[0x4c / 4] : 0U,
++          dbg ? dbg[0x50 / 4] : 0U, dbg ? dbg[0x54 / 4] : 0U, dbg ? dbg[0x58 / 4] : 0U,
++          hpBtRd(mmio, 0x2050), hpBtRd(mmio, 0x20d8), hpBtRd(mmio, 0x7010));
+     hpR30Dump(ring, (static_cast<uint64_t>(bbHi) << 32) | (bb & ~3U), hang);
++    IOLog("HP-CCS: hang=%u HEAD=%08x TAIL=%08x ACTHD=%08x:%08x BB=%08x:%08x IPEHR=%08x EL_ST=%08x:%08x CSP=%08x\n",
++        hang, hpBtRd(mmio, 0x1a034), hpBtRd(mmio, 0x1a030), hpBtRd(mmio, 0x1a05c), hpBtRd(mmio, 0x1a074),
++        hpBtRd(mmio, 0x1a144), hpBtRd(mmio, 0x1a140), hpBtRd(mmio, 0x1a068),
++        hpBtRd(mmio, 0x1a238), hpBtRd(mmio, 0x1a234), hpBtRd(mmio, 0x1a3a0));
++    if (hang <= 6) xeEvDumpRecent(120, 90 + static_cast<int>(hang));
+     IOLog("HP-DIAG-END: hang=%u status=complete scope=mmio-submit\n", hang);
+     __sync_lock_release(&gHpBtDumpBusy);
+ }
+@@ -1684,6 +2163,12 @@
+     };
+     bool submitOk = RouteRequestPlus::routeAll(patcher, index, submit, address, size);
+     if (!submitOk) { patcher.clearError(); gHpBtOrgSubmitBb = 0; }
++    RouteRequestPlus compExec[] = {
++        {"__ZN24IntelMTLComputeFunctions7executeEN15IntelMTLCompute7eTokensER19IGAccelCommandQueueR26IGAccelSegmentResourceListRK20IOAccelKernelCommandR24IGAccelCommandDescriptorR22IOGraphicsAccelerator2R17IGHardwareContextR12IOAccelEvent",
++         hpBtComputeExecute, gHpBtOrgComputeExec},
++    };
++    bool compOk = RouteRequestPlus::routeAll(patcher, index, compExec, address, size);
++    if (!compOk) { patcher.clearError(); gHpBtOrgComputeExec = 0; }
+     RouteRequestPlus req[] = {
+         {"__ZN20IGHardwareRingBuffer14doHangAnalysisEv", hpBtDoHangAnalysis, gHpBtOrgHang},
+     };
+@@ -1692,8 +2177,8 @@
+         patcher.clearError();
+         gHpBtOrgHang = 0;
+     }
+-    IOLog("HP-BBTRACE: %s hang=%d submit=%d scope=mmio-submit\n",
+-          ok && submitOk ? "ready" : "partial", ok, submitOk);
++    IOLog("HP-BBTRACE: %s hang=%d submit=%d scope=mmio-submit compExec=%d\n",
++          ok && submitOk && compOk ? "ready" : "partial", ok, submitOk, compOk);
+ }
+ 
+ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
+@@ -1870,6 +2355,22 @@
+ 			};
+ 			PANIC_COND(!SolveRequestPlus::solveAll(patcher, index, solveRequests, address, size), "ngreen",	"Failed to resolve symbols");
+ 			
++		}
++
++		if (NGreen::callback->isRealTGL && getKernelVersion() == KernelVersion::Tahoe) {
++			mach_vm_address_t prepExitSleep = patcher.solveSymbol(index, "__ZN21AppleIntelFramebuffer18prepareToExitSleepEv", address, size);
++			if (!prepExitSleep) {
++				patcher.clearError();
++			} else {
++				auto *p = reinterpret_cast<const uint8_t *>(prepExitSleep);
++				static const uint8_t kSig[13] = {0xba, 0x01, 0x00, 0x00, 0x00, 0x4c, 0x89, 0xf7, 0xbe, 0x04, 0x00, 0x00, 0x00};
++				if (memcmp(p + 0x3cf, kSig, sizeof(kSig)) == 0 && p[0x3dc] == 0xe8) {
++					int32_t rel = *reinterpret_cast<const int32_t *>(p + 0x3dc + 1);
++					gHpIOFBHandleEvent = reinterpret_cast<t_iofb_handle_event>(prepExitSleep + 0x3dc + 5 + static_cast<int64_t>(rel));
++				}
++				SYSLOG("ngreen", "HP-S0IX: prepareToExitSleep=0x%llx IOFramebuffer::handleEvent=0x%llx",
++				       static_cast<uint64_t>(prepExitSleep), reinterpret_cast<uint64_t>(gHpIOFBHandleEvent));
++			}
+ 		}
+ 
+ 		RouteRequestPlus requests[] = {
+@@ -2040,6 +2541,7 @@
+ 				{"__ZN24AppleIntelBaseController23initPlatformWorkaroundsEv", initPlatformWorkarounds, this->oinitPlatformWorkarounds},
+ 				{"__ZN24AppleIntelBaseController16getOSInformationEv", getOSInformation, this->ogetOSInformation},
+ 				{"__ZN24AppleIntelBaseController10hwShutdownEP21AppleIntelFramebuffer",handleLinkIntegrityCheck},
++				{"__ZN24AppleIntelBaseController11hwSaveNVRAMEv",handleLinkIntegrityCheck},
+ 				{"__ZN24AppleIntelBaseController18hwInitializeCStateEv",hwInitializeCState, this->ohwInitializeCState},
+ 				{"__ZN24AppleIntelBaseController20hwConfigureCustomAUXEb",hwConfigureCustomAUX, this->ohwConfigureCustomAUX},
+ 				{"__ZN19AppleIntelPowerWell4initEP24AppleIntelBaseController",AppleIntelPowerWellinit, this->oAppleIntelPowerWellinit},
+@@ -2631,6 +3133,29 @@
+ 		SYSLOG("ngreen", "V165: HW accelerator symbols routed OK");
+ 		if (NGreen::callback->isRealTGL && getKernelVersion() == KernelVersion::Tahoe) {
+ 			hpBtInstall(patcher, index, address, size);
++			if (!checkKernelArgument("-ngreenxefix")) {
++				SolveRequestPlus hpPoshSolve[] = {{"__ZNK20IGSharedMappedBuffer17getVirtualAddressEv", gSmbGetVA}};
++				if (!SolveRequestPlus::solveAll(patcher, index, hpPoshSolve, address, size)) { patcher.clearError(); gSmbGetVA = 0; }
++				RouteRequestPlus hpExeclistRoutes[] = {
++					{"__ZN17IGHardwareContext20restoreFromSafeImageEv", xeRestoreSafe, gOrgRestoreSafe},
++					{"__ZN12IGScheduler513updateOptionsEv", xeS5UpdateOptions, gOrgS5UpdateOptions},
++					{"__ZN32IGHardwareRenderCommandStreamer515allowPreemptionEv", xeRcsAllowPreemption, gOrgRcsAllowPreempt},
++					{"__ZNK32IGHardwareRenderCommandStreamer519isPreemptionAllowedEv", xeRcsIsPreemptionAllowed, gOrgRcsIsPreemptAllowed},
++					{"__ZN26IGHardwareCommandStreamer515dequeueExecListEj", xeDequeueExecList, gOrgDequeueExecList},
++					{"__ZN26IGHardwareCommandStreamer513evalWaitQueueEPKbbb", xeEvalWait, gOrgEvalWait},
++					{"__ZN26IGHardwareCommandStreamer524prepareExecListAndSubmitEjjPKj", xePrepSubmit, gOrgPrepSubmit},
++					{"__ZN26IGHardwareCommandStreamer514submitExecListEj", xeCs5Submit, gOrgCs5Submit},
++					{"__ZN26IGHardwareCommandStreamer516processCSBDetailEP28SGfxContextStatusBufferEntryRj", xeCsbDetail, gOrgCsbDetail},
++					{"__ZN26IGHardwareCommandStreamer522csbProcessIdleToActiveEPK28SGfxContextStatusBufferEntry", xeCsbI2A, gOrgCsbI2A},
++					{"__ZN26IGHardwareCommandStreamer522csbProcessActiveToIdleEPK28SGfxContextStatusBufferEntry", xeCsbA2I, gOrgCsbA2I},
++					{"__ZN26IGHardwareCommandStreamer519csbProcessPreemptedEPK28SGfxContextStatusBufferEntry", xeCsbPreempt, gOrgCsbPreempt},
++					{"__ZN26IGHardwareCommandStreamer523csbProcessElementSwitchEPK28SGfxContextStatusBufferEntry", xeCsbElSwitch, gOrgCsbElSwitch},
++					{"__ZN26IGHardwareCommandStreamer511resetOnWakeEv", hpCsResetOnWake, gOrgCsResetOnWake},
++				};
++				bool hpExOk = RouteRequestPlus::routeAll(patcher, index, hpExeclistRoutes, address, size);
++				if (!hpExOk) patcher.clearError();
++				SYSLOG("ngreen", "HP-POSH-EXECLIST: posh=%d i2a=%d resetOnWake=%d routes=%s", gSmbGetVA != 0, gOrgCsbI2A != 0, gOrgCsResetOnWake != 0, hpExOk ? "ready" : "failed");
++			}
+ 		}
+ 
+ 		if (checkKernelArgument("-ngreenxefix")) {  // xe/flipdiag: só contadores, sem mudar comportamento
+@@ -3040,6 +3565,24 @@
+ 				bool waOk = ok && LookupPatchPlus::applyAll(patcher, hpFfdop, address, size);
+ 				patcher.clearError();
+ 				SYSLOG("ngreen", "HP-R32-WA: FF_DOP enabled, CS_CHICKEN1 thread-group request/PERCTX retained %s", waOk ? "ready" : "failed");
++				// Capture the scalar already read by populateResetRegisterList;
++				// the prefix does not issue additional MMIO or follow a pointer.
++				mach_vm_address_t hpReadFn = patcher.solveSymbol(index,
++					"__ZN16IntelAccelerator25populateResetRegisterListEv", address, size);
++				static const uint8_t hpReadSite[] = {0x48,0x8b,0xb3,0xc0,0x12,0,0,0x48,0x3b,0xb3,0xc8,0x12,0,0};
++				static const uint8_t hpReadLoad[] = {0x8b,0x80,0x80,0x25,0,0,0x89,0x47,0xfa};
++				bool readOk = waOk && hpReadFn && hpReadFn >= address &&
++					hpReadFn - address <= size && size - (hpReadFn - address) >= 0xacb &&
++					!memcmp(reinterpret_cast<void *>(hpReadFn + 0xa9e), hpReadLoad, sizeof(hpReadLoad)) &&
++					!memcmp(reinterpret_cast<void *>(hpReadFn + 0xabd), hpReadSite, sizeof(hpReadSite));
++				if (readOk) {
++					uint8_t prefix[64];
++					auto len = HpTglRepair::existingReadbackPrefix(prefix, reinterpret_cast<uint64_t>(&hpR32Readback));
++					auto tr = patcher.routeBlock(hpReadFn + 0xabd, prefix, len, true);
++					readOk = tr && patcher.getError() == KernelPatcher::Error::NoError;
++				}
++				patcher.clearError();
++				SYSLOG("ngreen", "HP-R32-READBACK: route %s scope=startup-last-writer", readOk ? "ready" : "failed");
+ 				// Linux 7d0a66e4/v6.18 Wa_1606931601: TGL requires EARLY_READ
+ 				// disable (ROW_CHICKEN2 bit14). Bit15 READ_SUPPRESSION belongs
+ 				// to newer DG2/MTL rules; do not copy the old RPL 0xc000 write.
+@@ -3075,9 +3618,98 @@
+ 				LookupPatchPlus const hpNoAux[] = {{activeKext,hpNoAuxFind,hpNoAuxRepl,sizeof(hpNoAuxFind),1}};
+ 				bool noauxOK=rowOk && LookupPatchPlus::applyAll(patcher,hpNoAux,address,size);
+ 				patcher.clearError();
+-				LookupPatchPlus const hpNoCCS[] = {{activeKext,hpNoCCSFind,hpNoCCSRepl,sizeof(hpNoCCSFind),1}};
++				LookupPatchPlus const hpNoCCS[] = {
++					{activeKext,hpNoCCSFind,hpNoCCSRepl,sizeof(hpNoCCSFind),1},
++				};
+ 				bool knownOK=noauxOK && LookupPatchPlus::applyAll(patcher,hpNoCCS,address,size);
+ 				patcher.clearError();
++				// Native TGL Tahoe fixes that were previously trapped inside !isRealTGL:
++				// 1) Disable EnableMultiContext (bit 33 of accel+0x1190 at 0x27499) unless -ngreenmc is passed,
++				//    so Metal compute uses g_cInitGfxHwCtxParamsForCompute on RCS (with full golden context,
++				//    indirect ctx WA, R_PWR_CLK_STATE, and nonpriv whitelist) instead of unfinished CCS0,
++				//    and RCU_MODE (0x14800) stays 0 so CCS0 never wedges the shared Slice 0 RCU.
++				//    Keep 48-bit high canonical range reservation at 0x4bf0a (f_vasreserve).
++				static const uint8_t f_nomc[] = {0x21,0xd8,0x48,0xc1,0xe0,0x21,0x48,0xb9,0xff,0xff,0xff,0xff,0xfd,0xff,0xff,0xff};
++				static const uint8_t r_nomc[] = {0x31,0xc0,0x48,0xc1,0xe0,0x21,0x48,0xb9,0xff,0xff,0xff,0xff,0xfd,0xff,0xff,0xff};
++				static const uint8_t f_vasreserve[] = {0xf6,0x80,0x94,0x11,0x00,0x00,0x02,0x74,0x26,0x41,0xf6,0x46,0x24,0x02};
++				static const uint8_t r_vasreserve[] = {0xf6,0x80,0x94,0x11,0x00,0x00,0x02,0x90,0x90,0x41,0xf6,0x46,0x24,0x02};
++				if (!checkKernelArgument("-ngreenmc")) {
++					LookupPatchPlus const hpNoMc[] = {
++						{activeKext,f_nomc,r_nomc,sizeof(f_nomc),1},
++						{activeKext,f_vasreserve,r_vasreserve,sizeof(f_vasreserve),1},
++					};
++					bool nomcOK = LookupPatchPlus::applyAll(patcher,hpNoMc,address,size);
++					patcher.clearError();
++					SYSLOG("ngreen", "HP-NOMC: EnableMultiContext->0 (compute on RCS, RCU_MODE=0) + VAS reserve %s", nomcOK ? "ready" : "failed");
++				}
++				// 2) Stub submitDepthResolve (HiZ sibling of submitCCSResolve).
++				static const uint8_t f_nodepth_hp[] = {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56,0x41,0x55,0x41,0x54,0x53,
++				                                       0x48,0x83,0xec,0x38,0xf6,0x87,0x78,0x0c,0x00,0x00,0x02,0x0f,0x84};
++				static const uint8_t r_nodepth_hp[] = {0x31,0xc0,0xc3,0xe5,0x41,0x57,0x41,0x56,0x41,0x55,0x41,0x54,0x53,
++				                                       0x48,0x83,0xec,0x38,0xf6,0x87,0x78,0x0c,0x00,0x00,0x02,0x0f,0x84};
++				if (!checkKernelArgument("-ngreendepthresolve")) {
++					LookupPatchPlus const hpNoDepth[] = {{activeKext,f_nodepth_hp,r_nodepth_hp,sizeof(f_nodepth_hp),1}};
++					bool nodepthOK = LookupPatchPlus::applyAll(patcher,hpNoDepth,address,size);
++					patcher.clearError();
++					SYSLOG("ngreen", "HP-NODEPTH: submitDepthResolve immediate return %s", nodepthOK ? "ready" : "failed");
++				}
++				// 3) Remove TILE_CACHE_FLUSH (bit 28) from PIPE_CONTROL in generateFlip and commitStampCommand.
++				static const uint8_t f_notcf_hp[] = {0x48,0xbe,0x04,0x00,0x00,0x7a,0x21,0x50,0x10,0x50};
++				static const uint8_t r_notcf_hp[] = {0x48,0xbe,0x04,0x00,0x00,0x7a,0x21,0x50,0x10,0x40};
++				static const uint8_t f_notcf2_hp[] = {0x4c,0x89,0x75,0xa8,0x49,0xc1,0xe6,0x3c,0x49,0x09,0xde};
++				static const uint8_t r_notcf2_hp[] = {0x4c,0x89,0x75,0xa8,0x45,0x31,0xf6,0x90,0x49,0x09,0xde};
++				if (!checkKernelArgument("-ngreentcf")) {
++					LookupPatchPlus const hpNoTcf[] = {
++						{activeKext,f_notcf_hp,r_notcf_hp,sizeof(f_notcf_hp),3},
++						{activeKext,f_notcf2_hp,r_notcf2_hp,sizeof(f_notcf2_hp),2},
++					};
++					bool notcfOK = LookupPatchPlus::applyAll(patcher,hpNoTcf,address,size);
++					patcher.clearError();
++					SYSLOG("ngreen", "HP-NOTCF: PIPE_CONTROL without TILE_CACHE_FLUSH %s", notcfOK ? "ready" : "failed");
++				}
++				// 4) Keep renderCompression (accel+0x1474) = 0 so generateFlip never enables PLANE_CTL decompression on AUX_NONE.
++				if (!checkKernelArgument("-ngreennorc")) {
++					static const uint8_t f_rcstart_hp[] = {0x41,0xf6,0x06,0x20,0x74,0x08,0x41,0xc6,0x85,0x74,0x14,0x00,0x00,0x01};
++					static const uint8_t r_rcstart_hp[] = {0x41,0xf6,0x06,0x20,0x74,0x08,0x41,0xc6,0x85,0x74,0x14,0x00,0x00,0x00};
++					static const uint8_t f_rcset_hp[] = {0x41,0x8a,0x07,0x41,0x88,0x86,0x74,0x14,0x00,0x00,0xeb,0x16};
++					static const uint8_t r_rcset_hp[] = {0xb0,0x00,0x90,0x41,0x88,0x86,0x74,0x14,0x00,0x00,0xeb,0x16};
++					LookupPatchPlus const hpRcPolicy[] = {
++						{activeKext,f_rcstart_hp,r_rcstart_hp,sizeof(f_rcstart_hp),1},
++						{activeKext,f_rcset_hp,r_rcset_hp,sizeof(f_rcset_hp),1},
++					};
++					bool rcOK = LookupPatchPlus::applyAll(patcher,hpRcPolicy,address,size);
++					patcher.clearError();
++					SYSLOG("ngreen", "HP-RCPOLICY: renderCompression (accel+0x1474) forced 0 %s", rcOK ? "ready" : "failed");
++				}
++				// 5) Single-port RCS Execlist policy (R32-PCFIX6):
++				//    - In IGHwRenderCommandStreamer5::evalWorkQueues (0x3d5d0), when el[pend][0] (Port0) is already
++				//      populated and the next ready work item belongs to a different context (isSameContext == false),
++				//      save the unconsumed ring read index (%r12) back to workQueue+0x4040 and jump to 0x3d768 instead
++				//      of populating el[pend][1] (Port1). This leaves the second context at the head of IGScheduler5
++				//      with its round-robin cursor and priority credits intact until Port0 finishes (ACTIVE_TO_IDLE).
++				//    - In IGHwCommandStreamer5::evalWaitQueue (0x3b971), stop looping after populating el[pend][0]
++				//      (testb $0x28, %r9b) so wait-queue evaluation never populates el[pend][1].
++				if (!checkKernelArgument("-ngreenrcs2port")) {
++					static const uint8_t f_rcs1_hp[] = {
++						0x49,0x8b,0x06,0x48,0x8b,0x80,0xb8,0x00,0x00,0x00,0x48,0x8b,0xb4,0x24,0x80,0x00,0x00,0x00,0x39,0x70,0x20,0x75,0x07
++					};
++					static const uint8_t r_rcs1_hp[] = {
++						0x48,0x8b,0x44,0x24,0x50,0x4c,0x89,0xa0,0x40,0x40,0x00,0x00,0xe9,0x87,0x01,0x00,0x00,0x90,0x90,0x90,0x90,0x90,0x90
++					};
++					static const uint8_t f_wait1_hp[] = {
++						0x42,0x89,0x84,0x33,0x18,0x14,0x00,0x00,0x41,0xf6,0xc1,0x08,0x75,0x10,0x4d,0x85,0xdb,0x74,0x0b
++					};
++					static const uint8_t r_wait1_hp[] = {
++						0x42,0x89,0x84,0x33,0x18,0x14,0x00,0x00,0x41,0xf6,0xc1,0x28,0x75,0x10,0x4d,0x85,0xdb,0x74,0x0b
++					};
++					LookupPatchPlus const hpSinglePortRcs[] = {
++						{activeKext,f_rcs1_hp,r_rcs1_hp,sizeof(f_rcs1_hp),1},
++						{activeKext,f_wait1_hp,r_wait1_hp,sizeof(f_wait1_hp),1},
++					};
++					bool spOK = LookupPatchPlus::applyAll(patcher,hpSinglePortRcs,address,size);
++					patcher.clearError();
++					SYSLOG("ngreen", "HP-SINGLEPORT-RCS: evalWorkQueues+evalWaitQueue single-port policy %s", spOK ? "ready" : "failed");
++				}
+ 				SYSLOG("ngreen", "HP-KNOWN7: native NOAUX+NOCCS3 proven artifact/CPU combination %s",knownOK ? "ready" : "failed");
+ 				PANIC_COND(!knownOK,"ngreen","HP-KNOWN7 native NOAUX/NOCCS3 preflight failed");
+ 			}
+@@ -4635,6 +5267,27 @@
+ 	if (gXeBdN > (SInt32)arrsize(gXeBd)) IOLog("XeNG BOOTDIAG %s ring full (%d writes)\n", tag, (int)gXeBdN);
+ }
+ 
++// NP550/TGL brilho (-ngreenbldiag): PWM da luz de fundo (CNP+: CTL 0xC8250, período 0xC8254, duty 0xC8258) antes do FB da
++// Apple (valores do firmware, tela forte) e a cada 10 s por 5 min (o que a Apple pede x o que o XE-BLR entrega).
++static thread_call_t gXeBlTimer = nullptr;
++static void xeBlDiag(const char *tag) {
++	if (!NGreen::callback) return;
++	IOLog("XeNG BLDIAG %s CTL=%08x FREQ=%u DUTY=%u | hw=%u apple=%u fw=%u lastDuty=%u maxDuty=%u out=%u\n", tag,
++		  NGreen::callback->readReg32(0xC8250), NGreen::callback->readReg32(0xC8254), NGreen::callback->readReg32(0xC8258),
++		  gBlHwFreq, gBlAppleFreq, gBlFreqWrites, gBlLastDuty, gBlMaxDuty, gBlLastOut);
++}
++static void xeBlDiagStart() {
++	if (gXeBlTimer || !checkKernelArgument("-ngreenbldiag")) return;
++	xeBlDiag("pre-FBstart");
++	gXeBlTimer = thread_call_allocate([](thread_call_param_t, thread_call_param_t) {
++		static int ticks = 0;
++		xeBlDiag("tick");
++		if (++ticks < 30) { uint64_t d; clock_interval_to_deadline(10, kSecondScale, &d); thread_call_enter_delayed(gXeBlTimer, d); }
++	}, nullptr);
++	uint64_t d; clock_interval_to_deadline(10, kSecondScale, &d);
++	if (gXeBlTimer) thread_call_enter_delayed(gXeBlTimer, d);
++}
++
+ static thread_call_t gXeBhTimer = nullptr;
+ static void xeBootHoldRelease(const char *why) {   // write Apple's last CTL, re-arm with the current SURF, backlight back on
+ 	if (gXeBhDone) return;
+@@ -4696,11 +5349,16 @@
+ 	if (nseen < 8) seen[nseen++] = val;
+ 	return val;
+ }
+-static uint32_t xeFixFilterWrite(unsigned long reg, uint32_t val) {
++static uint32_t xeFixFilterWrite(unsigned long reg, uint32_t val, bool isRealTGL = false) {
+ 	xeBootDiagRecord(reg, val);
+ 	val = xeBootHold(reg, val);
+-	if (!xeFixEnabled()) return val;
+-	val = xeNoDpms((uint32_t)(reg & 0x1FFFFF), val);
++	// NP550XDA/TGL: o XE-BLR (brilho) sozinho quando -ngreenblr ou isRealTGL está ativo, sem o resto do -ngreenxefix (ajustes de Alder Lake/display 13).
++	static int blrArg = -1;
++	if (blrArg < 0) blrArg = checkKernelArgument("-ngreenblr") ? 1 : 0;
++	const bool blrOnly = (blrArg == 1) || isRealTGL || (NGreen::callback && NGreen::callback->getIsRealTGL());
++	const bool xeFix = xeFixEnabled();
++	if (!xeFix && !blrOnly) return val;
++	if (xeFix) val = xeNoDpms((uint32_t)(reg & 0x1FFFFF), val);
+ 	// 20/10 (XE-BLR): o brilho ia só até ~50%. Como o BacklightRegistersFix do WhateverGreen: mantém o período do
+ 	// hardware (lido antes da 1ª escrita da Apple) e reescala o duty por período_hw / período_Apple. Se a Apple não
+ 	// gravar o período, ngreenblmax=N diz qual duty ela considera 100%. -ngreennoblr desliga.
+@@ -4723,6 +5381,7 @@
+ 					val = v > gBlHwFreq ? gBlHwFreq : (uint32_t)v;
+ 				}
+ 				gBlLastOut = val;
++				if (val > 0 && val != 0xFFFFFFFFu) gBlLastNonZeroOut = val;
+ 				if (xeAuxBlMode() && gXeAuxBlTc && gBlHwFreq && gBlHwFreq != 0xFFFFFFFF) {   // xe/auxbl
+ 					uint64_t l = (uint64_t)val * 0xFFFF / gBlHwFreq;
+ 					gXeAuxBlLevel = l > 0xFFFF ? 0xFFFF : (uint32_t)l;
+@@ -4732,6 +5391,7 @@
+ 			}
+ 		}
+ 	}
++	if (!xeFix) return val;   // -ngreenblr / Real TGL sozinho: nada de DBUF/GAMMA/etc. do display 13
+ 	switch (reg & 0xFFFFF) {
+ 		case 0x44FE8: if (!(val & 0x80000000u)) { static int n = 0; if (n++ < 8) IOLog("XeNG xefix: DBUF_CTL_S1 0x%x -> power on\n", val); } return val | 0x80000000u;
+ 		case 0x42084: return val | 0x40000000u;
+@@ -4767,7 +5427,7 @@
+ void Gen11::FastWriteRegister32(AppleIntel::AppleIntelBaseController *that, unsigned long param_1, uint32_t param_2)
+ {
+ 	if (xeInertDrop(param_1)) return;
+-	param_2 = xeFixFilterWrite(param_1, param_2);
++	param_2 = xeFixFilterWrite(param_1, param_2, NGreen::callback && NGreen::callback->isRealTGL);
+ 	if ((param_1 & 0xFFFFF) == 0x7019C) xeFixEnsure();
+ 	// V99D: Diagnose — log all FastWrite calls near display engine range on first boot
+ 	// to understand what addresses/values flow through this path.
+@@ -4869,7 +5529,7 @@
+ void Gen11::raWriteRegister32(void *that,unsigned long param_1, UInt32 param_2)
+ {
+ 	if (xeInertDrop(param_1)) return;
+-	param_2 = xeFixFilterWrite(param_1, param_2);
++	param_2 = xeFixFilterWrite(param_1, param_2, NGreen::callback && NGreen::callback->isRealTGL);
+ 	if ((param_1 & 0xFFFFF) == 0x7019C) xeFixEnsure();
+ 	// V93: optional plane SURF zero-write guard.
+ 	// Disabled by default due black-screen regressions; enable only with -ngreenv93.
+@@ -5890,6 +6550,7 @@
+ 
+ 	SYSLOG("ngreen", "FBController::start() entering...");
+ 	xeBootHoldInit();
++	xeBlDiagStart();
+ 	xeBootDiagDump("pre-FBstart");
+ 	auto ret=FunctionCast(AppleIntelBaseControllerstart, callback->oAppleIntelBaseControllerstart)(that,param_1 );
+ 	SYSLOG("ngreen", "FBController::start() returned %d", ret);
+@@ -6280,6 +6941,13 @@
+ 	}
+ 	} else {
+ 		SYSLOG("ngreen", "V52: Real TGL — skipping MultiForceWakeSelect override");
++		if (!checkKernelArgument("-ngreennogva")) {
++			auto *rid = OSNumber::withNumber(0x1080080ULL, 32);
++			if (rid) { service->setProperty("IOVARendererID", rid); rid->release(); }
++			SYSLOG("ngreen", "XE-GVAID (Real TGL): IOVARendererID = 0x1080080");
++			service->setProperty("IOGVAHEVCDecode", "2");
++			SYSLOG("ngreen", "XE-GVAHEVC (Real TGL): IOGVAHEVCDecode = \"2\"");
++		}
+ 	}
+ 
+ 	// ── V29: Apply GT workarounds + GGTT PTE diagnostics ──
+@@ -7008,11 +7676,13 @@
+ 		}
+ 		
+ 		// 5. Clear GT interrupt identity (W1C) so stale interrupts don't confuse scheduler
+-		uint32_t gtIntr0 = NGreen::callback->readReg32(GEN11_GT_INTR_DW0);
+-		uint32_t gtIntr1 = NGreen::callback->readReg32(GEN11_GT_INTR_DW1);
+-		if (gtIntr0) NGreen::callback->writeReg32(GEN11_GT_INTR_DW0, gtIntr0);
+-		if (gtIntr1) NGreen::callback->writeReg32(GEN11_GT_INTR_DW1, gtIntr1);
+-		SYSLOG("ngreen", "V51: cleared GT_INTR DW0=0x%x DW1=0x%x", gtIntr0, gtIntr1);
++		if (!NGreen::callback->isRealTGL) {
++			uint32_t gtIntr0 = NGreen::callback->readReg32(GEN11_GT_INTR_DW0);
++			uint32_t gtIntr1 = NGreen::callback->readReg32(GEN11_GT_INTR_DW1);
++			if (gtIntr0) NGreen::callback->writeReg32(GEN11_GT_INTR_DW0, gtIntr0);
++			if (gtIntr1) NGreen::callback->writeReg32(GEN11_GT_INTR_DW1, gtIntr1);
++			SYSLOG("ngreen", "V51: cleared GT_INTR DW0=0x%x DW1=0x%x", gtIntr0, gtIntr1);
++		}
+ 	}
+ 	
+ 	// ── V51: BCS engine stop+clear ──
+@@ -7365,7 +8035,7 @@
+ 
+ void Gen11::populateResetRegisterList(void *that)
+ {
+-	if (!NGreen::callback->isRealTGL) {
++	if (!NGreen::callback->isRealTGL || xePreemptDisabled()) {
+ 		// Masked clear: mask=bit14, value=0 → 0x40000000
+ 		NGreen::callback->writeReg32(GEN7_FF_SLICE_CS_CHICKEN1,
+ 			(GEN9_FFSC_PERCTX_PREEMPT_CTRL << 16) | 0);
+@@ -7731,7 +8401,8 @@
+ {
+ 	static int pisoMhz = -1;
+ 	if (pisoMhz < 0) {
+-		pisoMhz = 1500;
++		// TGL real com GuC ativo (-ngreennogtfreqtgl) deixa o SLPC/Apple gerenciar RPNSWREQ sem forçar RP0=1500 MHz
++		pisoMhz = checkKernelArgument("-ngreennogtfreqtgl") ? 0 : 1500;
+ 		PE_parse_boot_argn("ngreengtfreq", &pisoMhz, sizeof(pisoMhz));
+ 		if (pisoMhz > 1500) pisoMhz = 1500;
+ 	}
+@@ -7773,35 +8444,82 @@
+ // e grava o novo estado; Doze/Sleep -> Wake só reacende. O caminho de vídeo nunca é desmontado, e as trocas de modo
+ // (que não passam por aqui) continuam normais. A XE-NODPMS (filtro de escritas) quebrava as trocas de modo.
+ // -ngreenfbdpms volta ao original.
+-static uint32_t gXeFbBlcCtl = 0, gXeFbBlcDuty = 0;
++static uint32_t gXeFbBlcCtl = 0, gXeFbBlcDuty = 0, gXeFbBlcFreq = 0;
+ static bool gXeFbFake = false;
+ IOReturn Gen11::wrapSetFramebufferPowerState(void *that, unsigned int state)
+ {
+ 	static int on = -1;
+-	if (on < 0) on = (xeFixEnabled() && !checkKernelArgument("-ngreenfbdpms")) ? 1 : 0;
++	if (on < 0) on = ((xeFixEnabled() || (NGreen::callback && NGreen::callback->isRealTGL)) && !checkKernelArgument("-ngreenfbdpms")) ? 1 : 0;
+ 	auto *fb = static_cast<uint8_t *>(that);
+-	if (on && fb && NGreen::callback && *reinterpret_cast<uint32_t *>(fb + 0x1dc) == 0) {
++	if (on && fb && NGreen::callback) {
++		uint32_t pipe = *reinterpret_cast<uint32_t *>(fb + 0x1dc);
+ 		uint32_t cur = *reinterpret_cast<uint32_t *>(fb + 0x4284);
+ 		if (state > 2) state = 2;
++		if (pipe != 0) {
++			if (cur > 0 && state == 0) {
++				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
++				if (gHpIOFBHandleEvent) gHpIOFBHandleEvent(fb, 3, reinterpret_cast<void *>(1));
++				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
++				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
++			} else if (cur == 0 && state > 0) {
++				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
++				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
++				if (gHpIOFBHandleEvent) gHpIOFBHandleEvent(fb, 4, reinterpret_cast<void *>(1));
++				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
++			} else {
++				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
++				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
++			}
++			return kIOReturnSuccess;
++		}
+ 		if (cur == 2 && state < 2) {
+ 			gXeFbBlcCtl = NGreen::callback->readReg32(0xC8250);
+-			gXeFbBlcDuty = NGreen::callback->readReg32(0xC8258);
++			gXeFbBlcFreq = NGreen::callback->readReg32(0xC8254);
++			uint32_t duty = NGreen::callback->readReg32(0xC8258);
++			if (duty > 0 && duty != 0xFFFFFFFFu) gXeFbBlcDuty = duty;
++			else if (!gXeFbBlcDuty) gXeFbBlcDuty = gBlLastNonZeroOut ? gBlLastNonZeroOut : 0x3900u;
+ 			NGreen::callback->writeReg32(0xC8250, gXeFbBlcCtl & ~0x80000000u);   // luz de fundo off
++			*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
++			if (state == 0 && gHpIOFBHandleEvent) {
++				gHpIOFBHandleEvent(fb, 3, reinterpret_cast<void *>(1));
++			}
+ 			*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
++			*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+ 			gXeFbFake = true; gXeFbDpmsN++;
+-			IOLog("XeNG FBDPMS: FB0 %u -> %u: só luz de fundo off (BLC_CTL 0x%x duty 0x%x)\n", cur, state, gXeFbBlcCtl, gXeFbBlcDuty);
++			IOLog("XeNG FBDPMS: FB0 %u -> %u: só luz de fundo off (BLC_CTL 0x%x freq 0x%x duty 0x%x handleEvent=0x%llx)\n",
++			      cur, state, gXeFbBlcCtl, gXeFbBlcFreq, gXeFbBlcDuty, reinterpret_cast<uint64_t>(gHpIOFBHandleEvent));
+ 			return kIOReturnSuccess;
+ 		}
+ 		if (cur < 2 && state < 2 && gXeFbFake) {           // Doze <-> Sleep enquanto "dormindo": só registra
+-			*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
++			if (cur > 0 && state == 0) {
++				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
++				if (gHpIOFBHandleEvent) gHpIOFBHandleEvent(fb, 3, reinterpret_cast<void *>(1));
++				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
++				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
++			} else if (cur == 0 && state > 0) {
++				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
++				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
++				if (gHpIOFBHandleEvent) gHpIOFBHandleEvent(fb, 4, reinterpret_cast<void *>(1));
++				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
++			} else {
++				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
++				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
++			}
+ 			return kIOReturnSuccess;
+ 		}
+ 		if (cur < 2 && state == 2 && gXeFbFake) {
+-			if (gXeFbBlcDuty) NGreen::callback->writeReg32(0xC8258, gXeFbBlcDuty);
+-			NGreen::callback->writeReg32(0xC8250, gXeFbBlcCtl | 0x80000000u);   // luz de fundo on
++			if (gXeFbBlcFreq && gXeFbBlcFreq != 0xFFFFFFFFu) NGreen::callback->writeReg32(0xC8254, gXeFbBlcFreq);
++			if (gXeFbBlcDuty && gXeFbBlcDuty != 0xFFFFFFFFu) NGreen::callback->writeReg32(0xC8258, gXeFbBlcDuty);
++			NGreen::callback->writeReg32(0xC8250, (gXeFbBlcCtl ? gXeFbBlcCtl : 0x80000000u) | 0x80000000u);   // luz de fundo on
+ 			*reinterpret_cast<uint32_t *>(fb + 0x4284) = 2;
++			*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+ 			gXeFbFake = false; gXeFbDpmsN++;
+-			IOLog("XeNG FBDPMS: FB0 %u -> 2: luz de fundo on\n", cur);
++			if (cur == 0 && gHpIOFBHandleEvent) {
++				gHpIOFBHandleEvent(fb, 4, reinterpret_cast<void *>(1));
++				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
++			}
++			IOLog("XeNG FBDPMS: FB0 %u -> 2: luz de fundo on (freq 0x%x duty 0x%x handleEvent=0x%llx)\n",
++			      cur, gXeFbBlcFreq, gXeFbBlcDuty, reinterpret_cast<uint64_t>(gHpIOFBHandleEvent));
+ 			return kIOReturnSuccess;
+ 		}
+ 	}
+@@ -8041,8 +8759,25 @@
+ 		applyPreStartEngineWorkarounds(startCount);
+ 	}
+ 
++	if (NGreen::callback->isRealTGL && getKernelVersion()==KernelVersion::Tahoe && that) {
++		// Enable _WA_TABLE+0x14 bit 0 (IntelAccelerator+0xf42 -> IntelHwInfoRec+0x90) so
++		// COCLGen8CommandTransport::AddPipeFlushCmd emits two 6-dword PIPE_CONTROL packets
++		// (12 dwords total) at both mid-encoder and end-of-encoder flush sites.
++		static_cast<uint8_t *>(that)[0xf42] |= 0x01U;
++	}
++
+ 	unsigned long ret = FunctionCast(startGraphicsEngine, callback->ostartGraphicsEngine)(that);
+ 	if (NGreen::callback->isRealTGL && getKernelVersion()==KernelVersion::Tahoe) {
++		if (that) {
++			static_cast<uint8_t *>(that)[0xf42] |= 0x01U;
++		}
++		if (xePreemptDisabled()) {
++			NGreen::callback->writeReg32(GEN7_FF_SLICE_CS_CHICKEN1,
++				(GEN9_FFSC_PERCTX_PREEMPT_CTRL << 16) | 0);
++		}
++		uint64_t sample = __atomic_load_n(&hpR32Readback, __ATOMIC_RELAXED);
++		SYSLOG("ngreen", "HP-R32-READBACK: valid=%u cs=%08x scope=startup-last-writer",
++			static_cast<unsigned>(sample >> 32 == 1), static_cast<unsigned>(sample));
+ 		SYSLOG("ngreen", "HP-ROW5: call=%u row=0x%x->0x%x ack=0x%x MCR=0x%x->0x%x engine=%lu verified=%u",
+ 			hpNativeRowState[5],hpNativeRowState[1],hpNativeRowState[2],hpNativeRowState[3],
+ 			hpNativeRowState[0],hpNativeRowState[4],ret,
+@@ -9588,7 +10323,7 @@
+ 
+ void Gen11::wrapWriteRegister32(void *controller, uint32_t address, uint32_t value) {
+ 	if (xeInertDrop(address)) return;
+-	if ((address & 0xFFFFF) == 0xC8254 || (address & 0xFFFFF) == 0xC8258) value = xeFixFilterWrite(address, value);  // 20/10: só o brilho (XE-BLR) neste caminho
++	if ((address & 0xFFFFF) == 0xC8254 || (address & 0xFFFFF) == 0xC8258) value = xeFixFilterWrite(address, value, NGreen::callback && NGreen::callback->isRealTGL);  // 20/10: só o brilho (XE-BLR) neste caminho
+ 	if (controller == nullptr) {
+ 		NGreen::callback->writeReg32(address, value);
+ 		return;
+@@ -9922,47 +10657,6 @@
+ 		if (emr != 0xFFFFFFFF) {
+ 			NGreen::callback->writeReg32(RING_EMR(RENDER_RING_BASE), 0xFFFFFFFF);
+ 		}
+-		
+-		// ── V79: Plane linearization (brief Apple logo flash) — aggressive mode only ──
+-		// Boot log shows SURF=0x0 for iters 1–6; SURF becomes non-zero (tiled) at iter 7 (~14s).
+-		// Old cadence (<=5, 10, 20, 30) skipped iter 7/8/9 — the first 6s window where the plane
+-		// is tiled. Writing at iter 10 (~20s) is too late: the login screen is already up and the
+-		// Apple logo phase has ended. Fix: fire every tick from 1–12 so we catch iter 7 immediately
+-		// (first time SURF is mapped and tiling != 0) while the Apple logo may still be on screen.
+-		if (v60Count <= 5 || v60Count == 10 || v60Count == 20 || v60Count == 30) {
+-			uint32_t planCtl  = NGreen::callback->readReg32(0x70180); // PLANE_CTL
+-			uint32_t planStrd = NGreen::callback->readReg32(0x70188); // PLANE_STRIDE
+-			uint32_t tiling = (planCtl >> 10) & 0x7; // bits[12:10]
+-			if (tiling != 0) {
+-				uint32_t newCtl = planCtl & ~(0x7u << 10); // clear tiling -> linear
+-				uint32_t newStrd = planStrd;
+-				if (tiling == 1) {
+-					newStrd = planStrd * 8;
+-				} else if (tiling == 4) {
+-					newStrd = planStrd * 16;
+-				}
+-				NGreen::callback->writeReg32(0x70180, newCtl);
+-				NGreen::callback->writeReg32(0x70188, newStrd);
+-				uint32_t planSurf = NGreen::callback->readReg32(0x7019C);
+-				NGreen::callback->writeReg32(0x7019C, planSurf);
+-				SYSLOG("ngreen", "V79[%d]: tiling %d->linear CTL 0x%x->0x%x STRIDE 0x%x->0x%x SURF=0x%x",
+-					   v60Count, tiling, planCtl, newCtl, planStrd, newStrd, planSurf);
+-			} else {
+-				SYSLOG("ngreen", "V79[%d]: already linear CTL=0x%x STRIDE=0x%x", v60Count, planCtl, planStrd);
+-			}
+-		}
+-	}*/
+-
+-	// 5. V60: ACTIVE error suppression (V57 proven approach)
+-	//    Keep this write path strictly opt-in via -ngreenv60rw.
+-	/*if (v60Aggressive) {
+-		if (realErr) {
+-			NGreen::callback->writeReg32(ERROR_GEN6, 0x0);
+-		}
+-		// Re-mask EMR every cycle — Apple may unmask during error recovery attempts
+-		if (emr != 0xFFFFFFFF) {
+-			NGreen::callback->writeReg32(RING_EMR(RENDER_RING_BASE), 0xFFFFFFFF);
+-		}
+ 	}*/
+ 	
+ 	// 6. Log with ring + CSB focus
+@@ -10753,7 +11447,7 @@
+ 	uint32_t err    = NGreen::callback->readReg32(ERROR_GEN6);
+ 	// 19/10: o pânico "spinlock timeout, owner=current_thread" parou dentro deste SYSLOG; com xefix ele não é mais emitido
+ 	static int v74Quiet = -1;
+-	if (v74Quiet < 0) v74Quiet = checkKernelArgument("-ngreenxefix") ? 1 : 0;
++	if (v74Quiet < 0) v74Quiet = !checkKernelArgument("-ngreenv74log") ? 1 : 0;
+ 	if (!v74Quiet && (v71Count <= 3 || (err != 0 && v71Count <= 50) ||
+ 	    ((emrRcs != 0xFFFFFFFF || emrBcs != 0xFFFFFFFF) && v71Count <= 50))) {
+ 		SYSLOG("ngreen", "V74Ep[%d]: EMR_RCS=0x%x EMR_BCS=0x%x ERR=0x%x (V74 EMR mask removed)",
+@@ -11181,7 +11875,7 @@
+ 		for (unsigned i = 0; i < 3; i++) if (cnt[i] > 0 || gFwRef[i][1] > 0) held = true;
+ 		if (gRc6FwDrop && held && quietMs >= gRc6IdleMs) {
+ 			// 0x1c4000 (VCS1) is fused off on this SKU; VCS2 0x1d0000 reads 0 when unused
+-			bool idle = xeEngIdle(0x2000) && xeEngIdle(0x22000) && xeEngIdle(0x1c0000) &&
++			bool idle = xeEngIdle(0x2000) && xeEngIdle(0x1a000) && xeEngIdle(0x22000) && xeEngIdle(0x1c0000) &&
+ 			            xeEngIdle(0x1c8000) && xeEngIdle(0x1d0000);
+ 			IOSimpleLock *lk = idle ? xeAppleFwLock(a) : nullptr;
+ 			if (lk) {
+@@ -11255,7 +11949,7 @@
+ 	fwCallCount++;
+ 	
+ 	static int hcQuiet = -1;  // 19/10: dezenas de SYSLOG aqui; o forcewake pode estar em interrupção
+-	if (hcQuiet < 0) hcQuiet = checkKernelArgument("-ngreenxefix") ? 1 : 0;
++	if (hcQuiet < 0) hcQuiet = !checkKernelArgument("-ngreenhc") ? 1 : 0;
+ 	if (!hcQuiet && !hangcheckDumped && fwCallCount == 15) {
+ 		hangcheckDumped = true;
+ 		SYSLOG("ngreen", "=== HANGCHECK: GPU state dump (fwCall=%d) ===", fwCallCount);
+@@ -11614,7 +12308,7 @@
+ 	static int fwRelease = -1;
+ 	if (fwRelease < 0) fwRelease = checkKernelArgument("-ngreenfwhold") ? 0 : 1;  // 19/10: segurar sempre quebrou o boot
+ 	static int fwRefArg = -1;
+-	if (fwRefArg < 0) fwRefArg = (checkKernelArgument("-ngreenxefix") && !checkKernelArgument("-ngreennofwref")) ? 1 : 0;
++	if (fwRefArg < 0) fwRefArg = !checkKernelArgument("-ngreennofwref") ? 1 : 0;
+ 	// xe/rc6fw (22/10): fwLock/fwRef moved to file scope (gFwLock/gFwRef) so the idle watchdog shares them
+ 	auto &fwLock = gFwLock;
+ 	auto &fwRef = gFwRef;
+@@ -11624,34 +12318,62 @@
+ 	}
+ 	if (fwRefArg == 1 && fwLock && ctx < 4) {
+ 		uint32_t mudar = 0;
++		auto waitAckLocked = [&](uint32_t reqReg, uint32_t ackReg) {
++			for (int u = 0; u < 5000; u++) {
++				if ((NGreen::callback->readReg32(ackReg) & mask) == ack_exp) return true;
++				IODelay(1);
++			}
++			for (unsigned pass = 1; pass <= 10; pass++) {
++				for (int u = 0; u < 500; u++) {
++					if ((NGreen::callback->readReg32(ackReg) & FORCEWAKE_KERNEL_FALLBACK) == 0) break;
++					IODelay(1);
++				}
++				NGreen::callback->writeReg32(reqReg, fw_set(FORCEWAKE_KERNEL_FALLBACK));
++				IODelay(10 * pass);
++				for (int u = 0; u < 500; u++) {
++					if (NGreen::callback->readReg32(ackReg) & FORCEWAKE_KERNEL_FALLBACK) break;
++					IODelay(1);
++				}
++				bool ok = (NGreen::callback->readReg32(ackReg) & mask) == ack_exp;
++				NGreen::callback->writeReg32(reqReg, fw_clear(FORCEWAKE_KERNEL_FALLBACK));
++				if (ok) return true;
++			}
++			for (int u = 0; u < 5000; u++) {
++				if ((NGreen::callback->readReg32(ackReg) & mask) == ack_exp) return true;
++				IODelay(1);
++			}
++			xeEv('FWTO', reqReg, dom, ack_exp);
++			return false;
++		};
+ 		// 19/10: o forcewake também é chamado em interrupção primária (panic "hwlock ... recursively" com o lock
+ 		// comum): desliga as interrupções enquanto segura o lock.
+ 		IOInterruptState fwIs = IOSimpleLockLockDisableInterrupt(fwLock);
+ 		for (unsigned d = DOM_FIRST, i = 0; d <= DOM_LAST && i < 8; d <<= 1, i++) {
+ 			if (!(dom & d)) continue;
+ 			if (set) {
+-				if (fwRef[i][ctx]++ == 0) mudar |= d;
++				bool needHw = (fwRef[i][ctx]++ == 0);
++				if (!needHw && d != DOM_MEDIA) {
++					needHw = ((NGreen::callback->readReg32(fwAckReg(d)) & mask) != ack_exp);
++				}
++				if (needHw) mudar |= d;
+ 			} else if (fwRef[i][ctx] > 0) {
+-				// xe/fwhold (19/10): ao zerar, NÃO solta (o motor ficava em RC6 e a execlist escrita logo depois do
+-				// fim do CSB se perdia). Mantém o forcewake ligado; -ngreenfwrelease volta a soltar.
+ 				if (--fwRef[i][ctx] == 0 && fwRelease) mudar |= d;
+ 			}
+ 		}
+-		// a requisição é escrita ainda dentro do lock (a ordem das escritas segue a dos contadores); só o ACK é esperado fora
+ 		for (unsigned d = DOM_FIRST; d <= DOM_LAST; d <<= 1) {
+ 			if (!(mudar & d)) continue;
+-			// 19/10: escrita direta no MMIO dentro da trava. wrapWriteRegister32 pode chamar o forcewake de novo
+-			// (recursão -> panic "spinlock acquisition timeout, owner: current_thread").
+ 			if (d == DOM_MEDIA) {
+-				for (const auto &eng : fwMediaEngines) NGreen::callback->writeReg32(eng.req, wr);
++				for (const auto &eng : fwMediaEngines) {
++					NGreen::callback->writeReg32(eng.req, wr);
++					if (set) waitAckLocked(eng.req, eng.ack);
++				}
+ 			} else {
+ 				NGreen::callback->writeReg32(fwReqReg(d), wr);
++				if (set) waitAckLocked(fwReqReg(d), fwAckReg(d));
+ 			}
+ 		}
+ 		IOSimpleLockUnlockEnableInterrupt(fwLock, fwIs);
+-		dom = mudar;
+-		if (!dom) return;
+-		fwJaEscrito = true;
++		return;
+ 	}
+ 
+ 	for (unsigned d = DOM_FIRST; d <= DOM_LAST; d <<= 1) {
+@@ -12567,9 +13289,16 @@
+ bool Gen11::wrapIGScheduler5IsGpuIdle(const void *that) {
+ 	bool idle = FunctionCast(wrapIGScheduler5IsGpuIdle, callback->oIGScheduler5IsGpuIdle)(that);
+ 	if (!idle) {
++		uint32_t busyMask = that ? *reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(that) + 0xcd0) : 0xffffffffu;
++		uint32_t ex = NGreen::callback ? NGreen::callback->readReg32(0x2234) : 0xffffffffu;
++		uint32_t ringHead = NGreen::callback ? (NGreen::callback->readReg32(0x2034) & 0x001ffffcu) : 0xffffffffu;
++		uint32_t ringTail = NGreen::callback ? (NGreen::callback->readReg32(0x2030) & 0x000ffff8u) : 0xffffffffu;
+ 		uint32_t instdone = NGreen::callback->readReg32(RING_INSTDONE(RENDER_RING_BASE));
+-		if ((instdone & ~1U) == 0xfffffffe) {
+-			SYSLOG("ngreen", "V212[5]: isGpuIdle override INSTDONE=0x%08x → idle", instdone);
++		if (busyMask == 0 && ((ex & 0x4007c000u) == 0) && (ringHead == ringTail) && (instdone & ~1U) == 0xfffffffe) {
++			static uint32_t n = 0;
++			if (++n <= 8 || (n & 0xfffu) == 0) {
++				SYSLOG("ngreen", "V212[5]: isGpuIdle override #%u INSTDONE=0x%08x ex=0x%08x → idle", n, instdone, ex);
++			}
+ 			return true;
+ 		}
+ 	}

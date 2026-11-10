@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "record_type": "sanitized_public_current_status",
-  "as_of": "2026-11-06",
+  "as_of": "2026-11-11",
   "target": {
     "model": "HP Elite Dragonfly G2",
     "board_id": "8716",
@@ -11,24 +11,25 @@
     "macos": "26.6.2",
     "build": "25G83",
     "bootloader": "OpenCore 1.0.8",
-    "installation_status": "installed on internal Micron 2210 NVMe SSD; independent boot via /boot/EFI/OC verified and deployed with R32-PCFIX27-PMAPFIX"
+    "installation_status": "installed on internal Micron 2210 NVMe SSD; independent boot via internal ESP verified with OpenCore 1.0.8 (R32-PCFIX36 live-booted; R32-PCFIX37 + S0ixStandby 1.1.0 + SSDT-DEEPIDLE USB-wake-disabled staged on internal ESP for next boot)"
   },
   "nix_flake_tooling": {
     "flake_files": ["../flake.nix", "../flake.lock"],
     "verify_command": "nix develop -c make check"
   },
   "project_completion_policy": {
-    "updated": "2026-11-06",
-    "user_request": "完成gpu后停止适配，更新仓库，以及推送到远端",
-    "user_internal_efi_deploy_permission": "2026-11-06T18:10:11+08:00 (确认)",
-    "scope": "GPU three-stage stability and endurance adaptation is 100% complete in R32-PCFIX27-PMAPFIX (705,024 compute encoders across 3 full Geekbench 6.5.0 Metal runs + 90s 4-worker concurrent stress + 60s RC6 idle + 30s 4-worker burst wake, 0 GPU hangs, 0 GPURestart, 0 kernel panics) and deployed to internal NVMe /boot/EFI/OC with SHA-256 readback verification. Per explicit user instruction, stop all further hardware trials and peripheral driver adaptations, finalize repository records, and push to the remote repository.",
-    "final_gpu_baseline": "R32-PCFIX27-PMAPFIX",
+    "updated": "2026-11-11",
+    "scope": "Complete daily-driver macOS 26.6.2 (25G83) adaptation on HP Elite Dragonfly G2: Iris Xe 80 EU Metal compute endurance (R32-PCFIX27, 705,024 encoders, 0 hangs), eDP PWM backlight & HUD (R32-PCFIX31 + hp-brightness-daemon), 420v NV12 video blit alignment (R32-PCFIX35 + xe-h264sw-fixd), Deep Idle S0ix sleep/wake & USB wake block (S0ixStandby 1.1.0 + SSDT-DEEPIDLE + R32-PCFIX36/PCFIX37 Pipe A RGB restore), Realtek ALC285 speakers/headphone (AppleALC + SimpleHDA + alc285-ampinit), Tiger Lake quad-DMIC (TGLDmic 1.0.0), full Fn hotkeys (SSDT-HP-Hotkeys + hp-bridge), RidgeKey Secure Enclave Touch ID / Passkey, bluetoothd APFS decmpfs mlock page-wiring, and persistent system/daemon logging (hp-syslogger + newsyslog).",
+    "final_gpu_baseline": "R32-PCFIX37",
     "internal_nvme_efi_deployment": {
-      "config_plist_sha256": "1dc6be22dcebd228fe9921b7733ccd7930b6e497fcab81d24e5ee43fa6dda414",
-      "nootedgreen_binary_sha256": "56c2d0758770803190b70b897e06b1ed5ab5318df97fef0c1fc4c07a2de2ffd9",
-      "nootedgreen_uuid": "4C4C44D2-5555-3144-A1F9-D192CDF39360",
-      "nootedgreen_info_plist_sha256": "b5fd1d0fe125a48f6045c3b07a8f5894f76fc406caf5065f126830a63ea4738e",
-      "nootedgreen_code_resources_sha256": "6686de10a28a2fe11b36cbb86dcbacc827cfc4ea116b4dabf1845e5aee629e9b"
+      "config_plist_sha256": "6043726e373a131f44b3c01e4a0c376d8678791848bf331f4627ce274b3a30cd",
+      "nootedgreen_binary_sha256": "94b2cb33f67fa07d0a0c441da89378a53d096d11e067b4d5a16a3f03cc39f7e1",
+      "nootedgreen_uuid": "4C4C44EC-5555-3144-A1CA-55B34DC29F79",
+      "live_booted_nootedgreen_pcfix36_sha256": "c30417f70b8175a312272f56706d88782b399af128735453ca3a098f91009911",
+      "live_booted_nootedgreen_pcfix36_uuid": "4C4C44C5-5555-3144-A14E-CE2A5B0C53E7",
+      "s0ix_standby_binary_sha256": "be55592c46109e66d03d3b8709333e70a3249435af2c54cf150f7f375029e53d",
+      "ssdt_deepidle_aml_sha256": "280e3a4af2b1df899d3b6ef3c497e37ba976ab631e86600668f6189e0c6b3b2c",
+      "tgl_dmic_binary_sha256": "56620031521cd99c36459f5b726f39dfdd206b5ed584208ba930315e9331d675"
     }
   },
   "pmap_recycle_page_fix": {
@@ -42,7 +43,7 @@
     "boot_args_debug": "debug=0x100000"
   },
   "graphics_and_metal_compute": {
-    "status": "R32_PCFIX27_PMAPFIX_PASSED_ALL_3_STAGES_OF_GPU_STABILITY_AND_ENDURANCE_TEST_PLAN_100PCT_ZERO_GPU_HANG_ZERO_GPU_RESET_705024_ENCODERS",
+    "status": "R32_PCFIX27_TO_PCFIX37_COMPUTE_ENDURANCE_BACKLIGHT_S0IX_BLITALIGN_AND_WAKERGB",
     "single_run_encoders_completed": 25088,
     "stage1_three_runs_encoders_completed": 75264,
     "stage2_concurrent_stress_encoders_completed": 547328,
@@ -117,26 +118,53 @@
         "ng_sha256": "56c2d0758770803190b70b897e06b1ed5ab5318df97fef0c1fc4c07a2de2ffd9",
         "ng_uuid": "4C4C44D2-5555-3144-A1F9-D192CDF39360",
         "result": "PASSED ALL 3 STAGES OF THE REAL-MACHINE GPU STABILITY & ENDURANCE TEST PLAN 100% (Stage 1: 3 consecutive Geekbench 6.5.0 Metal runs, 24 workloads, enc=75,264; Stage 2: 90s 4-worker concurrent stress, 67,430 batches, 404,570 encoders, enc=547,328; Stage 3: 60s RC6 idle + 30s 4-worker burst wake, 22,513 batches, 135,068 encoders, enc=705,024; 0 GPU hangs, 0 GPURestart, 0 kernel panics)"
+      },
+      {
+        "trial": "R32-PCFIX31",
+        "patch": "../patches/nootedgreen-r32-pcfix31-backlight-20261107.patch",
+        "result": "AppleBacklightDisplay attachment and PCH PWM 0x2e84 synchronization for native macOS eDP brightness slider + Fn+F3/F4 HUD"
+      },
+      {
+        "trial": "R32-PCFIX35",
+        "patch": "../patches/nootedgreen-r32-pcfix35-blitalign-20261108.patch",
+        "result": "HP-BLITALIGN 64-byte row-pitch alignment & UV plane offset fix eliminating 420v NV12 video blit corruption across Safari/Bilibili/QuickTime"
+      },
+      {
+        "trial": "R32-PCFIX36",
+        "patch": "../patches/nootedgreen-r32-pcfix36-wakecolor-20261109.patch",
+        "ng_sha256": "c30417f70b8175a312272f56706d88782b399af128735453ca3a098f91009911",
+        "ng_uuid": "4C4C44C5-5555-3144-A14E-CE2A5B0C53E7",
+        "result": "Live-booted and verified across 51m 37s Deep Idle S0ix sleep/wake and 0 GPU hangs (recoveryCount=0)"
+      },
+      {
+        "trial": "R32-PCFIX37",
+        "patch": "../patches/nootedgreen-r32-pcfix37-wakergb-20261111.patch",
+        "source_sha256": "6c42d019445988fe2f59bc3a03a3ca99e2d1a000ccdd48f60a1f7120e37db4f0",
+        "ng_sha256": "94b2cb33f67fa07d0a0c441da89378a53d096d11e067b4d5a16a3f03cc39f7e1",
+        "ng_uuid": "4C4C44EC-5555-3144-A1CA-55B34DC29F79",
+        "result": "Unconditional Pipe A PLCA_CTL_A [0x70190] + PIPE_CSC_MODE_A [0x49028] + GAMMA_MODE_A [0x4a480] RGB restore on display wake; staged on internal ESP for next boot alongside hp-wake-helper ICC/Gamma refresh"
       }
     ]
   },
   "user_reported_working": [
     "Iris Xe 80 EU Metal compute & display acceleration (1920x1080@60Hz eDP, 100% 3-stage endurance passed across 705,024 compute encoders)",
+    "420v NV12 hardware video rendering (R32-PCFIX35 HP-BLITALIGN + xe-h264sw-fixd, zero green/corrupted frames)",
+    "eDP PWM backlight slider & Fn+F3/F4 native brightness HUD (R32-PCFIX31 + hp-brightness-daemon)",
+    "Built-in Realtek ALC285 Bang & Olufsen quad-speakers & 3.5 mm headphone jack auto-switching (AppleALC + SimpleHDA + alc285-ampinit)",
+    "Built-in Tiger Lake Intel SST quad-DMIC 48 kHz 2-ch 16-bit PCM microphone (TGLDmic.kext)",
+    "Modern Standby S0ix Deep Idle sleep/wake (51m 37s verified via S0ixStandby.kext + SSDT-DEEPIDLE; USB wake disabled & CNVW quiesced)",
+    "Full top-row Fn hotkeys Fn+F1..Fn+F11 (SSDT-HP-Hotkeys + hp-bridge)",
+    "RidgeKey virtual Secure Enclave Touch ID / Passkey / Apple Watch / USB FIDO2 authentication (RidgeKeyBridge + RidgeKeyKext)",
     "Wi-Fi (Intel AX201 via itlwm)",
-    "Bluetooth",
-    "touchpad (Synaptics 06cb:cd74 I2C)",
-    "keyboard (PS/2)",
-    "battery display",
-    "camera (HP Wide Vision HD)",
-    "Bluetooth audio input",
-    "Bluetooth audio output",
-    "PCH USB 3.1 / Type-A"
+    "Bluetooth + bidirectional Bluetooth audio + bluetoothd APFS decmpfs mlock page-wiring",
+    "Touchpad (Synaptics 06cb:cd74 I2C)",
+    "Keyboard (PS/2)",
+    "Battery display & status",
+    "Camera (HP Wide Vision HD)",
+    "PCH USB 3.1 / Type-A & Thunderbolt 4 / USB-C"
   ],
   "unresolved": [
-    "built-in HDA / SOF audio (ALC285 10ec:0285)",
-    "built-in digital microphone (DMIC)",
-    "eDP PWM/AUX brightness control",
-    "fingerprint sensor (06cb:00f0)"
+    "Built-in Synaptics 06cb:00f0 Match-on-Chip USB fingerprint reader (no native macOS driver; Touch ID / Passkey provided via RidgeKey FIDO2 / Apple Watch)"
   ],
   "evidence_policy": {
     "private_raw_evidence_included": false,
@@ -147,6 +175,8 @@
   "public_indexes": {
     "readme": "../README.md",
     "continuation": "../docs/continuation.md",
+    "clean_install_guide": "../docs/clean-install-guide.md",
+    "from_source_rebuild_guide": "../docs/from-source-rebuild-guide.md",
     "gpu_stability_and_pmapfix": "../docs/repair32-gpu-stability-and-pmapfix-20261106.md",
     "historical_evidence": "../manifests/experiment-history.json"
   }

@@ -867,7 +867,7 @@ bool NGreen::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t
 			IOLog("XeNG BLITSCRATCH2: lock/unlockForCPUAccess %s\n", gXeLockRouted ? "hooked" : "NAO encontrados");
 		}
 
-		if (checkKernelArgument("-ngreenxefix") && !checkKernelArgument("-ngreenorphanreuse")) {
+		if ((checkKernelArgument("-ngreenxefix") || (getKernelVersion() == KernelVersion::Tahoe && getIsRealTGL())) && !checkKernelArgument("-ngreenorphanreuse")) {
 			RouteRequestPlus orphanRequest[] = {
 				{"__ZN25IOAccelOrphanedMemoryPool9getMemoryEP14IOAccelShared2P16IOAccelResource2yPv", wrapOrphanGet, orgOrphanGet},
 			};

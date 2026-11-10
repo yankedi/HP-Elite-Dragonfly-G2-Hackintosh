@@ -34,8 +34,14 @@ The staged progression is:
    decoupling (`PCFIX14`, `PCFIX16`, `PCFIX19`, `PCFIX20`), Tiger Lake
    `_WA_TABLE` `0x20d8`/`0x7010` cross-context persistence (`PCFIX25`, `PCFIX26`),
    and `ResetPreambleCmds` Packet 3 (`dw[+19] = 0x001000a0U`) GPGPU-mode
-   `RT_CACHE_FLUSH` decoupling (`PCFIX27`, corresponding to the current
-   `src/NootedGreen/kern_gen11.cpp` snapshot).
+   `RT_CACHE_FLUSH` decoupling (`PCFIX27`).
+10. `nootedgreen-pcfix31-backlight-20261107.patch` .. `nootedgreen-pcfix37-wakergb-20261111.patch` —
+    `AppleBacklightDisplay` + PCH PWM `0x2e84` synchronization (`PCFIX31`),
+    `HP-S0IX-IDLE` / `HP-S0IX-DRM` display & GT quiesce/restore across Deep Idle S0ix (`PCFIX32`–`PCFIX34`),
+    `HP-BLITALIGN` 64-byte row-pitch alignment for `420v` NV12 `IOSurface` Metal blits (`PCFIX35`),
+    and `HP-WAKECOLOR-RESTORE` / `HP-WAKE-RGB` Pipe A `PLCA_CTL_A` + `PIPE_CSC_MODE_A` + `GAMMA_MODE_A`
+    post-wake RGB color recovery (`PCFIX36`–`PCFIX37`, corresponding to the current
+    `src/NootedGreen/kern_gen11.cpp` and `src/NootedGreen/kern_green.cpp` snapshot).
 
 `NootedGreen-upstream-to-GA416.diff` is the cumulative source comparison from
 NootedGreen upstream commit `95f81898be65cb9f7b3d370ca78054be4cc8a62d` to the

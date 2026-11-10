@@ -221,7 +221,7 @@ void Gen11::init() {
 	callback = this;
 
 	if (checkKernelArgument("-ngreentglfb") || checkKernelArgument("-ngreentglwithgfx")) {
-		SYSLOG("ngreen", "Gen11::init: FB tier → TGL (ICL FB skipped)");
+		SYSLOG("ngreen", "Gen11::init: FB tier → TGL (ICL FB skipped, R32-PCFIX36-WAKECOLOR)");
 		lilu.onKextLoadForce(&kextG11FBT);
 		lilu.onKextLoadForce(&kextG11FBTA);
 		if (checkKernelArgument("-ngreentglwithgfx")) {
@@ -520,7 +520,7 @@ static volatile uint32_t gCsbResyncN = 0;  // 21/10: active->idle salvos pelo xe
 static volatile uint32_t gCsbSkipN = 0;  // 19/10: eventos active->idle descartados pelo xeCsbA2I
 static volatile uint32_t gSubSkipN = 0;  // 05/11: prepareExecListAndSubmit vazios ignorados pelo xePrepSubmit
 // 20/10: brilho (PWM sul 0xC8254 período / 0xC8258 duty), estilo BacklightRegistersFix do WhateverGreen
-static volatile uint32_t gBlHwFreq = 0, gBlAppleFreq = 0, gBlLastDuty = 0, gBlMaxDuty = 0, gBlLastOut = 0, gBlFreqWrites = 0;
+static volatile uint32_t gBlHwFreq = 0, gBlAppleFreq = 0, gBlLastDuty = 0, gBlMaxDuty = 0, gBlLastOut = 0, gBlLastNonZeroOut = 0x3900u, gBlFreqWrites = 0;
 static volatile uint32_t gIdlwN = 0, gIdlwMax = 0, gIdlwTimeout = 0;  // 19/10: esperas do IDLW (medir travadas)
 static volatile uint64_t gIdlwUs = 0;
 static volatile uint32_t gPageoffN = 0, gPageonN = 0;  // 19/10: chamadas de pageoff/pageon ignoradas (XE-NOPAGE)
@@ -1172,6 +1172,63 @@ static void xeCsbPreempt(void *that, const uint32_t *e) {
 static void xeCsbElSwitch(void *that, const uint32_t *e) {
 	if (xeCsbEventoInvalido(that, e, true, 'CSBS')) return;
 	FunctionCast(xeCsbElSwitch, gOrgCsbElSwitch)(that, e);
+}
+using t_iofb_handle_event = IOReturn (*)(void *, int, void *);
+static t_iofb_handle_event gHpIOFBHandleEvent = nullptr;
+static mach_vm_address_t gOrgWaitForDRMSessionRestore = 0;
+static void hpWaitForDRMSessionRestore(void *that) {
+	if (that) {
+		volatile uint8_t *drmRestored = reinterpret_cast<volatile uint8_t *>(
+			reinterpret_cast<uintptr_t>(that) + 0x1c54);
+		if (*drmRestored == 0) {
+			*drmRestored = 1;
+			SYSLOG("ngreen", "HP-S0IX: waitForDRMSessionRestore restored fDRMSessionRestored (+0x1c54=1)");
+		}
+	}
+	if (gOrgWaitForDRMSessionRestore) {
+		FunctionCast(hpWaitForDRMSessionRestore, gOrgWaitForDRMSessionRestore)(that);
+	}
+}
+static mach_vm_address_t gOrgCsResetOnWake = 0;
+static void hpCsResetOnWake(void *that) {
+	if (that && NGreen::callback) {
+		auto *cs = static_cast<uint8_t *>(that);
+		auto *accel = *reinterpret_cast<void **>(cs + 0x10);
+		if (xeKptr(reinterpret_cast<uint64_t>(accel))) {
+			volatile uint8_t *drmRestored = reinterpret_cast<volatile uint8_t *>(
+				reinterpret_cast<uintptr_t>(accel) + 0x1c54);
+			if (*drmRestored == 0) {
+				*drmRestored = 1;
+				SYSLOG("ngreen", "HP-S0IX: resetOnWake proactively restored fDRMSessionRestored (+0x1c54=1)");
+			}
+		}
+		const uint8_t *desc = *reinterpret_cast<const uint8_t * const *>(cs + 0x28);
+		bool validDesc = xeKptr(reinterpret_cast<uint64_t>(desc));
+		uint8_t engineId = validDesc ? desc[0] : 0xFF;
+		uint32_t hwsPgaReg = validDesc ? *reinterpret_cast<const uint32_t *>(desc + 0x35) : 0x2080;
+		if (hwsPgaReg < 0x2000 || hwsPgaReg >= 0x200000) hwsPgaReg = 0x2080;
+		uint32_t hwsPga = NGreen::callback->readReg32(hwsPgaReg);
+		if ((hwsPga == 0 || hwsPga == 0xFFFFFFFFu) && gOrgSafeForceWake && xeKptr(reinterpret_cast<uint64_t>(accel))) {
+			xeSafeForceWake(accel, true, 7);
+			hwsPga = NGreen::callback->readReg32(hwsPgaReg);
+			xeSafeForceWake(accel, false, 7);
+		}
+		auto *hws = *reinterpret_cast<uint8_t **>(cs + 0x68);
+		uint32_t swIdx = *reinterpret_cast<uint32_t *>(cs + 0x1c04);
+		uint32_t hwIdx = xeKptr(reinterpret_cast<uint64_t>(hws)) ? (*reinterpret_cast<uint32_t *>(hws + 0xbc) & 0x7u) : swIdx;
+		if (hwsPga != 0 && hwsPga != 0xFFFFFFFFu) {
+			if (xeKptr(reinterpret_cast<uint64_t>(hws))) {
+				*reinterpret_cast<uint32_t *>(cs + 0x1c04) = hwIdx;
+			}
+			SYSLOG("ngreen", "HP-S0IX: resetOnWake skipped (eng=%u reg=0x%x HWS_PGA=0x%08x swIdx=%u->%u)", engineId, hwsPgaReg, hwsPga, swIdx, hwIdx);
+			return;
+		}
+		FunctionCast(hpCsResetOnWake, gOrgCsResetOnWake)(that);
+		uint32_t postIdx = *reinterpret_cast<uint32_t *>(cs + 0x1c04);
+		SYSLOG("ngreen", "HP-S0IX: resetOnWake executed (eng=%u reg=0x%x HWS_PGA=0x%08x swIdx=%u->%u)", engineId, hwsPgaReg, hwsPga, swIdx, postIdx);
+		return;
+	}
+	FunctionCast(hpCsResetOnWake, gOrgCsResetOnWake)(that);
 }
 static uint64_t xeEvalWait(void *that, const bool *thr, bool x, bool y) {
 	static int singlePort = -1;
@@ -2331,6 +2388,22 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 			
 		}
 
+		if (NGreen::callback->isRealTGL && getKernelVersion() == KernelVersion::Tahoe) {
+			mach_vm_address_t prepExitSleep = patcher.solveSymbol(index, "__ZN21AppleIntelFramebuffer18prepareToExitSleepEv", address, size);
+			if (!prepExitSleep) {
+				patcher.clearError();
+			} else {
+				auto *p = reinterpret_cast<const uint8_t *>(prepExitSleep);
+				static const uint8_t kSig[13] = {0xba, 0x01, 0x00, 0x00, 0x00, 0x4c, 0x89, 0xf7, 0xbe, 0x04, 0x00, 0x00, 0x00};
+				if (memcmp(p + 0x3cf, kSig, sizeof(kSig)) == 0 && p[0x3dc] == 0xe8) {
+					int32_t rel = *reinterpret_cast<const int32_t *>(p + 0x3dc + 1);
+					gHpIOFBHandleEvent = reinterpret_cast<t_iofb_handle_event>(prepExitSleep + 0x3dc + 5 + static_cast<int64_t>(rel));
+				}
+				SYSLOG("ngreen", "HP-S0IX: prepareToExitSleep=0x%llx IOFramebuffer::handleEvent=0x%llx",
+				       static_cast<uint64_t>(prepExitSleep), reinterpret_cast<uint64_t>(gHpIOFBHandleEvent));
+			}
+		}
+
 		RouteRequestPlus requests[] = {
 			// ...existing routes...
 			//{"__ZN24AppleIntelBaseController17registerWithAICPMEPv", alwaysReturnSuccess, this->oalwaysReturnSuccess},
@@ -2499,6 +2572,7 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 				{"__ZN24AppleIntelBaseController23initPlatformWorkaroundsEv", initPlatformWorkarounds, this->oinitPlatformWorkarounds},
 				{"__ZN24AppleIntelBaseController16getOSInformationEv", getOSInformation, this->ogetOSInformation},
 				{"__ZN24AppleIntelBaseController10hwShutdownEP21AppleIntelFramebuffer",handleLinkIntegrityCheck},
+				{"__ZN24AppleIntelBaseController11hwSaveNVRAMEv",handleLinkIntegrityCheck},
 				{"__ZN24AppleIntelBaseController18hwInitializeCStateEv",hwInitializeCState, this->ohwInitializeCState},
 				{"__ZN24AppleIntelBaseController20hwConfigureCustomAUXEb",hwConfigureCustomAUX, this->ohwConfigureCustomAUX},
 				{"__ZN19AppleIntelPowerWell4initEP24AppleIntelBaseController",AppleIntelPowerWellinit, this->oAppleIntelPowerWellinit},
@@ -3107,10 +3181,12 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 					{"__ZN26IGHardwareCommandStreamer522csbProcessActiveToIdleEPK28SGfxContextStatusBufferEntry", xeCsbA2I, gOrgCsbA2I},
 					{"__ZN26IGHardwareCommandStreamer519csbProcessPreemptedEPK28SGfxContextStatusBufferEntry", xeCsbPreempt, gOrgCsbPreempt},
 					{"__ZN26IGHardwareCommandStreamer523csbProcessElementSwitchEPK28SGfxContextStatusBufferEntry", xeCsbElSwitch, gOrgCsbElSwitch},
+					{"__ZN26IGHardwareCommandStreamer511resetOnWakeEv", hpCsResetOnWake, gOrgCsResetOnWake},
+					{"__ZN16IntelAccelerator24waitForDRMSessionRestoreEv", hpWaitForDRMSessionRestore, gOrgWaitForDRMSessionRestore},
 				};
 				bool hpExOk = RouteRequestPlus::routeAll(patcher, index, hpExeclistRoutes, address, size);
 				if (!hpExOk) patcher.clearError();
-				SYSLOG("ngreen", "HP-POSH-EXECLIST: posh=%d i2a=%d routes=%s", gSmbGetVA != 0, gOrgCsbI2A != 0, hpExOk ? "ready" : "failed");
+				SYSLOG("ngreen", "HP-POSH-EXECLIST: posh=%d i2a=%d resetOnWake=%d drmRestore=%d routes=%s", gSmbGetVA != 0, gOrgCsbI2A != 0, gOrgCsResetOnWake != 0, gOrgWaitForDRMSessionRestore != 0, hpExOk ? "ready" : "failed");
 			}
 		}
 
@@ -3665,6 +3741,45 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 					bool spOK = LookupPatchPlus::applyAll(patcher,hpSinglePortRcs,address,size);
 					patcher.clearError();
 					SYSLOG("ngreen", "HP-SINGLEPORT-RCS: evalWorkQueues+evalWaitQueue single-port policy %s", spOK ? "ready" : "failed");
+				}
+				// 6) Route unaligned-offset (e.g. CoreVideo 420v off0=0x20, off1=0x1fe020) and unaligned-pitch
+				//    IOSurface pageon/pageoff blits to BCS0 (blt2d_source_copy / XY_SRC_COPY_BLT) instead of Blit3D.
+				//    Without this, 420v software-decoded video planes read back as all-zeros (Y=0, UV=0 -> RGB(0,136,0)
+				//    green monochrome video) and flood RCS0 with Blit3D shaders.
+				static const uint8_t f_ba_src_hp[] = {0x8b, 0x0f, 0x03, 0x4f, 0x2c, 0x83, 0xe1, 0x3f, 0x48, 0x85, 0xc9};
+				static const uint8_t r_ba_src_hp[] = {0x8b, 0x0f, 0x03, 0x4f, 0x2c, 0x83, 0xe1, 0x0f, 0x48, 0x85, 0xc9};
+				static const uint8_t f_ba_dst_hp[] = {0x8b, 0x4f, 0x48, 0x03, 0x4f, 0x74, 0x83, 0xe1, 0x3f, 0x48, 0x85, 0xc9};
+				static const uint8_t r_ba_dst_hp[] = {0x8b, 0x4f, 0x48, 0x03, 0x4f, 0x74, 0x83, 0xe1, 0x0f, 0x48, 0x85, 0xc9};
+				static const uint8_t f_ba_rota_hp[] = {0x41,0x0f,0xb6,0x8e,0xa0,0x00,0x00,0x00,0x48,0x83,0xf9,0x10,0x0f,0x94,0xc0,0x48,0x0f,0xaf,0xd1,0x48,0x81,0xfa,0x01,0x10,0x05,0x00,0x0f,0x92,0xc1,0xbe,0x01,0x00,0x00,0x00,0x48,0x81,0xfa,0x01,0x00,0x02,0x00,0x0f,0x82,0xb5,0xfc,0xff,0xff,0x20,0xc8,0x0f,0x84,0xc9,0xfa,0xff,0xff,0xe9,0xa8,0xfc,0xff,0xff};
+				static const uint8_t r_ba_rota_hp[] = {0x41,0x0f,0xb6,0x8e,0xa0,0x00,0x00,0x00,0x48,0x0f,0xaf,0xd1,0xbe,0x01,0x00,0x02,0x00,0x80,0xf9,0x10,0x75,0x05,0xbe,0x01,0x10,0x05,0x00,0x48,0x39,0xf2,0x72,0x19,0x41,0x8b,0x06,0x41,0x03,0x46,0x2c,0x41,0x8b,0x4e,0x48,0x41,0x03,0x4e,0x74,0x09,0xc8,0xa8,0x3f,0x0f,0x84,0xc7,0xfa,0xff,0xff,0xeb,0xbe,0xcc};
+				if (!checkKernelArgument("-ngreennoblitalign")) {
+					LookupPatchPlus const hpPatchBa[] = {
+						{activeKext, f_ba_src_hp, r_ba_src_hp, sizeof(f_ba_src_hp), 1},
+						{activeKext, f_ba_dst_hp, r_ba_dst_hp, sizeof(f_ba_dst_hp), 1},
+						{activeKext, f_ba_rota_hp, r_ba_rota_hp, sizeof(f_ba_rota_hp), 1},
+					};
+					bool baOK = LookupPatchPlus::applyAll(patcher, hpPatchBa, address, size);
+					patcher.clearError();
+					SYSLOG("ngreen", "HP-BLITALIGN: unaligned IOSurface offset %% 64 -> BCS0 2D copy %s", baOK ? "ready" : "failed");
+					if (baOK && !checkKernelArgument("-ngreennoblitfix")) {
+						bool bfOK = xeBlitFixInstall(patcher, activeKext, address, size, r_ba_rota_hp, sizeof(r_ba_rota_hp));
+						patcher.clearError();
+						SYSLOG("ngreen", "HP-BLITFIX: unaligned IOSurface pitch %% 64 -> BCS0 2D copy %s", bfOK ? "ready" : "failed");
+					}
+				}
+				// 7) Force Blit3D pixel shader to SIMD16 (KSP0) instead of SIMD32 (KSP1).
+				static const uint8_t f_b16a_hp[] = {0x31, 0xf6, 0x80, 0xf9, 0x10, 0x40, 0x0f, 0x95, 0xc6};
+				static const uint8_t r_b16a_hp[] = {0x31, 0xf6, 0x38, 0xc9, 0x90, 0x40, 0x0f, 0x95, 0xc6};
+				static const uint8_t f_b16b_hp[] = {0x80, 0xf9, 0x10, 0x48, 0xbe, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00};
+				static const uint8_t r_b16b_hp[] = {0x38, 0xc9, 0x90, 0x48, 0xbe, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00};
+				if (!checkKernelArgument("-ngreenblit32")) {
+					LookupPatchPlus const hpPatchB16[] = {
+						{activeKext, f_b16a_hp, r_b16a_hp, sizeof(f_b16a_hp), 1},
+						{activeKext, f_b16b_hp, r_b16b_hp, sizeof(f_b16b_hp), 2},
+					};
+					bool b16OK = LookupPatchPlus::applyAll(patcher, hpPatchB16, address, size);
+					patcher.clearError();
+					SYSLOG("ngreen", "HP-BLIT16: blit3d PS forced to SIMD16 %s", b16OK ? "ready" : "failed");
 				}
 				SYSLOG("ngreen", "HP-KNOWN7: native NOAUX+NOCCS3 proven artifact/CPU combination %s",knownOK ? "ready" : "failed");
 				PANIC_COND(!knownOK,"ngreen","HP-KNOWN7 native NOAUX/NOCCS3 preflight failed");
@@ -5223,13 +5338,83 @@ static void xeBootDiagDump(const char *tag) {
 	if (gXeBdN > (SInt32)arrsize(gXeBd)) IOLog("XeNG BOOTDIAG %s ring full (%d writes)\n", tag, (int)gXeBdN);
 }
 
+// NP550/TGL brilho (-ngreenbldiag): PWM da luz de fundo (CNP+: CTL 0xC8250, período 0xC8254, duty 0xC8258) antes do FB da
+// Apple (valores do firmware, tela forte) e a cada 10 s por 5 min (o que a Apple pede x o que o XE-BLR entrega).
+static thread_call_t gXeBlTimer = nullptr;
+static void xeBlDiag(const char *tag) {
+	if (!NGreen::callback) return;
+	IOLog("XeNG BLDIAG %s CTL=%08x FREQ=%u DUTY=%u | hw=%u apple=%u fw=%u lastDuty=%u maxDuty=%u out=%u\n", tag,
+		  NGreen::callback->readReg32(0xC8250), NGreen::callback->readReg32(0xC8254), NGreen::callback->readReg32(0xC8258),
+		  gBlHwFreq, gBlAppleFreq, gBlFreqWrites, gBlLastDuty, gBlMaxDuty, gBlLastOut);
+}
+static void xeBlDiagStart() {
+	if (gXeBlTimer || !checkKernelArgument("-ngreenbldiag")) return;
+	xeBlDiag("pre-FBstart");
+	gXeBlTimer = thread_call_allocate([](thread_call_param_t, thread_call_param_t) {
+		static int ticks = 0;
+		xeBlDiag("tick");
+		if (++ticks < 30) { uint64_t d; clock_interval_to_deadline(10, kSecondScale, &d); thread_call_enter_delayed(gXeBlTimer, d); }
+	}, nullptr);
+	uint64_t d; clock_interval_to_deadline(10, kSecondScale, &d);
+	if (gXeBlTimer) thread_call_enter_delayed(gXeBlTimer, d);
+}
+
+static uint32_t gXeFbBlcCtl = 0, gXeFbBlcDuty = 0, gXeFbBlcFreq = 0;
+static bool gXeFbFake = false;
+static volatile uint32_t gXeLastDesktopSurf = 0;
+static volatile uint32_t gXeLastDesktopCtl = 0x84000400u;
+static volatile uint32_t gXeWakeSurfAtArm = 0;
+static volatile uint64_t gXeWakeHoldStartNs = 0;
+static volatile bool gXeWakeBlHold = false;
+static thread_call_t gXeWakeBlTimer = nullptr;
+
+static void xeNormalizePlane1ARgb() {
+	if (!NGreen::callback) return;
+	uint32_t pctl = NGreen::callback->readReg32(0x70180);
+	if (pctl != 0xFFFFFFFFu && (pctl & 0x80000000u) != 0 && (pctl & 0x0F800000u) == 0x02000000u) {
+		NGreen::callback->writeReg32(0x70180, (pctl & ~0x0F800000u) | 0x04000000u);
+	}
+	uint32_t csc = NGreen::callback->readReg32(0x701CC);
+	if (csc != 0xFFFFFFFFu && ((csc & 0x20000000u) != 0 || (csc & 0x2000u) == 0)) {
+		NGreen::callback->writeReg32(0x701CC, (csc & ~0x20000000u) | 0x2000u);
+	}
+	NGreen::callback->writeReg32(0x4A480, 0);
+	uint32_t surf = NGreen::callback->readReg32(0x7019C);
+	if ((surf == 0 || surf == gXeBhFirst) && gXeLastDesktopSurf != 0) {
+		NGreen::callback->writeReg32(0x7019C, gXeLastDesktopSurf);
+	} else if (surf != 0 && surf != 0xFFFFFFFFu) {
+		NGreen::callback->writeReg32(0x7019C, surf);
+	}
+}
+
+static void xeWakeHoldRelease(const char *why) {
+	if (!gXeWakeBlHold) return;
+	gXeWakeBlHold = false;
+	if (gXeWakeBlTimer && why && strcmp(why, "timeout") != 0) {
+		thread_call_cancel(gXeWakeBlTimer);
+	}
+	if (NGreen::callback) {
+		xeNormalizePlane1ARgb();
+		if (gXeFbBlcFreq && gXeFbBlcFreq != 0xFFFFFFFFu) NGreen::callback->writeReg32(0xC8254, gXeFbBlcFreq);
+		if (gXeFbBlcDuty && gXeFbBlcDuty != 0xFFFFFFFFu) NGreen::callback->writeReg32(0xC8258, gXeFbBlcDuty);
+		uint32_t ctl = NGreen::callback->readReg32(0xC8250);
+		if (ctl == 0 || ctl == 0xFFFFFFFFu) ctl = gXeFbBlcCtl ? gXeFbBlcCtl : 0x80000000u;
+		NGreen::callback->writeReg32(0xC8250, ctl | 0x80000000u);
+		IOLog("XeNG FBDPMS: wake backlight hold released (%s, CTL=0x%x SURF=0x%x lastDesktop=0x%x 701CC=0x%x duty=0x%x)\n",
+		      why ? why : "?", NGreen::callback->readReg32(0x70180), NGreen::callback->readReg32(0x7019C), gXeLastDesktopSurf,
+		      NGreen::callback->readReg32(0x701CC), gXeFbBlcDuty);
+	}
+}
+
 static thread_call_t gXeBhTimer = nullptr;
 static void xeBootHoldRelease(const char *why) {   // write Apple's last CTL, re-arm with the current SURF, backlight back on
 	if (gXeBhDone) return;
 	gXeBhDone = 1;
 	if (gXeBhHolding && NGreen::callback) {
 		NGreen::callback->writeReg32(0x70180, gXeBhCtl);
-		if (why) NGreen::callback->writeReg32(0x7019C, NGreen::callback->readReg32(0x7019C));
+		uint32_t curSurf = NGreen::callback->readReg32(0x7019C);
+		if (curSurf != 0 && curSurf != gXeBhFirst) gXeLastDesktopSurf = curSurf;
+		if (why) NGreen::callback->writeReg32(0x7019C, curSurf);
 		if (gXeBhBlc & 0x80000000u) NGreen::callback->writeReg32(0xC8250, NGreen::callback->readReg32(0xC8250) | 0x80000000u);
 	}
 	gXeBhHolding = 0;
@@ -5237,6 +5422,9 @@ static void xeBootHoldRelease(const char *why) {   // write Apple's last CTL, re
 static void xeBootHoldInit() {   // thread context (FBController::start): timer for the safety release
 	if (!gXeBhTimer) gXeBhTimer = thread_call_allocate([](thread_call_param_t, thread_call_param_t) {
 		if (!gXeBhDone) { xeBootHoldRelease("timeout"); IOLog("XeNG BOOTHOLD: released by timeout %d ms (first SURF 0x%x)\n", gXeBhMaxMs, (unsigned)gXeBhFirst); }
+	}, nullptr);
+	if (!gXeWakeBlTimer) gXeWakeBlTimer = thread_call_allocate([](thread_call_param_t, thread_call_param_t) {
+		if (gXeWakeBlHold) xeWakeHoldRelease("timeout");
 	}, nullptr);
 }
 // XE-BOOTHOLD v4 (bootbar5): as v3, plus backlight (BLC_PWM_PCH_CTL1 0xC8250 bit 31) off during the hold and release
@@ -5284,16 +5472,25 @@ static uint32_t xeBootHold(unsigned long reg, uint32_t val) {
 	if (nseen < 8) seen[nseen++] = val;
 	return val;
 }
-static uint32_t xeFixFilterWrite(unsigned long reg, uint32_t val) {
+static uint32_t xeFixFilterWrite(unsigned long reg, uint32_t val, bool isRealTGL = false) {
 	xeBootDiagRecord(reg, val);
 	val = xeBootHold(reg, val);
-	if (!xeFixEnabled()) return val;
-	val = xeNoDpms((uint32_t)(reg & 0x1FFFFF), val);
+	// NP550XDA/TGL: o XE-BLR (brilho) sozinho quando -ngreenblr ou isRealTGL está ativo, sem o resto do -ngreenxefix (ajustes de Alder Lake/display 13).
+	static int blrArg = -1;
+	if (blrArg < 0) blrArg = checkKernelArgument("-ngreenblr") ? 1 : 0;
+	const bool blrOnly = (blrArg == 1) || isRealTGL || (NGreen::callback && NGreen::callback->getIsRealTGL());
+	const bool xeFix = xeFixEnabled();
+	if (!xeFix && !blrOnly) return val;
+	if (xeFix) val = xeNoDpms((uint32_t)(reg & 0x1FFFFF), val);
 	// 20/10 (XE-BLR): o brilho ia só até ~50%. Como o BacklightRegistersFix do WhateverGreen: mantém o período do
 	// hardware (lido antes da 1ª escrita da Apple) e reescala o duty por período_hw / período_Apple. Se a Apple não
 	// gravar o período, ngreenblmax=N diz qual duty ela considera 100%. -ngreennoblr desliga.
 	{
 		uint32_t r = (uint32_t)(reg & 0xFFFFF);
+		if (r == 0xC8250 && gXeWakeBlHold) {
+			gXeFbBlcCtl = val;
+			return val & ~0x80000000u;
+		}
 		if (r == 0xC8254 || r == 0xC8258) {
 			static int blr = -1, blmax = 0;
 			if (blr < 0) { blr = checkKernelArgument("-ngreennoblr") ? 0 : 1; PE_parse_boot_argn("ngreenblmax", &blmax, sizeof(blmax)); }
@@ -5311,6 +5508,7 @@ static uint32_t xeFixFilterWrite(unsigned long reg, uint32_t val) {
 					val = v > gBlHwFreq ? gBlHwFreq : (uint32_t)v;
 				}
 				gBlLastOut = val;
+				if (val > 256 && val != 0xFFFFFFFFu) gBlLastNonZeroOut = val;
 				if (xeAuxBlMode() && gXeAuxBlTc && gBlHwFreq && gBlHwFreq != 0xFFFFFFFF) {   // xe/auxbl
 					uint64_t l = (uint64_t)val * 0xFFFF / gBlHwFreq;
 					gXeAuxBlLevel = l > 0xFFFF ? 0xFFFF : (uint32_t)l;
@@ -5319,7 +5517,40 @@ static uint32_t xeFixFilterWrite(unsigned long reg, uint32_t val) {
 				}
 			}
 		}
+		if (r == 0x4A480) {
+			static int allowGamma = -1;
+			if (allowGamma < 0) allowGamma = checkKernelArgument("-ngreenallowgamma") ? 1 : 0;
+			if (!allowGamma) return 0;
+		}
+		if (r == 0x70180) {
+			if ((val & 0x80000000u) != 0 && (val & 0x0F800000u) == 0x04000000u) {
+				gXeLastDesktopCtl = val;
+			} else if (gXeBhDone && (val & 0x80000000u) != 0 && (val & 0x0F800000u) == 0x02000000u) {
+				val = (val & ~0x0F800000u) | 0x04000000u;
+			}
+		}
+		if (r == 0x701CC) {
+			static int allowPlaneCsc = -1;
+			if (allowPlaneCsc < 0) allowPlaneCsc = checkKernelArgument("-ngreenallowplanecsc") ? 1 : 0;
+			if (!allowPlaneCsc) return (val & ~0x20000000u) | 0x2000u;
+		}
+		if (r == 0x7019C && val != 0) {
+			if (val != gXeBhFirst && !gXeFbFake) {
+				gXeLastDesktopSurf = val;
+				if (gXeBhDone && gXeWakeBlHold) {
+					uint64_t nowNs = 0;
+					absolutetime_to_nanoseconds(mach_absolute_time(), &nowNs);
+					uint64_t elapsedMs = (nowNs > gXeWakeHoldStartNs) ? ((nowNs - gXeWakeHoldStartNs) / 1000000ULL) : 0;
+					if ((val != gXeWakeSurfAtArm && elapsedMs >= 120ULL) || elapsedMs >= 450ULL) {
+						xeWakeHoldRelease("flip");
+					}
+				}
+			} else if (gXeBhDone && (val == gXeBhFirst || gXeFbFake) && gXeLastDesktopSurf != 0) {
+				val = gXeLastDesktopSurf;
+			}
+		}
 	}
+	if (!xeFix) return val;   // -ngreenblr / Real TGL sozinho: nada de DBUF/GAMMA/etc. do display 13
 	switch (reg & 0xFFFFF) {
 		case 0x44FE8: if (!(val & 0x80000000u)) { static int n = 0; if (n++ < 8) IOLog("XeNG xefix: DBUF_CTL_S1 0x%x -> power on\n", val); } return val | 0x80000000u;
 		case 0x42084: return val | 0x40000000u;
@@ -5355,7 +5586,7 @@ static void xeFixEnsure() {
 void Gen11::FastWriteRegister32(AppleIntel::AppleIntelBaseController *that, unsigned long param_1, uint32_t param_2)
 {
 	if (xeInertDrop(param_1)) return;
-	param_2 = xeFixFilterWrite(param_1, param_2);
+	param_2 = xeFixFilterWrite(param_1, param_2, NGreen::callback && NGreen::callback->isRealTGL);
 	if ((param_1 & 0xFFFFF) == 0x7019C) xeFixEnsure();
 	// V99D: Diagnose — log all FastWrite calls near display engine range on first boot
 	// to understand what addresses/values flow through this path.
@@ -5457,7 +5688,7 @@ void Gen11::raWriteRegister32b(void *that,void *param_1,unsigned long param_2, U
 void Gen11::raWriteRegister32(void *that,unsigned long param_1, UInt32 param_2)
 {
 	if (xeInertDrop(param_1)) return;
-	param_2 = xeFixFilterWrite(param_1, param_2);
+	param_2 = xeFixFilterWrite(param_1, param_2, NGreen::callback && NGreen::callback->isRealTGL);
 	if ((param_1 & 0xFFFFF) == 0x7019C) xeFixEnsure();
 	// V93: optional plane SURF zero-write guard.
 	// Disabled by default due black-screen regressions; enable only with -ngreenv93.
@@ -6477,7 +6708,16 @@ bool Gen11::AppleIntelBaseControllerstart(AppleIntel::AppleIntelBaseController *
 	SYSLOG("ngreen", "AppleIntelBaseControllerstart: display workarounds applied");
 
 	SYSLOG("ngreen", "FBController::start() entering...");
+	if (param_1) {
+		param_1->setProperty("ngreen-wake-color-fix", kOSBooleanTrue);
+		param_1->setProperty("ngreen-wake-plane-rgb-fix", kOSBooleanTrue);
+	}
+	if (that) {
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-color-fix", kOSBooleanTrue);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-plane-rgb-fix", kOSBooleanTrue);
+	}
 	xeBootHoldInit();
+	xeBlDiagStart();
 	xeBootDiagDump("pre-FBstart");
 	auto ret=FunctionCast(AppleIntelBaseControllerstart, callback->oAppleIntelBaseControllerstart)(that,param_1 );
 	SYSLOG("ngreen", "FBController::start() returned %d", ret);
@@ -6868,6 +7108,13 @@ unsigned long Gen11::start(void *that,void  *param_1)
 	}
 	} else {
 		SYSLOG("ngreen", "V52: Real TGL — skipping MultiForceWakeSelect override");
+		if (!checkKernelArgument("-ngreennogva")) {
+			auto *rid = OSNumber::withNumber(0x1080080ULL, 32);
+			if (rid) { service->setProperty("IOVARendererID", rid); rid->release(); }
+			SYSLOG("ngreen", "XE-GVAID (Real TGL): IOVARendererID = 0x1080080");
+			service->setProperty("IOGVAHEVCDecode", "2");
+			SYSLOG("ngreen", "XE-GVAHEVC (Real TGL): IOGVAHEVCDecode = \"2\"");
+		}
 	}
 
 	// ── V29: Apply GT workarounds + GGTT PTE diagnostics ──
@@ -8321,7 +8568,8 @@ void Gen11::wrapSetGTFrequencyMMIO(void *that, uint32_t val)
 {
 	static int pisoMhz = -1;
 	if (pisoMhz < 0) {
-		pisoMhz = 1500;
+		// TGL real com GuC ativo (-ngreennogtfreqtgl) deixa o SLPC/Apple gerenciar RPNSWREQ sem forçar RP0=1500 MHz
+		pisoMhz = checkKernelArgument("-ngreennogtfreqtgl") ? 0 : 1500;
 		PE_parse_boot_argn("ngreengtfreq", &pisoMhz, sizeof(pisoMhz));
 		if (pisoMhz > 1500) pisoMhz = 1500;
 	}
@@ -8363,35 +8611,103 @@ void Gen11::wrapWaitForGpuIdle(void *that)
 // e grava o novo estado; Doze/Sleep -> Wake só reacende. O caminho de vídeo nunca é desmontado, e as trocas de modo
 // (que não passam por aqui) continuam normais. A XE-NODPMS (filtro de escritas) quebrava as trocas de modo.
 // -ngreenfbdpms volta ao original.
-static uint32_t gXeFbBlcCtl = 0, gXeFbBlcDuty = 0;
-static bool gXeFbFake = false;
 IOReturn Gen11::wrapSetFramebufferPowerState(void *that, unsigned int state)
 {
 	static int on = -1;
-	if (on < 0) on = (xeFixEnabled() && !checkKernelArgument("-ngreenfbdpms")) ? 1 : 0;
+	if (on < 0) on = ((xeFixEnabled() || (NGreen::callback && NGreen::callback->isRealTGL)) && !checkKernelArgument("-ngreenfbdpms")) ? 1 : 0;
 	auto *fb = static_cast<uint8_t *>(that);
-	if (on && fb && NGreen::callback && *reinterpret_cast<uint32_t *>(fb + 0x1dc) == 0) {
+	if (on && fb && NGreen::callback) {
+		uint32_t pipe = *reinterpret_cast<uint32_t *>(fb + 0x1dc);
 		uint32_t cur = *reinterpret_cast<uint32_t *>(fb + 0x4284);
 		if (state > 2) state = 2;
+		if (pipe != 0) {
+			if (cur > 0 && state == 0) {
+				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+				if (gHpIOFBHandleEvent) gHpIOFBHandleEvent(fb, 3, reinterpret_cast<void *>(1));
+				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
+				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+			} else if (cur == 0 && state > 0) {
+				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
+				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+				if (gHpIOFBHandleEvent) gHpIOFBHandleEvent(fb, 4, reinterpret_cast<void *>(1));
+				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+			} else {
+				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
+				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+			}
+			return kIOReturnSuccess;
+		}
 		if (cur == 2 && state < 2) {
+			if (gXeWakeBlHold) {
+				gXeWakeBlHold = false;
+				if (gXeWakeBlTimer) thread_call_cancel(gXeWakeBlTimer);
+			}
 			gXeFbBlcCtl = NGreen::callback->readReg32(0xC8250);
-			gXeFbBlcDuty = NGreen::callback->readReg32(0xC8258);
-			NGreen::callback->writeReg32(0xC8250, gXeFbBlcCtl & ~0x80000000u);   // luz de fundo off
-			*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
+			gXeFbBlcFreq = NGreen::callback->readReg32(0xC8254);
+			uint32_t duty = NGreen::callback->readReg32(0xC8258);
+			if (duty > 256 && duty != 0xFFFFFFFFu) gXeFbBlcDuty = duty;
+			else if (!gXeFbBlcDuty || gXeFbBlcDuty <= 256) gXeFbBlcDuty = gBlLastNonZeroOut ? gBlLastNonZeroOut : 0x3900u;
 			gXeFbFake = true; gXeFbDpmsN++;
-			IOLog("XeNG FBDPMS: FB0 %u -> %u: só luz de fundo off (BLC_CTL 0x%x duty 0x%x)\n", cur, state, gXeFbBlcCtl, gXeFbBlcDuty);
+			NGreen::callback->writeReg32(0xC8250, gXeFbBlcCtl & ~0x80000000u);   // luz de fundo off
+			*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+			if (state == 0 && gHpIOFBHandleEvent) {
+				gHpIOFBHandleEvent(fb, 3, reinterpret_cast<void *>(1));
+			}
+			xeNormalizePlane1ARgb();
+			*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
+			*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+			IOLog("XeNG FBDPMS: FB0 %u -> %u: só luz de fundo off (BLC_CTL 0x%x freq 0x%x duty 0x%x lastDesktop=0x%x CTL=0x%x handleEvent=0x%llx)\n",
+			      cur, state, gXeFbBlcCtl, gXeFbBlcFreq, gXeFbBlcDuty, gXeLastDesktopSurf, NGreen::callback->readReg32(0x70180), reinterpret_cast<uint64_t>(gHpIOFBHandleEvent));
 			return kIOReturnSuccess;
 		}
 		if (cur < 2 && state < 2 && gXeFbFake) {           // Doze <-> Sleep enquanto "dormindo": só registra
-			*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
+			if (cur > 0 && state == 0) {
+				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+				if (gHpIOFBHandleEvent) gHpIOFBHandleEvent(fb, 3, reinterpret_cast<void *>(1));
+				xeNormalizePlane1ARgb();
+				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
+				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+			} else if (cur == 0 && state > 0) {
+				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
+				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+				if (gHpIOFBHandleEvent) gHpIOFBHandleEvent(fb, 4, reinterpret_cast<void *>(1));
+				xeNormalizePlane1ARgb();
+				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+			} else {
+				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
+				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+			}
 			return kIOReturnSuccess;
 		}
 		if (cur < 2 && state == 2 && gXeFbFake) {
-			if (gXeFbBlcDuty) NGreen::callback->writeReg32(0xC8258, gXeFbBlcDuty);
-			NGreen::callback->writeReg32(0xC8250, gXeFbBlcCtl | 0x80000000u);   // luz de fundo on
+			reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-color-fix", kOSBooleanTrue);
+			reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-plane-rgb-fix", kOSBooleanTrue);
+			if (gXeFbBlcFreq && gXeFbBlcFreq != 0xFFFFFFFFu) NGreen::callback->writeReg32(0xC8254, gXeFbBlcFreq);
+			if (gXeFbBlcDuty && gXeFbBlcDuty != 0xFFFFFFFFu) NGreen::callback->writeReg32(0xC8258, gXeFbBlcDuty);
+			xeNormalizePlane1ARgb();
+			NGreen::callback->writeReg32(0xC8250, (gXeFbBlcCtl ? gXeFbBlcCtl : 0x80000000u) & ~0x80000000u);
 			*reinterpret_cast<uint32_t *>(fb + 0x4284) = 2;
+			*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
 			gXeFbFake = false; gXeFbDpmsN++;
-			IOLog("XeNG FBDPMS: FB0 %u -> 2: luz de fundo on\n", cur);
+			if (cur == 0 && gHpIOFBHandleEvent) {
+				gHpIOFBHandleEvent(fb, 4, reinterpret_cast<void *>(1));
+				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+			}
+			xeNormalizePlane1ARgb();
+			gXeWakeSurfAtArm = gXeLastDesktopSurf;
+			uint64_t nowNs = 0;
+			absolutetime_to_nanoseconds(mach_absolute_time(), &nowNs);
+			gXeWakeHoldStartNs = nowNs;
+			gXeWakeBlHold = true;
+			if (gXeWakeBlTimer) {
+				uint64_t d = 0;
+				clock_interval_to_deadline(820, kMillisecondScale, &d);
+				thread_call_enter_delayed(gXeWakeBlTimer, d);
+			} else {
+				xeWakeHoldRelease("no-timer");
+			}
+			IOLog("XeNG FBDPMS: FB0 %u -> 2: wake backlight hold armed 820ms (freq 0x%x duty 0x%x lastDesktop=0x%x CTL=0x%x 701CC=0x%x handleEvent=0x%llx)\n",
+			      cur, gXeFbBlcFreq, gXeFbBlcDuty, gXeLastDesktopSurf, NGreen::callback->readReg32(0x70180), NGreen::callback->readReg32(0x701CC), reinterpret_cast<uint64_t>(gHpIOFBHandleEvent));
 			return kIOReturnSuccess;
 		}
 	}
@@ -8636,12 +8952,24 @@ unsigned long Gen11::startGraphicsEngine(void *that)
 		// COCLGen8CommandTransport::AddPipeFlushCmd emits two 6-dword PIPE_CONTROL packets
 		// (12 dwords total) at both mid-encoder and end-of-encoder flush sites.
 		static_cast<uint8_t *>(that)[0xf42] |= 0x01U;
+		volatile uint8_t *drmRestored = reinterpret_cast<volatile uint8_t *>(
+			reinterpret_cast<uintptr_t>(that) + 0x1c54);
+		if (*drmRestored == 0) {
+			*drmRestored = 1;
+			SYSLOG("ngreen", "HP-S0IX: startGraphicsEngine proactively restored fDRMSessionRestored (+0x1c54=1)");
+		}
 	}
 
 	unsigned long ret = FunctionCast(startGraphicsEngine, callback->ostartGraphicsEngine)(that);
 	if (NGreen::callback->isRealTGL && getKernelVersion()==KernelVersion::Tahoe) {
 		if (that) {
 			static_cast<uint8_t *>(that)[0xf42] |= 0x01U;
+			volatile uint8_t *drmRestored = reinterpret_cast<volatile uint8_t *>(
+				reinterpret_cast<uintptr_t>(that) + 0x1c54);
+			if (*drmRestored == 0) {
+				*drmRestored = 1;
+				SYSLOG("ngreen", "HP-S0IX: startGraphicsEngine proactively restored fDRMSessionRestored (+0x1c54=1)");
+			}
 		}
 		if (xePreemptDisabled()) {
 			NGreen::callback->writeReg32(GEN7_FF_SLICE_CS_CHICKEN1,
@@ -10195,7 +10523,7 @@ uint32_t Gen11::wrapReadRegister32(void *controller, uint32_t address) {
 
 void Gen11::wrapWriteRegister32(void *controller, uint32_t address, uint32_t value) {
 	if (xeInertDrop(address)) return;
-	if ((address & 0xFFFFF) == 0xC8254 || (address & 0xFFFFF) == 0xC8258) value = xeFixFilterWrite(address, value);  // 20/10: só o brilho (XE-BLR) neste caminho
+	if ((address & 0xFFFFF) == 0xC8254 || (address & 0xFFFFF) == 0xC8258) value = xeFixFilterWrite(address, value, NGreen::callback && NGreen::callback->isRealTGL);  // 20/10: só o brilho (XE-BLR) neste caminho
 	if (controller == nullptr) {
 		NGreen::callback->writeReg32(address, value);
 		return;

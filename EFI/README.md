@@ -8,7 +8,7 @@ These **OpenCore 1.0.8** examples are sanitized exports of the actual GA419 acce
 | `config-software-display.example.plist` | GA420C visible firmware/basic-display control |
 | `components.json` | Enabled kext versions, bundle IDs and actual executable hashes |
 | `export-manifest.json` | Original/private config hashes, public template hashes and explicit redactions |
-| `ACPI/*.dsl` | HP-specific source included where available |
+| `ACPI/*.dsl` | HP-specific ACPI DSL sources (`SSDT-EC-USBX-HP.dsl`, `SSDT-RHUB-HP.dsl`, `SSDT-PNLF-HP-GA419.dsl`, plus 2026-11-11 Modern Standby `SSDT-DEEPIDLE.dsl` and Fn hotkey bridge `SSDT-HP-Hotkeys.dsl`) |
 
 ## Assembly
 
