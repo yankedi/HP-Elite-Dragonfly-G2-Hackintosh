@@ -38,8 +38,8 @@
 1. **Stage 1（VESA 安全帧缓冲模式安装基础系统）**：
    - 在引导 `config.plist` 中保持 `DevirtualiseMmio = true`、`slide=0`、`PMAPFIX` (`0x101000000..0x101400000` `ReservedMemory`)、`SSDT-RHUB-HP.aml`、`VoodooPS2`、`VoodooI2C` 与 `AirportItlwm` 启用，将 `NootedGreen.kext` 设为 `Enabled = false`（或添加 `-igfxvesa`）。
    - 从 Ventoy U 盘引导进入 macOS Recovery，挂载离线安装卷 `Tahoe-26.6.2-Offline-App.hfs`，将 macOS Tahoe 26.6.2 (`25G83`) 安装至目标 APFS 容器并完成 Setup Assistant 初始向导进入桌面。
-2. **Stage 2 & Stage 3（部署 Iris Xe Metal 硬件加速栈、重建 AuxKC 与安装全套外设守护进程）**：
-   - 进入桌面后直接运行随附 U 盘或内置 Windows `系统` 卷 `/Volumes/系统/hpdiag/HP-Tahoe-PostInstall-20261108.tar.gz` 中的 **426 文件一键后置适配套件**（或按 [`docs/clean-install-guide.md`](docs/clean-install-guide.md) 分步手工执行），自动完成 `/Library/Extensions`、`/Library/GPUBundles`（含新版 `libxedrv.dylib` SHA256 `312ecf603a27526df87417980fd64fddd2d51e16754aa5deff8a1deeb76226b2`）、`/System/Library/Caches/xe.bundle` 部署、`codesign -f -s -` 重签名、`kmutil install --volume-root / --update-all --force` + `kcditto` AuxKC 重建，以及 Stage 3 音频（`ALC285` + `TGLDmic`）、原生控制中心亮度滑块（`libhp_cb_shim.dylib` + `hp-bridge`）、蓝牙 `--Compat` 防护与 `RidgeKey` 指纹套件安装。
+2. **Stage 2 & Stage 3（部署 Iris Xe Metal 硬件加速栈、重建 AuxKC 与安装全套外设及持久化日志守护进程）**：
+   - 进入桌面后直接运行随附 U 盘或内置 Windows `系统` 卷 `/Volumes/系统/hpdiag/HP-Tahoe-PostInstall-20261108.tar.gz` 中的 **431 文件一键后置适配套件**（或按 [`docs/clean-install-guide.md`](docs/clean-install-guide.md) 分步手工执行），自动完成 `/Library/Extensions`、`/Library/GPUBundles`（仅保留 `AppleIntelTGLGraphicsMTLDriver.bundle` 含新版 `libxedrv.dylib` SHA256 `312ecf603a27526df87417980fd64fddd2d51e16754aa5deff8a1deeb76226b2` 与 `AppleIntelGraphicsShared.bundle`，主动清理 `VADriver`/`VAME`）、`/System/Library/Caches/xe.bundle` 与 `/usr/local/libexec/xe-h264sw-fixd`（`24,496` B SHA256 `4e388dfd...`）部署、`codesign -f -s -` 重签名、`kmutil install --volume-root / --update-all --force` + `kcditto` AuxKC 重建，以及 Stage 3 音频（`ALC285` + `TGLDmic` + `hp-wake-helper`）、原生控制中心亮度滑块（`libhp_cb_shim.dylib` + `hp-bridge`）、蓝牙 `--Compat` 与 `decmpfs` 防护（`hp-bt-compat-check.sh`）、跨关机持久化日志与 `bluetoothd` 内存页常驻锁定（`hp-syslogger.py` `v1.1` + `/etc/newsyslog.d/com.hp.conf`）及 `RidgeKey` 指纹套件安装。
    - 将内置 NVMe ESP (`/boot/EFI/OC`) 切换为启用 `R32-PCFIX37-WAKERGB` `NootedGreen.kext`（`540,944` B，SHA256 `00982625148fe975c777a2e24f433d1624f2b45f08169acdba7883d18a33e5e3`）、`S0ixStandby.kext`（`v0.4.4`，`74,584` B SHA256 `be55592c42c5003cd86ac99695c56dbd92b368954301a78d3eecdd3095411184`）、`SSDT-DEEPIDLE.aml`（`371` B，SHA256 `280e3a4ad5541bb482c357b785d10d74e95b0128dc309bc10f2617bc585effe1`）与 `SSDT-EC0-ITLB.aml` 的生产级配置并重启，即可进入完整硬件加速、全外设就绪且零 ACPI 报错的 macOS Tahoe 桌面。
 
 ### 2. 全功能 Ventoy 恢复引导镜像 (`HP-UPSTREAM-6F03560-REPAIR32-PCFIX33-S0IX-RECOVERY.img`)
@@ -48,24 +48,24 @@
 - **大小与校验值**：`1,343,225,856` 字节，SHA256 **`4ab8aff3a2f65cfc126faf19c9334798ef623a8dfbbe534ec78ede7f968850c9`**（`fsck.vfat -n` 零错误通过）。
 - **封装内容**：在 FAT32 ESP 分区（偏移 `@@1048576`）中完整内置经 OpenCore 1.0.8 `ocvalidate` 零问题校验的 **111 个文件 `/EFI/OC` 引导树**（含 `config.plist` `60,234` B SHA256 `f1f6b95569b7167ce3b166ca38b3f6bac7f8570dd14938187ebdb22090d3cf6b`、`SSDT-EC0-ITLB.aml` SHA256 `122a5b9d778c6429d32f73f1da7e695ba7498e6714e172f708b22894bd8ddaf8`、`SSDT-DEEPIDLE.aml` `371` B SHA256 `280e3a4ad5541bb482c357b785d10d74e95b0128dc309bc10f2617bc585effe1`、`R32-PCFIX37-WAKERGB` `NootedGreen.kext` `540,944` B SHA256 `00982625148fe975c777a2e24f433d1624f2b45f08169acdba7883d18a33e5e3` `LC_UUID` `4C4C44A8-5555-3144-A16C-16F349CEF835`、`Info.plist` SHA256 `b5fd1d0fe125a48f6045c3b07a8f5894f76fc406caf5065f126830a63ea4738e`、`S0ixStandby.kext v0.4.4` `74,584` B SHA256 `be55592c42c5003cd86ac99695c56dbd92b368954301a78d3eecdd3095411184`、`TGLDmic.kext v0.5.0`）以及 macOS Tahoe 26.6.2 (`25G83`) 恢复镜像 `/com.apple.recovery.boot/{BaseSystem.dmg,BaseSystem.chunklist}`。
 
-### 3. 自包含 426 文件一键后置安装与验收套件 (`/Volumes/Yan/HP-Tahoe-PostInstall-20261108/` & `/Volumes/系统/hpdiag/HP-Tahoe-PostInstall-20261108.tar.gz`)
+### 3. 自包含 431 文件一键后置安装与验收套件 (`/Volumes/Yan/HP-Tahoe-PostInstall-20261108/` & `/Volumes/系统/hpdiag/HP-Tahoe-PostInstall-20261108.tar.gz`)
 
-在随附 Lexar U 盘 `/Volumes/Yan/HP-Tahoe-PostInstall-20261108/`、内置 Windows NTFS `系统` 卷 `/Volumes/系统/hpdiag/HP-Tahoe-PostInstall-20261108.tar.gz`（及本地压缩归档 `HP-Tahoe-PostInstall-20261108.tar.gz`，`125,560,595` 字节，SHA256 `88cd7ca00988210fe9e5e88272567ef2f16015bb8833525b1f1d9fe1e96a2217`；逐文件校验清单 `SHA256SUMS.txt` `63,835` 字节 SHA256 `302bbf7dfa1f1a09c759c2be4a7459f643b1916794efb134195c47740899645e`；套件回执 `bundle-receipt.json` `3,711` 字节 SHA256 `67a85c706cfdb74ff31d8bc2613600dd96dea732ac800f0bcd4ef0c33f87868b`）中，封装了从实机稳定会话提取并脱敏的全部 **426 个文件**（涵盖 111 文件 `EFI-OC/`、`stage2-gpu/`、`stage3-audio/`、`stage3-brightness-hotkeys/`、`stage3-bluetooth/`、`stage3-ridgekey/` 以及 `test_420v_blitalign` `51,680` B SHA256 `887743ebd0b11797fa46553fa2420df21adf266c76ce6d0d540ac51e415e75bf` 与 `verify-phase10-lidwake-and-video.sh` `7,639` B SHA256 `eeebfac56d8e79b59fc42db33e3672112d9eeb8bf136148018ac5024762ea218`）：
+在随附 Lexar U 盘 `/Volumes/Yan/HP-Tahoe-PostInstall-20261108/`、内置 Windows NTFS `系统` 卷 `/Volumes/系统/hpdiag/HP-Tahoe-PostInstall-20261108.tar.gz`（及本地压缩归档 `HP-Tahoe-PostInstall-20261108.tar.gz`，`125,569,879` 字节，SHA256 `2f22d03e886773194337281491433b22ea87af1395b26d5e54eb8289020177aa`；逐文件校验清单 `SHA256SUMS.txt` `64,420` 字节 SHA256 `65ff4c05fd4f90f0895deed5de3068bd5db62f069318c7ab13b23e4427a5e8e6`；套件回执 `bundle-receipt.json` `5,310` 字节 SHA256 `68491a70c925c3e1b1ede2b078c6236a1b72b02e5a3eba7c0eb37417d9212a2e`）中，封装了从实机稳定会话提取并脱敏的全部 **431 个文件**（涵盖 111 文件 `EFI-OC/`、`stage2-gpu/`、`stage3-audio/`、`stage3-brightness-hotkeys/`、`stage3-bluetooth/`、`stage3-logging/`、`stage3-ridgekey/` 以及 `test_420v_blitalign` `51,680` B SHA256 `887743ebd0b11797fa46553fa2420df21adf266c76ce6d0d540ac51e415e75bf` 与 `verify-phase10-lidwake-and-video.sh` `7,639` B SHA256 `eeebfac56d8e79b59fc42db33e3672112d9eeb8bf136148018ac5024762ea218`）：
 
 ```sh
-# 1. 校验 426 个文件的 SHA256 完整性
+# 1. 校验 431 个文件的 SHA256 完整性
 cd /Volumes/Yan/HP-Tahoe-PostInstall-20261108 && shasum -a 256 -c SHA256SUMS.txt
 
-# 2. 一键自动安装 Stage 3 外设 + Stage 2 Iris Xe GPU 驱动并重建 AuxKC
+# 2. 一键自动安装 Stage 3 外设/持久化日志 + Stage 2 Iris Xe GPU 驱动并重建 AuxKC
 #    (install-all-postinstall.sh SHA256: 1d6401cf7dc2637454ca14d98b9c54f3c9f1dc541a975c7788f1612960e62b35)
-#    (内部依次调用 install-stage3-peripherals.sh [3ca85f92...] 与 install-stage2-gpu.sh [970ab4a4...])
+#    (内部依次调用 install-stage3-peripherals.sh [81fbce36...] 与 install-stage2-gpu.sh [ddaaea8f...])
 sudo /Volumes/Yan/HP-Tahoe-PostInstall-20261108/install-all-postinstall.sh
 
 # 3. 运行非破坏性一键全系统验收脚本
-#    (verify-postinstall.sh 8,017 B SHA256: 93ec78c817797fbcdb15a29b0b5c4837e8e2fdb0fbab571e8fb31a2ff964e107)
+#    (verify-postinstall.sh 8,852 B SHA256: 499ac36510ffa2c67bf492330377dc7577dc719853fe8280a94ed00e19319387)
 /Volumes/Yan/HP-Tahoe-PostInstall-20261108/verify-postinstall.sh
 
-# 4. 在本地开发机运行端到端发布产物、6/6 无尘源码重编译与实机 NixOS 一致性校验（scripts/verify_release_artifacts.py 95,353 B SHA256: b1c4a8351819ed810cdec0c795b805ee8b9a59cb88b559a7e5bfcd08691ae6b3）
+# 4. 在本地开发机运行端到端发布产物、9/9 无尘源码重编译与实机 NixOS 一致性校验（scripts/verify_release_artifacts.py 110,025 B SHA256: d66a58b9245f8e03b2a05cc9d2c721828a951b350113e6b34357285aa55ff161）
 nix develop -c make verify-release
 nix develop -c python3 scripts/verify_release_artifacts.py --check-source-rebuilds --check-live-nixos <user>@<nixos-host>
 ```
@@ -213,7 +213,7 @@ nix develop -c python3 scripts/verify_release_artifacts.py --check-source-rebuil
 | 音频（5 设备与双麦克风输入） | Realtek ALC285 `10ec:0285`（子系统 `103c:8716`）+ Intel cAVS `0xa0c8`/`0x9dc8`：`SimpleHDA` + `AppleALC`（`8716` `layout-id = 71`/`31`；`880D` `layout-id = 11`/`71`）+ `hp-alc285-ampinit.sh` + `TGLDmic.kext v0.5.0`（`sof-tgl.ri` + `TGLDmic.driver`），完整枚举 `5` 个 CoreAudio `bltn` `48 kHz` 设备（`Built-in Speaker` 默认输出、`Built-in Headphones` / `Built-in Output`、`Built-in Microphone` 2ch 3.5mm 耳麦麦克风、`Built-in Line Input` 标称 `44.1 kHz`、`Internal Microphone (TGLDmic)` 4ch 默认输入），经 `kAudioUnitSubType_DefaultOutput` 与 `kAudioUnitSubType_HALOutput` Bus 1 回调实测通过 |
 | 指纹、SMC 与现代待机 | Synaptics `06cb:00f0` USB 指纹传感器（`RidgeKey 1.0.0`，已录入 `right-thumb` / `right-index` `2` 枚指纹，支持 `sudo`、系统弹窗与锁屏指纹认证）；`VirtualSMC 1.3.7` + `SMCProcessor` + `SMCBatteryManager` 注册 `118` 个 SMC 键（`111` 可读、`6` 只写 `0x85`、`1` `EFBS`，上报 `TC0P`/`TC1C..TC4C`、`PC0C`/`PCPT`、`B0RM`/`B0FC`/`B0AV`/`B0CT`/`BRSC`）；`SSDT-EC0-ITLB.aml` + OEM `SSDT13` Delete 实现冷启动 `0` ACPI 报错；`S0ixStandby.kext v0.4.4`（`74,584` B SHA256 `be55592c...`）+ `SSDT-DEEPIDLE.aml`（`371` B SHA256 `280e3a4a...`，`_PRW` `0x6E` 开盖唤醒 + `\USWE=0` 禁用 USB 唤醒）+ `R32-PCFIX37-WAKERGB`（`NootedGreen` SHA256 `00982625...`）已实机验证 `51.6m` 连续深睡零伪唤醒 |
 | 存储与 Thunderbolt 4 / USB4 | Micron 2210 `MTFDHBA512QFD-1AX1AABHA`（`512.11 GB` on Dragonfly G2 `8716` `1344:5404`，固件 `HPS1022`，通过 `NVMeFix.kext` 启用 `ASPM L1`）；Intel Tiger Lake `XHCI@D` (`8086:9a13`, `AppleUSBXHCIPCI`) + PCH `XHCI@14` (`8086:a0ed`, `AppleUSBXHCISPT`)，以及 `TDM0@D,2` (`8086:9a1b` TBT4 DMA 由 `S0ixStandby.kext v0.4.4` 置于 PCI `D3hot`) |
-| 当前系统 | NixOS 与 macOS 26.6.2 (`25G83`) 双系统完备（已按用户指令完成全量日志审计、部署 `/var/log/hp/` 跨重启持久化日志体系并干净关机下电）；本地最新 426 文件后置套件 `HP-Tahoe-PostInstall-20261108.tar.gz` 为 `125,560,595` B（SHA256 `88cd7ca00988210fe9e5e88272567ef2f16015bb8833525b1f1d9fe1e96a2217`） |
+| 当前系统 | NixOS 与 macOS 26.6.2 (`25G83`) 双系统完备（已按用户指令完成全量日志审计、部署 `/var/log/hp/` 跨重启持久化日志体系并干净关机下电）；本地最新 431 文件后置套件 `HP-Tahoe-PostInstall-20261108.tar.gz` 为 `125,569,879` B（SHA256 `2f22d03e886773194337281491433b22ea87af1395b26d5e54eb8289020177aa`） |
 | BIOS | Secure Boot 关（测试期间），Fast Boot 开，VMD 存储映射关，Video Memory 512MB |
 
 ## 本机命令
@@ -242,4 +242,4 @@ python3 scripts/summarize_hardware.py .local/hardware/<时间戳> \
 - **离线原型与编译基线**：VESA EFI 原型通过 OpenCore 1.0.8 静态校验；固定 framebuffer 补丁在 Linux 编译并链接成真实 `x86_64` kext bundle，独立存放于 `.local/framebuffer-build/`。构建依赖固定缓存，来源见 [`manifests/`](manifests)。
 - **Recovery 引导与 MMIO 突破**：实机单独 `slide=0` 重试在 runtime 内存申请处失败；保留该参数并开启 `DevirtualiseMmio` 后成功进入 Recovery 工具界面。完整 26.6.2 / `25G83` 离线 app 数据映像复制到 USB 并完整回读校验。
 - **I²C 输入与内置诊断通道**：新增 `VoodooI2C`/`VoodooI2CHID` 与 Tiger Lake 精确匹配 ID 后，触控板与键盘可用；独立 **WiFi IMG** 实测 Wi-Fi、root SSH 和 SFTP 成功，内置 NTFS `/hpdiag` 可读，首份完整运行态归档见[网络交接](docs/recovery-network.md)和[运行态证据](manifests/hp-recovery-runtime-check.json)。
-- **完整系统安装、Xe Metal 硬件加速与全外设闭环**：从 VESA 基础启动 → Framebuffer 内屏 → 完整 macOS 26.6.2 安装 → `NootedGreen` Tiger Lake Iris Xe 80 EU Metal 计算管线、视频播放与唤醒 RGB 归一化修复（`R32-ELSQWAIT` 与 `R32-PCFIX2` ~ `R32-PCFIX37-WAKERGB`）→ 板载 `ALC285` + `TGLDmic v0.5.0` 四阵列麦克风、控制中心原生亮度滑块、`RidgeKey` 指纹认证、`hp-syslogger.py` 蓝牙 `mlock` 防护与跨重启持久化日志、`S0ixStandby v0.4.4` + `SSDT-DEEPIDLE.aml` 现代待机（51.6 分钟深睡零伪唤醒 + 禁用 USB 唤醒 + 开盖即刻唤醒）、早期 ACPI 零报错与 426 文件一键后置安装套件闭环。
+- **完整系统安装、Xe Metal 硬件加速与全外设闭环**：从 VESA 基础启动 → Framebuffer 内屏 → 完整 macOS 26.6.2 安装 → `NootedGreen` Tiger Lake Iris Xe 80 EU Metal 计算管线、视频播放与唤醒 RGB 归一化修复（`R32-ELSQWAIT` 与 `R32-PCFIX2` ~ `R32-PCFIX37-WAKERGB`）→ 板载 `ALC285` + `TGLDmic v0.5.0` 四阵列麦克风、控制中心原生亮度滑块、`RidgeKey` 指纹认证、`hp-syslogger.py` 蓝牙 `mlock` 防护与跨重启持久化日志、`S0ixStandby v0.4.4` + `SSDT-DEEPIDLE.aml` 现代待机（51.6 分钟深睡零伪唤醒 + 禁用 USB 唤醒 + 开盖即刻唤醒）、早期 ACPI 零报错与 431 文件一键后置安装套件闭环。

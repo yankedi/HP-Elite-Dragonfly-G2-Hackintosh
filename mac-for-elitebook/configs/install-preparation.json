@@ -11,25 +11,55 @@
     "macos": "26.6.2",
     "build": "25G83",
     "bootloader": "OpenCore 1.0.8",
-    "installation_status": "installed on internal Micron 2210 NVMe SSD; independent boot via internal ESP verified with OpenCore 1.0.8 (R32-PCFIX36 live-booted; R32-PCFIX37 + S0ixStandby 1.1.0 + SSDT-DEEPIDLE USB-wake-disabled staged on internal ESP for next boot)"
+    "installation_status": "installed on internal Micron 2210 NVMe SSD; independent boot via internal ESP verified with OpenCore 1.0.8 (R32-PCFIX36 live-booted; R32-PCFIX37 + S0ixStandby v0.4.4 + SSDT-DEEPIDLE USB-wake-disabled staged on internal ESP for next cold boot)"
   },
   "nix_flake_tooling": {
     "flake_files": ["../flake.nix", "../flake.lock"],
     "verify_command": "nix develop -c make check"
   },
+  "public_tracked_files": {
+    "nootedgreen_patch": "patches/nootedgreen-r32-pcfix37-wakergb-20261111.patch",
+    "nootedgreen_patch_sha256": "d7b02ea9405468109fa755e4b4321768ef0c0ce722c183306529cc4d2ae1d4ea",
+    "nootedgreen_patch_size_bytes": 95341,
+    "readme_md_sha256": "86b95768beca11b2014286a0d7e5590b0716915d36bd5dfa9ee7411225542e74",
+    "readme_md_size_bytes": 61735,
+    "clean_install_guide_md_sha256": "90c5a2da93c3de343d7c341a2ea8ba527d1501cf7af194d70abac50077a2e6a8",
+    "clean_install_guide_md_size_bytes": 161946,
+    "from_source_rebuild_guide_md_sha256": "2a8ffb9b3e1ae0d3a9060cec1f30daab6cb0b876bcf42fbc7f38ca394140dca4",
+    "from_source_rebuild_guide_md_size_bytes": 60404,
+    "makefile": "Makefile",
+    "makefile_sha256": "8c9cb233f61f5b7265dd83a7dee74ab88c24d9ba395ac85d0c8da22a5d443157",
+    "makefile_size_bytes": 2019,
+    "verify_release_artifacts_py": "scripts/verify_release_artifacts.py",
+    "verify_release_artifacts_py_sha256": "d66a58b9245f8e03b2a05cc9d2c721828a951b350113e6b34357285aa55ff161",
+    "verify_release_artifacts_py_size_bytes": 110025
+  },
   "project_completion_policy": {
     "updated": "2026-11-11",
-    "scope": "Complete daily-driver macOS 26.6.2 (25G83) adaptation on HP Elite Dragonfly G2: Iris Xe 80 EU Metal compute endurance (R32-PCFIX27, 705,024 encoders, 0 hangs), eDP PWM backlight & HUD (R32-PCFIX31 + hp-brightness-daemon), 420v NV12 video blit alignment (R32-PCFIX35 + xe-h264sw-fixd), Deep Idle S0ix sleep/wake & USB wake block (S0ixStandby 1.1.0 + SSDT-DEEPIDLE + R32-PCFIX36/PCFIX37 Pipe A RGB restore), Realtek ALC285 speakers/headphone (AppleALC + SimpleHDA + alc285-ampinit), Tiger Lake quad-DMIC (TGLDmic 1.0.0), full Fn hotkeys (SSDT-HP-Hotkeys + hp-bridge), RidgeKey Secure Enclave Touch ID / Passkey, bluetoothd APFS decmpfs mlock page-wiring, and persistent system/daemon logging (hp-syslogger + newsyslog).",
+    "scope": "Complete daily-driver macOS 26.6.2 (25G83) adaptation on HP Elite Dragonfly G2: Iris Xe 80 EU Metal compute endurance (R32-PCFIX27, 705,024 encoders, 0 hangs; Phase 8 cumulative enc#2,341,120), eDP PWM backlight & Control Center slider (R32-PCFIX31 + libhp_cb_shim.dylib + hp-bridge), 420v NV12 video blit alignment (R32-PCFIX35 + xe-h264sw-fixd), Deep Idle S0ix sleep/wake & USB wake block (S0ixStandby v0.4.4 + SSDT-DEEPIDLE + R32-PCFIX36/PCFIX37 Pipe A PLANE_CTL_1_A RGB normalization + hp-wake-helper), Realtek ALC285 speakers/headphone/mic (SimpleHDA 1.0.1 + AppleALC 1.9.8 + hp-alc285-ampinit.sh), Tiger Lake quad-DMIC (TGLDmic v0.5.0 + TGLDmic.driver), full Fn hotkeys (VoodooPS2Controller + hp-bridge), RidgeKey 1.0.0 authentication on built-in Synaptics 06cb:00f0 USB fingerprint sensor, AirportItlwm 2.4.0 native en0 Wi-Fi 6, bluetoothd APFS decmpfs mlock page-wiring, and persistent system/daemon logging (hp-syslogger + newsyslog).",
     "final_gpu_baseline": "R32-PCFIX37",
     "internal_nvme_efi_deployment": {
-      "config_plist_sha256": "6043726e373a131f44b3c01e4a0c376d8678791848bf331f4627ce274b3a30cd",
-      "nootedgreen_binary_sha256": "94b2cb33f67fa07d0a0c441da89378a53d096d11e067b4d5a16a3f03cc39f7e1",
-      "nootedgreen_uuid": "4C4C44EC-5555-3144-A1CA-55B34DC29F79",
-      "live_booted_nootedgreen_pcfix36_sha256": "c30417f70b8175a312272f56706d88782b399af128735453ca3a098f91009911",
-      "live_booted_nootedgreen_pcfix36_uuid": "4C4C44C5-5555-3144-A14E-CE2A5B0C53E7",
-      "s0ix_standby_binary_sha256": "be55592c46109e66d03d3b8709333e70a3249435af2c54cf150f7f375029e53d",
-      "ssdt_deepidle_aml_sha256": "280e3a4af2b1df899d3b6ef3c497e37ba976ab631e86600668f6189e0c6b3b2c",
-      "tgl_dmic_binary_sha256": "56620031521cd99c36459f5b726f39dfdd206b5ed584208ba930315e9331d675"
+      "config_plist_sha256": "f1f6b95569b7167ce3b166ca38b3f6bac7f8570dd14938187ebdb22090d3cf6b",
+      "config_plist_size_bytes": 60234,
+      "nootedgreen_binary_sha256": "00982625148fe975c777a2e24f433d1624f2b45f08169acdba7883d18a33e5e3",
+      "nootedgreen_binary_size_bytes": 540944,
+      "nootedgreen_uuid": "4C4C44A8-5555-3144-A16C-16F349CEF835",
+      "live_booted_nootedgreen_pcfix36_sha256": "85eac4f7247f8de0bb84f3be9c83ec3fe664a6c1e8043a18b078b25d3320b339",
+      "live_booted_nootedgreen_pcfix36_size_bytes": 540656,
+      "live_booted_nootedgreen_pcfix36_uuid": "4C4C446E-5555-3144-A18C-AEFB17BBF3B7",
+      "s0ix_standby_version": "v0.4.4",
+      "s0ix_standby_binary_sha256": "be55592c42c5003cd86ac99695c56dbd92b368954301a78d3eecdd3095411184",
+      "s0ix_standby_binary_size_bytes": 74584,
+      "ssdt_deepidle_aml_sha256": "280e3a4ad5541bb482c357b785d10d74e95b0128dc309bc10f2617bc585effe1",
+      "ssdt_deepidle_aml_size_bytes": 371,
+      "ssdt_ec0_itlb_aml_sha256": "122a5b9d778c6429d32f73f1da7e695ba7498e6714e172f708b22894bd8ddaf8",
+      "ssdt_ec0_itlb_aml_size_bytes": 1572,
+      "tgl_dmic_version": "v0.5.0",
+      "tgl_dmic_binary_sha256": "b0d0715d5a795958a2d557e6362839ce2b4947a899f18094c05eb48ac067a5aa",
+      "tgl_dmic_binary_size_bytes": 1199424,
+      "postinstall_bundle_file_count": 431,
+      "postinstall_bundle_tar_gz_sha256": "2f22d03e886773194337281491433b22ea87af1395b26d5e54eb8289020177aa",
+      "postinstall_bundle_tar_gz_size_bytes": 125569879
     }
   },
   "pmap_recycle_page_fix": {
@@ -122,49 +152,54 @@
       {
         "trial": "R32-PCFIX31",
         "patch": "../patches/nootedgreen-r32-pcfix31-backlight-20261107.patch",
-        "result": "AppleBacklightDisplay attachment and PCH PWM 0x2e84 synchronization for native macOS eDP brightness slider + Fn+F3/F4 HUD"
+        "patch_sha256": "5506543f5f232a07d7e478fb5b60e5e8c4b5036668cd4744049da7c2458d82a3",
+        "result": "AppleBacklightDisplay attachment and PCH SBLC_PWM_CTL2 (0xc8254) synchronization for native macOS Control Center eDP brightness slider + Fn+F3/F4 OSD"
       },
       {
         "trial": "R32-PCFIX35",
         "patch": "../patches/nootedgreen-r32-pcfix35-blitalign-20261108.patch",
-        "result": "HP-BLITALIGN 64-byte row-pitch alignment & UV plane offset fix eliminating 420v NV12 video blit corruption across Safari/Bilibili/QuickTime"
+        "patch_sha256": "431541a3e61537db7d3f7fdae224e979bf1ca4618826267474ada5a01f7e1cfa",
+        "result": "HP-BLITALIGN 64-byte row-pitch alignment & BCS0 Blit2D / SIMD16 routing eliminating 420v NV12 video blit corruption across Safari/Bilibili/QuickTime"
       },
       {
         "trial": "R32-PCFIX36",
         "patch": "../patches/nootedgreen-r32-pcfix36-wakecolor-20261109.patch",
-        "ng_sha256": "c30417f70b8175a312272f56706d88782b399af128735453ca3a098f91009911",
-        "ng_uuid": "4C4C44C5-5555-3144-A14E-CE2A5B0C53E7",
-        "result": "Live-booted and verified across 51m 37s Deep Idle S0ix sleep/wake and 0 GPU hangs (recoveryCount=0)"
+        "patch_sha256": "d0450f2088600a73c5360e26f113ccafaad8e0fa987bdcaa59d3541cbc02c4bf",
+        "ng_sha256": "85eac4f7247f8de0bb84f3be9c83ec3fe664a6c1e8043a18b078b25d3320b339",
+        "ng_uuid": "4C4C446E-5555-3144-A18C-AEFB17BBF3B7",
+        "result": "Live-booted (540,656 B) and verified across 51m 37s Deep Idle S0ix sleep/wake and 0 GPU hangs (recoveryCount=0)"
       },
       {
         "trial": "R32-PCFIX37",
         "patch": "../patches/nootedgreen-r32-pcfix37-wakergb-20261111.patch",
-        "source_sha256": "6c42d019445988fe2f59bc3a03a3ca99e2d1a000ccdd48f60a1f7120e37db4f0",
-        "ng_sha256": "94b2cb33f67fa07d0a0c441da89378a53d096d11e067b4d5a16a3f03cc39f7e1",
-        "ng_uuid": "4C4C44EC-5555-3144-A1CA-55B34DC29F79",
-        "result": "Unconditional Pipe A PLCA_CTL_A [0x70190] + PIPE_CSC_MODE_A [0x49028] + GAMMA_MODE_A [0x4a480] RGB restore on display wake; staged on internal ESP for next boot alongside hp-wake-helper ICC/Gamma refresh"
+        "patch_sha256": "d7b02ea9405468109fa755e4b4321768ef0c0ce722c183306529cc4d2ae1d4ea",
+        "source_sha256": "6c42d019445988feb826ac6581f2c0c90a34f0e1266436ef81eed35f03f2d240",
+        "ng_sha256": "00982625148fe975c777a2e24f433d1624f2b45f08169acdba7883d18a33e5e3",
+        "ng_uuid": "4C4C44A8-5555-3144-A16C-16F349CEF835",
+        "result": "ngreen-wake-plane-rgb-fix (xeNormalizePlane1ARgb) normalizing Pipe A PLANE_CTL_1_A [0x70180] (0x82000400 -> 0x84000400), PLANE_COLOR_CTL_1_A [0x701CC] = 0x2000, and CSC_MODE_A [0x4A480] = 0 on display wake; 540,944 B binary staged on internal ESP for next cold boot alongside hp-wake-helper ICC/Gamma refresh"
       }
     ]
   },
   "user_reported_working": [
-    "Iris Xe 80 EU Metal compute & display acceleration (1920x1080@60Hz eDP, 100% 3-stage endurance passed across 705,024 compute encoders)",
+    "Iris Xe 80 EU Metal compute & display acceleration (1920x1080@60Hz eDP, 100% 3-stage endurance passed across 705,024 compute encoders; Phase 8 cumulative enc#2,341,120)",
     "420v NV12 hardware video rendering (R32-PCFIX35 HP-BLITALIGN + xe-h264sw-fixd, zero green/corrupted frames)",
-    "eDP PWM backlight slider & Fn+F3/F4 native brightness HUD (R32-PCFIX31 + hp-brightness-daemon)",
-    "Built-in Realtek ALC285 Bang & Olufsen quad-speakers & 3.5 mm headphone jack auto-switching (AppleALC + SimpleHDA + alc285-ampinit)",
-    "Built-in Tiger Lake Intel SST quad-DMIC 48 kHz 2-ch 16-bit PCM microphone (TGLDmic.kext)",
-    "Modern Standby S0ix Deep Idle sleep/wake (51m 37s verified via S0ixStandby.kext + SSDT-DEEPIDLE; USB wake disabled & CNVW quiesced)",
-    "Full top-row Fn hotkeys Fn+F1..Fn+F11 (SSDT-HP-Hotkeys + hp-bridge)",
-    "RidgeKey virtual Secure Enclave Touch ID / Passkey / Apple Watch / USB FIDO2 authentication (RidgeKeyBridge + RidgeKeyKext)",
-    "Wi-Fi (Intel AX201 via itlwm)",
+    "eDP PWM backlight Control Center slider & Fn+F3/F4 native brightness OSD (R32-PCFIX31 + libhp_cb_shim.dylib + hp-bridge)",
+    "Built-in Realtek ALC285 Bang & Olufsen quad-speakers, 3.5 mm headphone jack auto-switching & headset mic (SimpleHDA 1.0.1 + AppleALC 1.9.8 layout-id 71 + hp-alc285-ampinit.sh)",
+    "Built-in Tiger Lake Intel cAVS 2.5 DSP quad-DMIC 48 kHz 4-ch PCM microphone (TGLDmic.kext v0.5.0 + TGLDmic.driver)",
+    "Modern Standby S0ix Deep Idle sleep/wake (51m 37s verified via S0ixStandby.kext v0.4.4 + SSDT-DEEPIDLE; USB wake disabled & CNVW quiesced)",
+    "Full top-row Fn hotkeys Fn+F1..Fn+F11 & 24 JIS mappings (VoodooPS2Controller 2.3.7 + hp-bridge)",
+    "Built-in Synaptics 06cb:00f0 USB fingerprint sensor authentication for sudo, admin prompts & Lock Screen unlock (RidgeKey 1.0.0: ridgekeyd + pam_ridgekey.so + RidgeKey.app + RidgeKeyAgent.app)",
+    "Wi-Fi 6 (Intel AX201 via AirportItlwm 2.4.0 native en0 IO80211)",
     "Bluetooth + bidirectional Bluetooth audio + bluetoothd APFS decmpfs mlock page-wiring",
-    "Touchpad (Synaptics 06cb:cd74 I2C)",
+    "Touchpad (Synaptics SYNA30B6 06cb:cd74 I2C/PS2) & Touchscreen (Wacom WACF4233 056a:4924 I2C)",
     "Keyboard (PS/2)",
-    "Battery display & status",
-    "Camera (HP Wide Vision HD)",
-    "PCH USB 3.1 / Type-A & Thunderbolt 4 / USB-C"
+    "Battery display, 118 VirtualSMC telemetry keys & zero-error early ACPI (SSDT-EC0-ITLB.aml)",
+    "Camera (Quanta HP Wide Vision HD 0408:5349 720p@30fps UVC)",
+    "PCH USB 3.1 / Type-A & Thunderbolt 4 / USB4 (XHCI@D, TDM0@D,2 in D3hot)"
   ],
   "unresolved": [
-    "Built-in Synaptics 06cb:00f0 Match-on-Chip USB fingerprint reader (no native macOS driver; Touch ID / Passkey provided via RidgeKey FIDO2 / Apple Watch)"
+    "AWDL-dependent wireless Continuity features (AirDrop / Sidecar) are not claimed under AirportItlwm IO80211",
+    "R32-PCFIX37, S0ixStandby v0.4.4, and SSDT-DEEPIDLE (USB wake disabled) staged on internal ESP disk0s1 await post-shutdown cold boot observation"
   ],
   "evidence_policy": {
     "private_raw_evidence_included": false,

@@ -243,21 +243,40 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
         if isinstance(driver_repair, dict)
         else {}
     )
-    if not isinstance(phase10, dict) or not phase10:
-        errors.append(
-            "Missing driver_repair_20261103.phase10_lidwake_and_safari_green_video_fix_20261108 "
-            f"in {INSTALL_PREP_REL}"
+    if local_dir_exists:
+        if not isinstance(phase10, dict) or not phase10:
+            errors.append(
+                "Missing driver_repair_20261103.phase10_lidwake_and_safari_green_video_fix_20261108 "
+                f"in {INSTALL_PREP_REL}"
+            )
+            return {"passed": False, "local_present": True, "error": "Missing phase10 configuration block"}
+        repo_meta = phase10
+    else:
+        public_tracked = (
+            install_prep.get("public_tracked_files", {})
+            if install_prep.get("record_type") == "sanitized_public_current_status"
+            else {}
         )
-        return {"passed": False, "local_present": local_dir_exists, "error": "Missing phase10 configuration block"}
+        repo_meta = (
+            phase10
+            if (isinstance(phase10, dict) and phase10)
+            else (public_tracked if isinstance(public_tracked, dict) else {})
+        )
+        if not repo_meta:
+            errors.append(
+                "Missing driver_repair_20261103.phase10_lidwake_and_safari_green_video_fix_20261108 "
+                f"(or public_tracked_files for sanitized_public_current_status) in {INSTALL_PREP_REL}"
+            )
+            return {"passed": False, "local_present": False, "error": "Missing phase10 or public_tracked_files block"}
 
-    # Always verify repository-tracked files referenced in phase10
+    # Always verify repository-tracked files referenced in phase10 / public_tracked_files
     repo_tracked_checks = [
-        ("nootedgreen_patch", phase10.get("nootedgreen_patch", "patches/nootedgreen-r32-pcfix37-wakergb-20261111.patch"), phase10.get("nootedgreen_patch_sha256"), None),
-        ("readme_md", "README.md", phase10.get("readme_md_sha256"), phase10.get("readme_md_size_bytes")),
-        ("clean_install_guide_md", "docs/clean-install-guide.md", phase10.get("clean_install_guide_md_sha256"), phase10.get("clean_install_guide_md_size_bytes")),
-        ("from_source_rebuild_guide_md", "docs/from-source-rebuild-guide.md", phase10.get("from_source_rebuild_guide_md_sha256"), None),
-        ("makefile", phase10.get("makefile", "Makefile"), phase10.get("makefile_sha256"), phase10.get("makefile_size_bytes")),
-        ("verify_release_artifacts_py", phase10.get("verify_release_artifacts_py", "scripts/verify_release_artifacts.py"), phase10.get("verify_release_artifacts_py_sha256"), phase10.get("verify_release_artifacts_py_size_bytes")),
+        ("nootedgreen_patch", repo_meta.get("nootedgreen_patch", "patches/nootedgreen-r32-pcfix37-wakergb-20261111.patch"), repo_meta.get("nootedgreen_patch_sha256"), repo_meta.get("nootedgreen_patch_size_bytes")),
+        ("readme_md", "README.md", repo_meta.get("readme_md_sha256"), repo_meta.get("readme_md_size_bytes")),
+        ("clean_install_guide_md", "docs/clean-install-guide.md", repo_meta.get("clean_install_guide_md_sha256"), repo_meta.get("clean_install_guide_md_size_bytes")),
+        ("from_source_rebuild_guide_md", "docs/from-source-rebuild-guide.md", repo_meta.get("from_source_rebuild_guide_md_sha256"), repo_meta.get("from_source_rebuild_guide_md_size_bytes")),
+        ("makefile", repo_meta.get("makefile", "Makefile"), repo_meta.get("makefile_sha256"), repo_meta.get("makefile_size_bytes")),
+        ("verify_release_artifacts_py", repo_meta.get("verify_release_artifacts_py", "scripts/verify_release_artifacts.py"), repo_meta.get("verify_release_artifacts_py_sha256"), repo_meta.get("verify_release_artifacts_py_size_bytes")),
     ]
 
     verified_files: list[dict] = []
@@ -491,7 +510,7 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
         ("postinstall_sha256sums_file_count", [
             deployed.get("postinstall_sha256sums_file_count"),
             bundle_receipt.get("total_files_in_manifest"),
-            426,
+            431,
         ]),
         ("postinstall_bundle_receipt_sha256", [
             phase10.get("postinstall_bundle_receipt_sha256"),
@@ -561,7 +580,7 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
 
 
 def verify_section2_postinstall_bundle(root: Path, errors: list[str]) -> dict:
-    """2. 426-File Post-Install Bundle (HP-Tahoe-PostInstall-20261108) Integrity."""
+    """2. 431-File Post-Install Bundle (HP-Tahoe-PostInstall-20261108) Integrity."""
     bundle_dir = root / BUNDLE_DIR_REL
     bundle_tar = root / BUNDLE_TAR_GZ_REL
     sha256sums_path = bundle_dir / "SHA256SUMS.txt"
@@ -571,14 +590,14 @@ def verify_section2_postinstall_bundle(root: Path, errors: list[str]) -> dict:
         return {"passed": False, "error": "Missing post-install bundle"}
 
     sha256sums_sha, sha256sums_size = sha256_file(sha256sums_path)
-    if sha256sums_size != 63835:
-        errors.append(f"SHA256SUMS.txt byte size mismatch: expected 63835, got {sha256sums_size}")
+    if sha256sums_size != 64420:
+        errors.append(f"SHA256SUMS.txt byte size mismatch: expected 64420, got {sha256sums_size}")
 
     manifest_entries = parse_sha256sums(sha256sums_path.read_text(encoding="utf-8", errors="replace"), errors)
-    if len(manifest_entries) != 426:
-        errors.append(f"SHA256SUMS.txt entry count mismatch: expected 426, got {len(manifest_entries)}")
+    if len(manifest_entries) != 431:
+        errors.append(f"SHA256SUMS.txt entry count mismatch: expected 431, got {len(manifest_entries)}")
 
-    # Verify all 426 files on disk against SHA256SUMS.txt and check for untracked extra files
+    # Verify all 431 files on disk against SHA256SUMS.txt and check for untracked extra files
     disk_files = {
         p.relative_to(bundle_dir).as_posix()
         for p in bundle_dir.rglob("*")
@@ -610,8 +629,8 @@ def verify_section2_postinstall_bundle(root: Path, errors: list[str]) -> dict:
         return {"passed": False, "error": f"Missing {BUNDLE_TAR_GZ_REL}"}
 
     tar_sha, tar_size = sha256_file(bundle_tar)
-    if tar_size != 125560595:
-        errors.append(f"HP-Tahoe-PostInstall-20261108.tar.gz size mismatch: expected 125560595, got {tar_size}")
+    if tar_size != 125569879:
+        errors.append(f"HP-Tahoe-PostInstall-20261108.tar.gz size mismatch: expected 125569879, got {tar_size}")
 
     prefix = "HP-Tahoe-PostInstall-20261108/"
     tar_file_hashes: dict[str, str] = {}
@@ -676,12 +695,12 @@ def verify_section2_postinstall_bundle(root: Path, errors: list[str]) -> dict:
             tar_verified += 1
 
     passed = (
-        sha256sums_size == 63835
-        and len(manifest_entries) == 426
+        sha256sums_size == 64420
+        and len(manifest_entries) == 431
         and not missing_on_disk
         and not extra_on_disk
         and not disk_mismatches
-        and tar_size == 125560595
+        and tar_size == 125569879
         and tar_stream_ok
         and tar_sha256sums_sha == sha256sums_sha
         and not missing_in_tar
@@ -986,6 +1005,48 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
                 ("XC13", b"XC13"),
                 ("ODVP", b"ODVP"),
                 ("XDVP", b"XDVP"),
+            ],
+        },
+        {
+            "name": "xe-h264sw-fixd",
+            "path": bundle_dir / "stage2-gpu/usr-local-libexec/xe-h264sw-fixd",
+            "expected_sha256": "4e388dfd1720d25e73d5701b4be0919cac190cca38ee03fc7ee9a7532048d5af",
+            "expected_size_bytes": 24496,
+            "markers": [
+                ("VTDecoderXPCService", b"VTDecoderXPCService"),
+                ("AppleH264SW", b"AppleH264SW"),
+            ],
+        },
+        {
+            "name": "hp-wake-helper",
+            "path": bundle_dir / "stage3-audio/usr-local-bin/hp-wake-helper",
+            "expected_sha256": "b592620b3ef2f816b006d0fa6414e206b142da5779ece3b82604b6bf12f7b491",
+            "expected_size_bytes": 50112,
+            "markers": [
+                ("AppleBacklightDisplay", b"AppleBacklightDisplay"),
+                ("ngreen-wake-plane-rgb-fix", b"ngreen-wake-plane-rgb-fix"),
+                ("wake-hold-release+0.83s", b"wake-hold-release+0.83s"),
+            ],
+        },
+        {
+            "name": "hp-bridge",
+            "path": bundle_dir / "stage3-brightness-hotkeys/usr-local-bin/hp-bridge",
+            "expected_sha256": "3854aabe44e6fd859111b859e6b9a66f3a82867b086389aa03b6263a0c27cfb7",
+            "expected_size_bytes": 70192,
+            "markers": [
+                ("DisplayServicesCanChangeBrightness", b"DisplayServicesCanChangeBrightness"),
+            ],
+        },
+        {
+            "name": "hp-syslogger.py",
+            "path": bundle_dir / "stage3-logging/usr-local-bin/hp-syslogger.py",
+            "expected_sha256": "9f22348437736568d9ca6906b2934e5358432200615fe4503729b851e2f89f59",
+            "expected_size_bytes": 13043,
+            "markers": [
+                ("STOP_EVENT", b"STOP_EVENT"),
+                ("Out_of_range_RSSI", b"Out of range RSSI value"),
+                ("unified_errors_rotate", b"unified-errors.log.1"),
+                ("mlock", b"mlock"),
             ],
         },
     ]
@@ -1302,7 +1363,7 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
         return {
             "passed": False,
             "verified_target_count": 0,
-            "expected_target_count": 6,
+            "expected_target_count": 9,
             "temp_dir_cleaned_up": True,
             "remaining_temp_bytes": 0,
             "total_duration_ms": 0.0,
@@ -1804,6 +1865,241 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
                     "duration_ms": step_ms,
                 }
 
+        # 6.4c Userspace xe-h264sw-fixd Clean-Room Compilation + Mach-O Parity
+        step_t0 = time.monotonic()
+        h264_src = (
+            root
+            / ".local/driver-repair-20261103/s0ix-standby-prep-20261107/"
+            "live-846ba6e6/xe-h264sw-fixd.c"
+        )
+        h264_ref = bundle_dir / "stage2-gpu/usr-local-libexec/xe-h264sw-fixd"
+        h264_out = tmp_dir / "xe-h264sw-fixd"
+        if not h264_src.is_file() or not h264_ref.is_file():
+            errors.append("[xe-h264sw-fixd] Missing xe-h264sw-fixd.c or reference binary")
+            rebuilds["xe-h264sw-fixd"] = {"passed": False, "error": "Missing xe-h264sw-fixd inputs"}
+            all_passed = False
+        else:
+            h264_cmds = [
+                [
+                    tools["clang"],
+                    "-target", "x86_64-apple-macos15.0",
+                    "-isysroot", tools["sdkroot"],
+                    "-fuse-ld=lld",
+                    f"--ld-path={tools['ld64_lld']}",
+                    "-O2",
+                    str(h264_src),
+                    "-o", str(h264_out),
+                ],
+                [
+                    tools["rcodesign"],
+                    "sign",
+                    str(h264_out),
+                ],
+            ]
+            h264_rc = 0
+            h264_err = ""
+            for cmd in h264_cmds:
+                proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+                if proc.returncode != 0:
+                    h264_rc = proc.returncode
+                    h264_err = proc.stderr.strip() or proc.stdout.strip()
+                    break
+            step_ms = round((time.monotonic() - step_t0) * 1000.0, 2)
+            if h264_rc != 0 or not h264_out.is_file():
+                errors.append(f"[xe-h264sw-fixd] Clean-room compilation failed (rc={h264_rc}): {h264_err}")
+                rebuilds["xe-h264sw-fixd"] = {"passed": False, "exit_code": h264_rc, "duration_ms": step_ms}
+                all_passed = False
+            else:
+                rebuilt_bytes = h264_out.read_bytes()
+                ref_bytes = h264_ref.read_bytes()
+                rebuilt_size = len(rebuilt_bytes)
+                expected_size = 24496
+                expected_uuid = b"\x4c\x4c\x44\xb3\x55\x55\x31\x44\xa1\xe7\xa9\x19\xcc\x28\x6f\x49"
+                # Reference binary was ad-hoc re-signed on macOS with Apple codesign (adding empty 0xfade0c01
+                # requirements blob inside CS_SuperBlob at >= 0x47b6); Mach-O segments/symbols [0..0x47b0)
+                # and LC_UUID match byte-for-byte.
+                macho_body_match = (
+                    rebuilt_size == expected_size
+                    and len(ref_bytes) == expected_size
+                    and rebuilt_bytes[:0x47B0] == ref_bytes[:0x47B0]
+                    and expected_uuid in rebuilt_bytes
+                )
+                if not macho_body_match:
+                    errors.append(
+                        f"[xe-h264sw-fixd] Mach-O body or UUID mismatch: size={rebuilt_size} (expected {expected_size})"
+                    )
+                    all_passed = False
+                rebuilds["xe-h264sw-fixd"] = {
+                    "passed": macho_body_match,
+                    "source_file": h264_src.relative_to(root).as_posix(),
+                    "reference_binary": h264_ref.relative_to(root).as_posix(),
+                    "exit_code": 0,
+                    "size_bytes": rebuilt_size,
+                    "expected_size_bytes": expected_size,
+                    "sha256": hashlib.sha256(rebuilt_bytes).hexdigest(),
+                    "reference_sha256": hashlib.sha256(ref_bytes).hexdigest(),
+                    "macho_body_0x47b0_matched": macho_body_match,
+                    "lc_uuid": "4C4C44B3-5555-3144-A1E7-A919CC286F49",
+                    "duration_ms": step_ms,
+                }
+
+        # 6.4d Userspace hp-wake-helper Cross-Compilation Verification
+        step_t0 = time.monotonic()
+        wake_src = (
+            root
+            / ".local/driver-repair-20261103/s0ix-standby-prep-20261107/"
+            "live-846ba6e6/hp-wake-helper.m"
+        )
+        wake_ref = bundle_dir / "stage3-audio/usr-local-bin/hp-wake-helper"
+        wake_out = tmp_dir / "hp-wake-helper"
+        if not wake_src.is_file() or not wake_ref.is_file():
+            errors.append("[hp-wake-helper] Missing hp-wake-helper.m or reference binary")
+            rebuilds["hp-wake-helper"] = {"passed": False, "error": "Missing hp-wake-helper inputs"}
+            all_passed = False
+        else:
+            wake_cmds = [
+                [
+                    tools["clang"],
+                    "-target", "x86_64-apple-macos15.0",
+                    "-isysroot", tools["sdkroot"],
+                    "-fuse-ld=lld",
+                    f"--ld-path={tools['path_ld64_lld']}",
+                    "-O2", "-fobjc-arc",
+                    "-framework", "Foundation",
+                    "-framework", "CoreWLAN",
+                    "-framework", "CoreAudio",
+                    "-framework", "CoreGraphics",
+                    "-framework", "IOKit",
+                    "-framework", "CoreFoundation",
+                    str(wake_src),
+                    "-o", str(wake_out),
+                ],
+                [
+                    tools["rcodesign"],
+                    "sign",
+                    str(wake_out),
+                ],
+            ]
+            wake_rc = 0
+            wake_err = ""
+            for cmd in wake_cmds:
+                proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+                if proc.returncode != 0:
+                    wake_rc = proc.returncode
+                    wake_err = proc.stderr.strip() or proc.stdout.strip()
+                    break
+            step_ms = round((time.monotonic() - step_t0) * 1000.0, 2)
+            if wake_rc != 0 or not wake_out.is_file():
+                errors.append(f"[hp-wake-helper] Clean-room cross-compilation failed (rc={wake_rc}): {wake_err}")
+                rebuilds["hp-wake-helper"] = {"passed": False, "exit_code": wake_rc, "duration_ms": step_ms}
+                all_passed = False
+            else:
+                rebuilt_bytes = wake_out.read_bytes()
+                ref_bytes = wake_ref.read_bytes()
+                wake_ok = (
+                    rebuilt_bytes[:4] == b"\xcf\xfa\xed\xfe"
+                    and b"AppleBacklightDisplay" in rebuilt_bytes
+                    and b"ngreen-wake-plane-rgb-fix" in rebuilt_bytes
+                    and b"wake-hold-release+0.83s" in rebuilt_bytes
+                    and hashlib.sha256(ref_bytes).hexdigest()
+                    == "b592620b3ef2f816b006d0fa6414e206b142da5779ece3b82604b6bf12f7b491"
+                )
+                if not wake_ok:
+                    errors.append("[hp-wake-helper] Cross-compiled Mach-O or reference SHA256 check failed")
+                    all_passed = False
+                rebuilds["hp-wake-helper"] = {
+                    "passed": wake_ok,
+                    "source_file": wake_src.relative_to(root).as_posix(),
+                    "reference_binary": wake_ref.relative_to(root).as_posix(),
+                    "exit_code": 0,
+                    "cross_compiled_size_bytes": len(rebuilt_bytes),
+                    "cross_compiled_sha256": hashlib.sha256(rebuilt_bytes).hexdigest(),
+                    "reference_native_macos_sha256": hashlib.sha256(ref_bytes).hexdigest(),
+                    "byte_for_byte_matched": False,
+                    "note": "Reference binary built natively on macOS 26.6.2 (ld_prime minos 26.0); Linux cross-compile + markers verified",
+                    "duration_ms": step_ms,
+                }
+
+        # 6.4e Userspace hp-bridge Cross-Compilation Verification
+        step_t0 = time.monotonic()
+        bridge_src = (
+            root
+            / ".local/driver-repair-20261103/s0ix-standby-prep-20261107/"
+            "live-846ba6e6/hp-bridge.m"
+        )
+        bridge_ref = bundle_dir / "stage3-brightness-hotkeys/usr-local-bin/hp-bridge"
+        bridge_out = tmp_dir / "hp-bridge"
+        if not bridge_src.is_file() or not bridge_ref.is_file():
+            errors.append("[hp-bridge] Missing hp-bridge.m or reference binary")
+            rebuilds["hp-bridge"] = {"passed": False, "error": "Missing hp-bridge inputs"}
+            all_passed = False
+        else:
+            bridge_cmds = [
+                [
+                    tools["clang"],
+                    "-target", "x86_64-apple-macos15.0",
+                    "-isysroot", tools["sdkroot"],
+                    "-fuse-ld=lld",
+                    f"--ld-path={tools['path_ld64_lld']}",
+                    "-O2", "-fobjc-arc",
+                    "-F", f"{tools['sdkroot']}/System/Library/PrivateFrameworks",
+                    "-framework", "Cocoa",
+                    "-framework", "Carbon",
+                    "-framework", "CoreAudio",
+                    "-framework", "CoreFoundation",
+                    "-framework", "CoreGraphics",
+                    "-framework", "IOKit",
+                    "-framework", "DisplayServices",
+                    "-framework", "CoreDisplay",
+                    "-framework", "AppKit",
+                    "-framework", "Foundation",
+                    str(bridge_src),
+                    "-o", str(bridge_out),
+                ],
+                [
+                    tools["rcodesign"],
+                    "sign",
+                    str(bridge_out),
+                ],
+            ]
+            bridge_rc = 0
+            bridge_err = ""
+            for cmd in bridge_cmds:
+                proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+                if proc.returncode != 0:
+                    bridge_rc = proc.returncode
+                    bridge_err = proc.stderr.strip() or proc.stdout.strip()
+                    break
+            step_ms = round((time.monotonic() - step_t0) * 1000.0, 2)
+            if bridge_rc != 0 or not bridge_out.is_file():
+                errors.append(f"[hp-bridge] Clean-room cross-compilation failed (rc={bridge_rc}): {bridge_err}")
+                rebuilds["hp-bridge"] = {"passed": False, "exit_code": bridge_rc, "duration_ms": step_ms}
+                all_passed = False
+            else:
+                rebuilt_bytes = bridge_out.read_bytes()
+                ref_bytes = bridge_ref.read_bytes()
+                bridge_ok = (
+                    rebuilt_bytes[:4] == b"\xcf\xfa\xed\xfe"
+                    and b"DisplayServicesCanChangeBrightness" in rebuilt_bytes
+                    and hashlib.sha256(ref_bytes).hexdigest()
+                    == "3854aabe44e6fd859111b859e6b9a66f3a82867b086389aa03b6263a0c27cfb7"
+                )
+                if not bridge_ok:
+                    errors.append("[hp-bridge] Cross-compiled Mach-O or reference SHA256 check failed")
+                    all_passed = False
+                rebuilds["hp-bridge"] = {
+                    "passed": bridge_ok,
+                    "source_file": bridge_src.relative_to(root).as_posix(),
+                    "reference_binary": bridge_ref.relative_to(root).as_posix(),
+                    "exit_code": 0,
+                    "cross_compiled_size_bytes": len(rebuilt_bytes),
+                    "cross_compiled_sha256": hashlib.sha256(rebuilt_bytes).hexdigest(),
+                    "reference_native_macos_sha256": hashlib.sha256(ref_bytes).hexdigest(),
+                    "byte_for_byte_matched": False,
+                    "note": "Reference binary built natively on macOS 26.6.2 (ld_prime minos 26.0); Linux cross-compile + markers verified",
+                    "duration_ms": step_ms,
+                }
+
     temp_cleaned = not Path(tmp_dir_str).exists()
     remaining_bytes = (
         0
@@ -1816,9 +2112,9 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
 
     total_ms = round((time.monotonic() - t_start) * 1000.0, 2)
     return {
-        "passed": all_passed and len(rebuilds) == 6 and all(r.get("passed", False) for r in rebuilds.values()),
+        "passed": all_passed and len(rebuilds) == 9 and all(r.get("passed", False) for r in rebuilds.values()),
         "verified_target_count": sum(1 for r in rebuilds.values() if r.get("passed", False)),
-        "expected_target_count": 6,
+        "expected_target_count": 9,
         "temp_dir_cleaned_up": temp_cleaned,
         "remaining_temp_bytes": remaining_bytes,
         "total_duration_ms": total_ms,
@@ -1861,7 +2157,7 @@ def run_verification(
     sec4 = verify_section4_binary_markers(root, errors)
     sections = {
         "1_core_config_and_receipt_parity": sec1,
-        "2_postinstall_bundle_426_integrity": sec2,
+        "2_postinstall_bundle_431_integrity": sec2,
         "3_opencore_efi_112_parity": sec3,
         "4_binary_feature_and_aml_markers": sec4,
     }
@@ -1926,7 +2222,7 @@ def print_summary(report: dict) -> None:
         f"{s1.get('cross_manifest_parity_count', 0)} cross-manifest keys verified"
     )
 
-    s2 = sections["2_postinstall_bundle_426_integrity"]
+    s2 = sections["2_postinstall_bundle_431_integrity"]
     print(
         f"[{'PASS' if s2.get('passed') else 'FAIL'}] 2. Post-Install Bundle Integrity: "
         f"disk={s2.get('disk_verified_count', 0)}/{s2.get('manifest_entry_count', 0)} files, "
@@ -1974,7 +2270,7 @@ def print_summary(report: dict) -> None:
         ) or str(s6.get("error", "no targets executed"))
         print(
             f"[{'PASS' if s6.get('passed') else 'FAIL'}] 6. Clean-Room Source Rebuilds "
-            f"({s6.get('verified_target_count', 0)}/{s6.get('expected_target_count', 6)} bit-for-bit, "
+            f"({s6.get('verified_target_count', 0)}/{s6.get('expected_target_count', 9)} verified, "
             f"{s6.get('total_duration_ms', 0):.1f} ms, temp_bytes={s6.get('remaining_temp_bytes', 0)}): "
             f"{target_summary}"
         )
@@ -2003,7 +2299,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check-source-rebuilds",
         action="store_true",
-        help="Perform clean-room compilation of ACPI SSDTs, S0ixStandby.kext, NootedGreen patch, libxedrv.dylib, and test_420v_blitalign in a TemporaryDirectory.",
+        help="Perform clean-room compilation of ACPI SSDTs, S0ixStandby.kext, NootedGreen patch, libxedrv.dylib, test_420v_blitalign, xe-h264sw-fixd, hp-wake-helper, and hp-bridge in a TemporaryDirectory.",
     )
     parser.add_argument(
         "--json-out",
