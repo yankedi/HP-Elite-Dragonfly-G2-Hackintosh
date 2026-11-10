@@ -61,6 +61,63 @@ LIVE_NIXOS_KEY_OC_FILES = (
     "Kexts/S0ixStandby.kext/Contents/MacOS/S0ixStandby",
 )
 
+TRACKED_ACPI_DSL_SPECS = (
+    {
+        "name": "SSDT-DEEPIDLE.aml",
+        "prefix": "SSDT-DEEPIDLE",
+        "dsl_rel": "acpi/SSDT-DEEPIDLE.dsl",
+        "expected_dsl_sha256": "1f569b6bbb0d4305a27fcadeedf69a463c18f47b581d5140fb8acb2ecccfb1b9",
+        "expected_dsl_size": 2793,
+        "expected_aml_sha256": "280e3a4ad5541bb482c357b785d10d74e95b0128dc309bc10f2617bc585effe1",
+        "expected_aml_size": 371,
+    },
+    {
+        "name": "SSDT-EC0-ITLB.aml",
+        "prefix": "SSDT-EC0-ITLB",
+        "dsl_rel": "acpi/SSDT-EC0-ITLB.dsl",
+        "expected_dsl_sha256": "30dd9d79d501cb83cab902fe9acc3f46553ef6efafc5878641fe1174387186ed",
+        "expected_dsl_size": 7231,
+        "expected_aml_sha256": "122a5b9d778c6429d32f73f1da7e695ba7498e6714e172f708b22894bd8ddaf8",
+        "expected_aml_size": 1572,
+    },
+    {
+        "name": "SSDT-PLUG.aml",
+        "prefix": "SSDT-PLUG",
+        "dsl_rel": "acpi/SSDT-PLUG.dsl",
+        "expected_dsl_sha256": "aab42b4ec4d952cadfe40704a1e561e528f81cb4f9b1fed2fd3aacca84ef570f",
+        "expected_dsl_size": 715,
+        "expected_aml_sha256": "24956a41669b37fce98f09b9b6d28475a099693bb3522391d35609415e0ffed2",
+        "expected_aml_size": 113,
+    },
+    {
+        "name": "SSDT-EC-USBX-HP.aml",
+        "prefix": "SSDT-EC-USBX-HP",
+        "dsl_rel": "acpi/SSDT-EC-USBX-HP.dsl",
+        "expected_dsl_sha256": "f9db2e03453d4c593aec344a3a07ca966c136d3ff1a48c550ec6837f8ec290df",
+        "expected_dsl_size": 1828,
+        "expected_aml_sha256": "296212e084666dfc9ed0ab69fbbecaaa3525da71f528526c2d22d0d81d7f6781",
+        "expected_aml_size": 372,
+    },
+    {
+        "name": "SSDT-RHUB-HP.aml",
+        "prefix": "SSDT-RHUB-HP",
+        "dsl_rel": "acpi/SSDT-RHUB-HP.dsl",
+        "expected_dsl_sha256": "2d441f3d40dfac5e91586fd4bc89ecd68c13b525ab143e25a555ed7a6799cf48",
+        "expected_dsl_size": 997,
+        "expected_aml_sha256": "4cf78eacb8f2529a3a93a3bb9406ad4cc5446fe19828c49241130ab0503daec9",
+        "expected_aml_size": 108,
+    },
+    {
+        "name": "SSDT-PNLF-HP-GA419.aml",
+        "prefix": "SSDT-PNLF-HP-GA419",
+        "dsl_rel": "acpi/SSDT-PNLF-HP-GA419.dsl",
+        "expected_dsl_sha256": "f24fc67b2ae9d9314895b33536860a1e099e4b1a0b7637dd2a96725371616cd5",
+        "expected_dsl_size": 593,
+        "expected_aml_sha256": "72ec07163115d8c327f1c7f143b0375b7b0262adc9422c2628ab2177cc71414e",
+        "expected_aml_size": 142,
+    },
+)
+
 
 def sha256_file(path: Path) -> tuple[str, int]:
     """Compute SHA-256 hex digest and byte count of a file by streaming."""
@@ -231,11 +288,15 @@ def read_fat32_partition_files(
 
 def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
     """1. Core Configuration & Receipt Hash Parity."""
-    local_dir_exists = (root / ".local").is_dir()
+    raw_local_present = (root / ".local" / "driver-repair-20261103").is_dir()
     install_prep_path = root / INSTALL_PREP_REL
     install_prep = load_json_safe(install_prep_path, INSTALL_PREP_REL, errors)
     if install_prep is None:
-        return {"passed": False, "local_present": local_dir_exists, "error": f"Invalid or missing {INSTALL_PREP_REL}"}
+        return {"passed": False, "local_present": raw_local_present, "error": f"Invalid or missing {INSTALL_PREP_REL}"}
+    local_dir_exists = (
+        raw_local_present
+        and install_prep.get("record_type") != "sanitized_public_current_status"
+    )
 
     driver_repair = install_prep.get("driver_repair_20261103", {})
     phase10 = (
@@ -306,12 +367,149 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
         })
 
     if not local_dir_exists:
+        for spec in TRACKED_ACPI_DSL_SPECS:
+            label = f"acpi_dsl[{spec['prefix']}]"
+            dsl_rel = spec["dsl_rel"]
+            fpath = root / dsl_rel
+            if not fpath.is_file():
+                errors.append(f"[{label}] Missing tracked ACPI DSL file: {dsl_rel}")
+                verified_files.append({"label": label, "path": dsl_rel, "sha256": None, "size_bytes": None, "matched": False})
+                continue
+            actual_sha, actual_size = sha256_file(fpath)
+            sha_ok = actual_sha == spec["expected_dsl_sha256"]
+            size_ok = actual_size == spec["expected_dsl_size"]
+            if not sha_ok:
+                errors.append(f"[{label}] SHA256 mismatch for {dsl_rel}: expected {spec['expected_dsl_sha256']}, got {actual_sha}")
+            if not size_ok:
+                errors.append(f"[{label}] Size mismatch for {dsl_rel}: expected {spec['expected_dsl_size']}, got {actual_size}")
+            verified_files.append({
+                "label": label,
+                "path": dsl_rel,
+                "sha256": actual_sha,
+                "size_bytes": actual_size,
+                "matched": sha_ok and size_ok,
+            })
+
+        pub_parity_results: list[dict] = []
+        if install_prep.get("record_type") == "sanitized_public_current_status":
+            gmc = install_prep.get("graphics_and_metal_compute", {})
+            trials = gmc.get("verified_zero_hang_trials", []) if isinstance(gmc, dict) else []
+            if not isinstance(trials, list) or not trials:
+                errors.append(f"Missing or empty graphics_and_metal_compute.verified_zero_hang_trials in {INSTALL_PREP_REL}")
+                trials = []
+            pcfix37_trial: dict = {}
+            for idx, entry in enumerate(trials):
+                if not isinstance(entry, dict):
+                    errors.append(f"[verified_zero_hang_trials[{idx}]] Invalid trial object in {INSTALL_PREP_REL}")
+                    continue
+                tname = str(entry.get("trial", f"idx_{idx}"))
+                if tname == "R32-PCFIX37":
+                    pcfix37_trial = entry
+                patch_ref = entry.get("patch")
+                expected_psha = entry.get("patch_sha256")
+                label = f"trial_patch[{tname}]"
+                if not patch_ref or not isinstance(patch_ref, str):
+                    errors.append(f"[{label}] Missing patch path in {INSTALL_PREP_REL}")
+                    verified_files.append({"label": label, "path": patch_ref, "sha256": None, "size_bytes": None, "matched": False})
+                    continue
+                p_resolved = (install_prep_path.parent / patch_ref).resolve()
+                if not p_resolved.is_relative_to(root) or not p_resolved.is_file():
+                    errors.append(f"[{label}] Missing or out-of-tree trial patch: {patch_ref}")
+                    verified_files.append({"label": label, "path": patch_ref, "sha256": None, "size_bytes": None, "matched": False})
+                    continue
+                p_rel = p_resolved.relative_to(root).as_posix()
+                actual_psha, actual_psize = sha256_file(p_resolved)
+                psha_ok = actual_psha == expected_psha
+                if not psha_ok:
+                    errors.append(f"[{label}] SHA256 mismatch for {p_rel}: expected {expected_psha}, got {actual_psha}")
+                verified_files.append({
+                    "label": label,
+                    "path": p_rel,
+                    "sha256": actual_psha,
+                    "size_bytes": actual_psize,
+                    "matched": psha_ok,
+                })
+
+            nix_tooling = install_prep.get("nix_flake_tooling", {})
+            flake_files = nix_tooling.get("flake_files", []) if isinstance(nix_tooling, dict) else []
+            if not isinstance(flake_files, list) or not flake_files:
+                errors.append(f"Missing or empty nix_flake_tooling.flake_files in {INSTALL_PREP_REL}")
+            else:
+                for f_ref in flake_files:
+                    f_res = (install_prep_path.parent / str(f_ref)).resolve()
+                    if not f_res.is_relative_to(root) or not f_res.is_file():
+                        errors.append(f"[nix_flake_tooling] Missing or out-of-tree flake file: {f_ref}")
+
+            pub_indexes = install_prep.get("public_indexes", {})
+            if not isinstance(pub_indexes, dict) or not pub_indexes:
+                errors.append(f"Missing or empty public_indexes in {INSTALL_PREP_REL}")
+            else:
+                for idx_key, idx_ref in pub_indexes.items():
+                    idx_res = (install_prep_path.parent / str(idx_ref)).resolve()
+                    if not idx_res.is_relative_to(root) or not idx_res.is_file():
+                        errors.append(f"[public_indexes.{idx_key}] Missing or out-of-tree index target: {idx_ref}")
+
+            exp_hist_rel = "manifests/experiment-history.json"
+            exp_hist_path = root / exp_hist_rel
+            exp_hist = load_json_safe(exp_hist_path, exp_hist_rel, errors)
+            pcp = install_prep.get("project_completion_policy", {})
+            inv_efi = pcp.get("internal_nvme_efi_deployment", {}) if isinstance(pcp, dict) else {}
+            if not isinstance(inv_efi, dict):
+                inv_efi = {}
+            tgl_sha = inv_efi.get("tgl_dmic_binary_sha256")
+            tgl_seen_in_hist = False
+            if isinstance(exp_hist, dict):
+                milestones = exp_hist.get("milestones", [])
+                if not isinstance(milestones, list) or not milestones:
+                    errors.append(f"Missing or empty milestones in {exp_hist_rel}")
+                else:
+                    for m_idx, ms in enumerate(milestones):
+                        if not isinstance(ms, dict):
+                            continue
+                        if isinstance(tgl_sha, str) and tgl_sha and tgl_sha in str(ms.get("summary", "")):
+                            tgl_seen_in_hist = True
+                        pdocs = ms.get("public_docs", [])
+                        if not isinstance(pdocs, list) or not pdocs:
+                            errors.append(f"[{exp_hist_rel}:milestones[{m_idx}]] Missing public_docs list")
+                            continue
+                        for doc_ref in pdocs:
+                            doc_res = (exp_hist_path.parent / str(doc_ref)).resolve()
+                            if not doc_res.is_relative_to(root) or not doc_res.is_file():
+                                errors.append(f"[{exp_hist_rel}:milestones[{m_idx}]] Missing or out-of-tree public_doc: {doc_ref}")
+
+            pub_parity_pairs = [
+                ("ssdt_deepidle_aml_sha256", [inv_efi.get("ssdt_deepidle_aml_sha256"), TRACKED_ACPI_DSL_SPECS[0]["expected_aml_sha256"]]),
+                ("ssdt_ec0_itlb_aml_sha256", [inv_efi.get("ssdt_ec0_itlb_aml_sha256"), TRACKED_ACPI_DSL_SPECS[1]["expected_aml_sha256"]]),
+                ("nootedgreen_patch_sha256", [repo_meta.get("nootedgreen_patch_sha256"), pcfix37_trial.get("patch_sha256")]),
+                ("nootedgreen_binary_sha256", [inv_efi.get("nootedgreen_binary_sha256"), pcfix37_trial.get("ng_sha256")]),
+                ("nootedgreen_uuid", [inv_efi.get("nootedgreen_uuid"), pcfix37_trial.get("ng_uuid")]),
+                ("tgl_dmic_binary_sha256", [tgl_sha, tgl_sha if tgl_seen_in_hist else None]),
+            ]
+            for key_name, values in pub_parity_pairs:
+                try:
+                    distinct = set(values)
+                except TypeError:
+                    distinct = set()
+                ok = len(distinct) == 1 and None not in distinct
+                if not ok:
+                    errors.append(f"Public cross-manifest disagreement for {key_name}: {values!r}")
+                pub_parity_results.append({
+                    "key": key_name,
+                    "value": values[0] if ok else values,
+                    "matched": ok,
+                })
+
         return {
-            "passed": len(errors) == 0 and all(f["matched"] for f in verified_files),
+            "passed": (
+                len(errors) == 0
+                and all(f["matched"] for f in verified_files)
+                and all(p["matched"] for p in pub_parity_results)
+            ),
             "local_present": False,
             "verified_file_count": len(verified_files),
             "verified_files": verified_files,
-            "cross_manifest_parity_checks": [],
+            "cross_manifest_parity_count": len(pub_parity_results),
+            "cross_manifest_parity_checks": pub_parity_results,
         }
 
     deploy_receipt_rel = phase10.get("deploy_receipt", DEPLOY_RECEIPT_REL)
@@ -2100,6 +2298,45 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
                     "duration_ms": step_ms,
                 }
 
+        tracked_acpi_verified = 0
+        for spec in TRACKED_ACPI_DSL_SPECS:
+            tdsl_path = root / spec["dsl_rel"]
+            tref_aml = bundle_dir / "EFI-OC/OC/ACPI" / spec["name"]
+            if not tdsl_path.is_file() or not tref_aml.is_file():
+                errors.append(f"[tracked_acpi:{spec['name']}] Missing {spec['dsl_rel']} or bundle AML")
+                all_passed = False
+                continue
+            tdsl_sha, tdsl_size = sha256_file(tdsl_path)
+            tout_prefix = tmp_dir / f"tracked-{spec['prefix']}"
+            tout_aml = tmp_dir / f"tracked-{spec['name']}"
+            tproc = subprocess.run(
+                [tools["iasl"], "-ve", "-p", str(tout_prefix), str(tdsl_path)],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+            if tproc.returncode != 0 or not tout_aml.is_file():
+                errors.append(f"[tracked_acpi:{spec['name']}] iasl -ve failed (rc={tproc.returncode})")
+                all_passed = False
+                continue
+            trebuilt = tout_aml.read_bytes()
+            tref = tref_aml.read_bytes()
+            tsha = hashlib.sha256(trebuilt).hexdigest()
+            if (
+                tdsl_sha != spec["expected_dsl_sha256"]
+                or tdsl_size != spec["expected_dsl_size"]
+                or trebuilt != tref
+                or len(trebuilt) != spec["expected_aml_size"]
+                or tsha != spec["expected_aml_sha256"]
+            ):
+                errors.append(
+                    f"[tracked_acpi:{spec['name']}] Byte-for-byte parity mismatch for {spec['dsl_rel']}"
+                )
+                all_passed = False
+            else:
+                tracked_acpi_verified += 1
+
     temp_cleaned = not Path(tmp_dir_str).exists()
     remaining_bytes = (
         0
@@ -2112,9 +2349,181 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
 
     total_ms = round((time.monotonic() - t_start) * 1000.0, 2)
     return {
-        "passed": all_passed and len(rebuilds) == 9 and all(r.get("passed", False) for r in rebuilds.values()),
+        "passed": (
+            all_passed
+            and len(rebuilds) == 9
+            and tracked_acpi_verified == len(TRACKED_ACPI_DSL_SPECS)
+            and all(r.get("passed", False) for r in rebuilds.values())
+        ),
         "verified_target_count": sum(1 for r in rebuilds.values() if r.get("passed", False)),
         "expected_target_count": 9,
+        "tracked_acpi_dsl_verified_count": tracked_acpi_verified,
+        "temp_dir_cleaned_up": temp_cleaned,
+        "remaining_temp_bytes": remaining_bytes,
+        "total_duration_ms": total_ms,
+        "targets": rebuilds,
+    }
+
+
+def _resolve_iasl_env(root: Path, errors: list[str]) -> tuple[dict[str, str], str] | None:
+    """Resolve iasl for public-mode clean-room ACPI compilation without requiring private macOS SDKs."""
+    root = root.resolve()
+    env = dict(os.environ)
+    iasl_bin = shutil.which("iasl", path=env.get("PATH", ""))
+    if iasl_bin and Path(iasl_bin).is_file():
+        return env, str(iasl_bin)
+
+    nix_bin = shutil.which("nix", path=env.get("PATH", ""))
+    flake_dir = root if (root / "flake.nix").is_file() else (ROOT if (ROOT / "flake.nix").is_file() else None)
+    if nix_bin and flake_dir is not None:
+        proc = subprocess.run(
+            [
+                nix_bin,
+                "develop",
+                str(flake_dir),
+                "-c",
+                "python3",
+                "-c",
+                "import json, os; print(json.dumps(dict(os.environ)))",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        if proc.returncode == 0:
+            try:
+                nix_env = json.loads(proc.stdout.strip().splitlines()[-1])
+                iasl_nix = shutil.which("iasl", path=nix_env.get("PATH", ""))
+                if iasl_nix and Path(iasl_nix).is_file():
+                    return nix_env, str(iasl_nix)
+            except (IndexError, json.JSONDecodeError):
+                pass
+
+    errors.append("Missing required clean-room ACPI compiler (iasl) for --check-source-rebuilds")
+    return None
+
+
+def verify_section6_public_acpi_rebuilds(root: Path, errors: list[str]) -> dict:
+    """6. Public-Mode Clean-Room Compilation of All 6 Tracked ACPI SSDT Sources (iasl -ve)."""
+    root = root.resolve()
+    resolved = _resolve_iasl_env(root, errors)
+    expected_count = len(TRACKED_ACPI_DSL_SPECS)
+    if resolved is None:
+        return {
+            "passed": False,
+            "verified_target_count": 0,
+            "expected_target_count": expected_count,
+            "temp_dir_cleaned_up": True,
+            "remaining_temp_bytes": 0,
+            "total_duration_ms": 0.0,
+            "targets": {},
+            "error": "iasl resolution failed",
+        }
+    env, iasl_bin = resolved
+    t_start = time.monotonic()
+    rebuilds: dict[str, dict] = {}
+    all_passed = True
+
+    with tempfile.TemporaryDirectory(prefix="hp-tahoe-public-acpi-") as tmp_dir_str:
+        tmp_dir = Path(tmp_dir_str)
+        for spec in TRACKED_ACPI_DSL_SPECS:
+            step_t0 = time.monotonic()
+            dsl_path = root / spec["dsl_rel"]
+            if not dsl_path.is_file():
+                errors.append(f"[{spec['name']}] Missing tracked ACPI DSL: {spec['dsl_rel']}")
+                rebuilds[spec["name"]] = {"passed": False, "error": "Missing source DSL"}
+                all_passed = False
+                continue
+
+            dsl_sha, dsl_size = sha256_file(dsl_path)
+            out_prefix = tmp_dir / spec["prefix"]
+            out_aml = tmp_dir / spec["name"]
+            proc = subprocess.run(
+                [iasl_bin, "-ve", "-p", str(out_prefix), str(dsl_path)],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+            step_ms = round((time.monotonic() - step_t0) * 1000.0, 2)
+            m_summary = re.search(
+                r"Compilation successful\.\s+(\d+)\s+Errors,\s+(\d+)\s+Warnings,\s+(\d+)\s+Remarks",
+                proc.stdout,
+            )
+            iasl_errors = int(m_summary.group(1)) if m_summary else -1
+            iasl_warnings = int(m_summary.group(2)) if m_summary else -1
+            iasl_remarks = int(m_summary.group(3)) if m_summary else -1
+
+            if proc.returncode != 0 or not out_aml.is_file():
+                errors.append(
+                    f"[{spec['name']}] iasl -ve failed (rc={proc.returncode}): {proc.stderr.strip() or proc.stdout.strip()}"
+                )
+                rebuilds[spec["name"]] = {
+                    "passed": False,
+                    "exit_code": proc.returncode,
+                    "duration_ms": step_ms,
+                }
+                all_passed = False
+                continue
+
+            rebuilt_bytes = out_aml.read_bytes()
+            rebuilt_sha = hashlib.sha256(rebuilt_bytes).hexdigest()
+            rebuilt_size = len(rebuilt_bytes)
+            step_ok = (
+                proc.returncode == 0
+                and iasl_errors == 0
+                and iasl_warnings == 0
+                and dsl_sha == spec["expected_dsl_sha256"]
+                and dsl_size == spec["expected_dsl_size"]
+                and rebuilt_size == spec["expected_aml_size"]
+                and rebuilt_sha == spec["expected_aml_sha256"]
+            )
+            if not step_ok:
+                errors.append(
+                    f"[{spec['name']}] Public clean-room ACPI rebuild mismatch: rc={proc.returncode}, "
+                    f"errors={iasl_errors}, warnings={iasl_warnings}, size={rebuilt_size} "
+                    f"(expected {spec['expected_aml_size']}), sha256={rebuilt_sha} "
+                    f"(expected {spec['expected_aml_sha256']})"
+                )
+                all_passed = False
+
+            rebuilds[spec["name"]] = {
+                "passed": step_ok,
+                "source_dsl": spec["dsl_rel"],
+                "source_dsl_size_bytes": dsl_size,
+                "source_dsl_sha256": dsl_sha,
+                "exit_code": proc.returncode,
+                "iasl_errors": iasl_errors,
+                "iasl_warnings": iasl_warnings,
+                "iasl_remarks": iasl_remarks,
+                "size_bytes": rebuilt_size,
+                "expected_size_bytes": spec["expected_aml_size"],
+                "sha256": rebuilt_sha,
+                "expected_sha256": spec["expected_aml_sha256"],
+                "byte_for_byte_matched": rebuilt_sha == spec["expected_aml_sha256"],
+                "duration_ms": step_ms,
+            }
+
+    temp_cleaned = not Path(tmp_dir_str).exists()
+    remaining_bytes = (
+        0
+        if temp_cleaned
+        else sum(p.stat().st_size for p in Path(tmp_dir_str).rglob("*") if p.is_file())
+    )
+    if not temp_cleaned:
+        errors.append(f"Temporary clean-room ACPI directory was not cleaned up: {tmp_dir_str}")
+        all_passed = False
+
+    total_ms = round((time.monotonic() - t_start) * 1000.0, 2)
+    return {
+        "passed": (
+            all_passed
+            and len(rebuilds) == expected_count
+            and all(r.get("passed", False) for r in rebuilds.values())
+        ),
+        "verified_target_count": sum(1 for r in rebuilds.values() if r.get("passed", False)),
+        "expected_target_count": expected_count,
         "temp_dir_cleaned_up": temp_cleaned,
         "remaining_temp_bytes": remaining_bytes,
         "total_duration_ms": total_ms,
@@ -2139,6 +2548,10 @@ def run_verification(
         if live_nixos_host:
             sections["5_live_nixos_readonly_esp_parity"] = verify_section5_live_nixos(
                 root, live_nixos_host, errors
+            )
+        if check_source_rebuilds:
+            sections["6_clean_room_source_rebuilds"] = verify_section6_public_acpi_rebuilds(
+                root, errors
             )
         overall_passed = len(errors) == 0 and all(s.get("passed", False) for s in sections.values())
         report = {
@@ -2194,9 +2607,11 @@ def print_summary(report: dict) -> None:
     s1 = sections["1_core_config_and_receipt_parity"]
     if not report.get("local_artifacts_present", False):
         status = "PASS" if s1.get("passed") else "FAIL"
+        parity_cnt = s1.get("cross_manifest_parity_count", 0)
+        parity_note = f" + {parity_cnt} cross-manifest keys" if parity_cnt else ""
         print(
             f"[{status}] 1. Core Config & Repo Tracked Hashes: "
-            f"{s1.get('verified_file_count', 0)} repo files verified (.local/ absent; skipping private bundle checks)"
+            f"{s1.get('verified_file_count', 0)} repo files{parity_note} verified (.local/ absent; skipping private bundle checks)"
         )
         if "5_live_nixos_readonly_esp_parity" in sections:
             s5 = sections["5_live_nixos_readonly_esp_parity"]
@@ -2209,6 +2624,18 @@ def print_summary(report: dict) -> None:
                 f"uname={s5.get('uname_s')}, boot_id={s5.get('boot_id')}, "
                 f"key_files={matched_keys}/5, "
                 f"all_oc_files={s5.get('total_live_oc_files_verified', 0)}/111"
+            )
+        if "6_clean_room_source_rebuilds" in sections:
+            s6 = sections["6_clean_room_source_rebuilds"]
+            target_summary = ", ".join(
+                f"{name}={'OK' if info.get('passed') else 'FAIL'}"
+                for name, info in s6.get("targets", {}).items()
+            ) or str(s6.get("error", "no targets executed"))
+            print(
+                f"[{'PASS' if s6.get('passed') else 'FAIL'}] 6. Clean-Room ACPI Source Rebuilds "
+                f"({s6.get('verified_target_count', 0)}/{s6.get('expected_target_count', 6)} verified, "
+                f"{s6.get('total_duration_ms', 0):.1f} ms, temp_bytes={s6.get('remaining_temp_bytes', 0)}): "
+                f"{target_summary}"
             )
         print("========================================================================")
         overall = "PASSED" if report["overall_passed"] else f"FAILED ({report['error_count']} errors)"

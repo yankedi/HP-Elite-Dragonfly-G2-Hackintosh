@@ -8,13 +8,13 @@ These **OpenCore 1.0.8** examples are sanitized exports of the actual GA419 acce
 | `config-software-display.example.plist` | GA420C visible firmware/basic-display control |
 | `components.json` | Enabled kext versions, bundle IDs and actual executable hashes |
 | `export-manifest.json` | Original/private config hashes, public template hashes and explicit redactions |
-| `ACPI/*.dsl` | HP-specific ACPI DSL sources (`SSDT-EC-USBX-HP.dsl`, `SSDT-RHUB-HP.dsl`, `SSDT-PNLF-HP-GA419.dsl`, and 2026-11-11 Modern Standby `SSDT-DEEPIDLE.dsl` with `\USWE = Zero`, plus archived early Fn hotkey reference `SSDT-HP-Hotkeys.dsl` which remains disabled in production) |
+| `ACPI/*.dsl` | HP-specific ACPI DSL sources (`SSDT-EC0-ITLB.dsl`, `SSDT-EC-USBX-HP.dsl`, `SSDT-RHUB-HP.dsl`, `SSDT-PNLF-HP-GA419.dsl`, and 2026-11-11 Modern Standby `SSDT-DEEPIDLE.dsl` with `\USWE = Zero`, plus archived early Fn hotkey reference `SSDT-HP-Hotkeys.dsl` which remains disabled in production) |
 
 ## Assembly
 
 1. Obtain OpenCore 1.0.8 and its drivers from [Acidanthera/OpenCorePkg](https://github.com/acidanthera/OpenCorePkg/releases/tag/1.0.8).
 2. Obtain the dependencies identified by `components.json`; final local graphics source is under [`graphics/`](../graphics/README.md). This repository does not contain Apple TGL/Metal binary inputs.
-3. Compile the ACPI tables and place them under `EFI/OC/ACPI/`. The standard `SSDT-PLUG.aml` is identified by its tested hash in the manifest; obtain the appropriate upstream/source variant rather than assuming a different sample compiles to identical bytes.
+3. Compile the ACPI tables and place them under `EFI/OC/ACPI/`. All 6 enabled production SSDT sources (including [`SSDT-PLUG.dsl`](../mac-for-elitebook/acpi/SSDT-PLUG.dsl)) are also tracked in [`mac-for-elitebook/acpi/`](../mac-for-elitebook/acpi/) and compile byte-for-byte with `iasl -ve` to the tested `.aml` hashes in the manifest.
 4. Populate `EFI/OC/Kexts/` and `EFI/OC/Drivers/` to match all enabled paths. Copy the chosen example to `EFI/OC/config.plist` and supply locally generated SMBIOS identity fields.
 5. Run the matching OpenCore 1.0.8 `ocvalidate` and verify enabled file paths and dependencies. These public examples were schema-checked; the newly assembled reader-specific EFI has not been physically tested by this publication.
 

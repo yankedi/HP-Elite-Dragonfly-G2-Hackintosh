@@ -87,8 +87,23 @@ else:
 
 class HandoffTests(unittest.TestCase):
     def setUp(self):
-        base = ROOT / ".local" / "tests"
+        local_dir = ROOT / ".local"
+        local_preexisted = local_dir.exists()
+        base = local_dir / "tests"
+        tests_preexisted = base.exists()
         base.mkdir(parents=True, exist_ok=True)
+        def _cleanup_empty_dirs():
+            if not tests_preexisted:
+                try:
+                    base.rmdir()
+                except OSError:
+                    pass
+            if not local_preexisted:
+                try:
+                    local_dir.rmdir()
+                except OSError:
+                    pass
+        self.addCleanup(_cleanup_empty_dirs)
         self.temp = tempfile.TemporaryDirectory(prefix="handoff-", dir=base)
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

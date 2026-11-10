@@ -392,11 +392,11 @@ EFI/
 | 目录 / 脚本名称 | 用途说明 | SHA256 校验值 (脚本 / 清单) |
 | --- | --- | --- |
 | `EFI-OC/` | 完整 **111 文件**生产级 `OC/` 目录树（含 `R32-PCFIX37-WAKERGB` `NootedGreen.kext` SHA256 `00982625...`、`S0ixStandby.kext` `v0.4.4` SHA256 `be55592c...`、`TGLDmic.kext`、`SSDT-DEEPIDLE.aml` `371` B SHA256 `280e3a4a...`、`SSDT-EC0-ITLB.aml` 与 `config.plist` SHA256 `f1f6b95569b7167ce3b166ca38b3f6bac7f8570dd14938187ebdb22090d3cf6b`）与 `BOOT/BOOTx64.efi`，可直接拷入内置 NVMe ESP (`/EFI/`) | 见 `SHA256SUMS.txt` |
-| `stage2-gpu/` | Stage 2 Iris Xe (`0x9a49`) 全量组件：`Library-Extensions/`（全部 8 个 kext/bundle，含 `AppleIntelTGLGraphics.kext`、`AppleIntelTGLGraphicsFramebuffer.kext`、`HookCase.kext`、`AppleIntelGraphicsShared.bundle` 等）、`Library-GPUBundles/`（仅部署 `AppleIntelTGLGraphicsMTLDriver.bundle` 内含 `libxedrv.dylib` SHA256 `312ecf60...` 与 `AppleIntelGraphicsShared.bundle`，主动清理 `VADriver`/`VAME` 避免 Gen12 VDBOX 硬解挂起）、`System-Library-Caches/xe.bundle` 以及软解零拷贝守护进程 `usr-local-libexec/xe-h264sw-fixd`（`24,496` B，SHA256 `4e388dfd...`）+ `com.elitebook.h264swfix.plist` | 见 `SHA256SUMS.txt` |
-| `stage3-audio/` | Stage 3 音频与唤醒快速恢复组件：`Library-Audio-Plug-Ins-HAL/`（`TGLDmic.driver` 与 `AppleHDAHALPlugIn.bundle`）、`Library-Audio-Plug-Ins-SimpleHDA/AppleHDAHALPlugIn.bundle`、`alc-verb`、`hp-alc285-ampinit.sh`、`hp-wake-helper`（`50,112` B，SHA256 `b592620b...`）、`hp-select-speaker`、`hp-select-dmic.py`、`tgldmic-probe` 与 `com.hp.alc285.ampinit.plist` / `com.hp.wake-helper.plist` | 见 `SHA256SUMS.txt` |
+| `stage2-gpu/` | Stage 2 Iris Xe (`0x9a49`) 全量组件：`Library-Extensions/`（全部 8 个 kext/bundle，含 `AppleIntelTGLGraphics.kext`、`AppleIntelTGLGraphicsFramebuffer.kext`、`HookCase.kext`、`AppleIntelGraphicsShared.bundle` 等）、`Library-GPUBundles/`（仅部署 `AppleIntelTGLGraphicsMTLDriver.bundle` 内含 `libxedrv.dylib` SHA256 `312ecf60...` 与 `AppleIntelGraphicsShared.bundle`，主动清理 `VADriver`/`VAME` 避免 Gen12 VDBOX 硬解挂起）、`System-Library-Caches/xe.bundle` 以及软解零拷贝守护进程 `usr-local-libexec/xe-h264sw-fixd`（`24,496` B，SHA256 `4e388dfd...`）+ `Library-LaunchDaemons/com.elitebook.h264swfix.plist` | 见 `SHA256SUMS.txt` |
+| `stage3-audio/` | Stage 3 音频与唤醒快速恢复组件：`Library-Audio-Plug-Ins-HAL/`（`TGLDmic.driver` 与 `AppleHDAHALPlugIn.bundle`）、`Library-Audio-Plug-Ins-SimpleHDA/AppleHDAHALPlugIn.bundle`、`alc-verb`、`hp-alc285-ampinit.sh`、`hp-wake-helper`（`50,112` B，SHA256 `b592620b...`）、`hp-select-speaker`、`hp-select-dmic.py`、`tgldmic-probe` 与 `Library-LaunchDaemons/com.hp.alc285.ampinit.plist`（以 `KeepAlive` 常驻托管 `hp-wake-helper`） | 见 `SHA256SUMS.txt` |
 | `stage3-brightness-hotkeys/` | Stage 3 原生亮度滑块与快捷键组件：`libhp_cb_shim.dylib` (`hp-cb-shim.dylib`)、`hp-cb-shim-loader.sh`（`4,617` B，SHA256 `a3de1c66...`）、`hp-bridge`（`70,192` B，SHA256 `3854aabe...`）、`hp-brightness` 及 S0ix 诊断脚本 | 见 `SHA256SUMS.txt` |
 | `stage3-bluetooth/` | Stage 3 蓝牙 `--Compat` 与 `decmpfs` `SIGBUS` 自愈守护：`com.apple.bluetoothd-nocompat.plist`、`hp-bt-compat-check.sh`（`2,647` B，SHA256 `2959d4b8...`）与 `com.hp.bt-compat-check.plist` | 见 `SHA256SUMS.txt` |
-| `stage3-logging/` | Stage 3 跨关机持久化日志与 `bluetoothd` 内存页锁定守护：`usr-local-bin/hp-syslogger.py`（`v1.1`，`13,043` B，SHA256 `9f223484...`）、`LaunchDaemons/com.hp.syslogger.plist` 与 `etc-newsyslog-d/com.hp.conf`（自动管理 `/var/log/hp/boot-*` 15 次启动留存与 `/var/log/hp-*.log` 轮转） | 见 `SHA256SUMS.txt` |
+| `stage3-logging/` | Stage 3 跨关机持久化日志与 `bluetoothd` 内存页锁定守护：`usr-local-bin/hp-syslogger.py`（`v1.1`，`13,043` B，SHA256 `9f223484...`）、`Library-LaunchDaemons/com.hp.syslogger.plist` 与 `etc-newsyslog.d/com.hp.conf`（自动管理 `/var/log/hp/boot-*` 15 次启动留存与 `/var/log/hp-*.log` 轮转） | 见 `SHA256SUMS.txt` |
 | `stage3-ridgekey/` | Stage 3 指纹识别组件（已剔除个人指纹模板，预置空 `var/` 目录与制表符分隔的 `0600` `etc/trusted-clients`）：`/usr/local/ridgekey/`、`RidgeKey.app`、`RidgeKey.bundle`、`io.github.labrouss.ridgekey.plist` | 见 `SHA256SUMS.txt` |
 | `install-all-postinstall.sh` | **一键全量安装封装脚本**：按顺序自动执行 `install-stage3-peripherals.sh` 与 `install-stage2-gpu.sh` | `1d6401cf7dc2637454ca14d98b9c54f3c9f1dc541a975c7788f1612960e62b35` |
 | `install-stage2-gpu.sh` | **Stage 2 GPU 自动安装脚本**：自动部署 `/Library/Extensions`、`/Library/GPUBundles`（仅保留 `MTLDriver` + `Shared` 并移除残留 `VADriver`/`VAME`）、`/System/Library/Caches/xe.bundle` 与 `/usr/local/libexec/xe-h264sw-fixd`，修正 `root:wheel` 及 `755`/`644` 权限，执行 `codesign -f -s -`，并运行 `kmutil load`、`kmutil install --volume-root / --update-all --force` 与 `kcditto` | `ddaaea8f8e754f9a7c459c5b8541dee0edfb099ba79279fc391edd5d9579b9ce` |
@@ -497,7 +497,8 @@ done
 # 4. 安装并启动 xe-h264sw-fixd 守护进程
 sudo install -d -o root -g wheel -m 755 /usr/local/libexec
 sudo install -o root -g wheel -m 755 stage2-gpu/usr-local-libexec/xe-h264sw-fixd /usr/local/libexec/xe-h264sw-fixd
-sudo install -o root -g wheel -m 644 stage2-gpu/LaunchDaemons/com.elitebook.h264swfix.plist /Library/LaunchDaemons/com.elitebook.h264swfix.plist
+sudo install -o root -g wheel -m 644 stage2-gpu/Library-LaunchDaemons/com.elitebook.h264swfix.plist /Library/LaunchDaemons/com.elitebook.h264swfix.plist
+sudo touch /var/log/hp-xe-h264sw-fixd.log && sudo chown root:wheel /var/log/hp-xe-h264sw-fixd.log && sudo chmod 644 /var/log/hp-xe-h264sw-fixd.log
 sudo launchctl bootout system /Library/LaunchDaemons/com.elitebook.h264swfix.plist 2>/dev/null || true
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.elitebook.h264swfix.plist
 
@@ -556,7 +557,7 @@ HP Tiger Lake 笔记本的音频分为两条独立的硬件通路（详见 [docs
      - **HP Elite Dragonfly G2 (`103c:8716`)**：使用自定义的 **`layout-id = 71`**（`<47000000>`，内含 `0xa0c8` 控制器匹配与 DAC `0x03` -> Pin `0x17` 内放路由）。
      - **HP EliteBook 840 G8**：可使用 **`layout-id = 11`**（`<0B000000>`）或 **`71`**（配合 `R32-AUDIOFIX`），挂载 `Built-in Speaker` (2ch) 并避免幽灵输出节点抢占默认设备。
    - **HP 外部功放解静音与 3.5mm 耳麦麦克风初始化 (`hp-alc285-ampinit.sh`)**：
-     HP `ALC285` 的内置扬声器功放受 Codec Node `0x20` 私有 Processing Coefficient `0x65` 控制（对应 Linux `snd_hda_codec_realtek` 的 `alc285_fixup_hp_gpio_amp_init`），且 3.5mm 耳麦孔麦克风（`Node 0x19 -> Mixer 0x23 -> ADC 0x08`）需显式解静音。需部署 `/usr/local/bin/hp-alc285-ampinit.sh`（配合 `hp-select-dmic.py` 与睡眠唤醒恢复助手 `/usr/local/bin/hp-wake-helper` SHA256 `b592620b3ef2f816b006d0fa6414e206b142da5779ece3b82604b6bf12f7b491`）及 `/Library/LaunchDaemons/com.hp.alc285.ampinit.plist`、`/Library/LaunchDaemons/com.hp.wake-helper.plist`，在开机与每次 S0ix 唤醒后自动下发 HDA 动词并锁定默认输入/输出设备：
+     HP `ALC285` 的内置扬声器功放受 Codec Node `0x20` 私有 Processing Coefficient `0x65` 控制（对应 Linux `snd_hda_codec_realtek` 的 `alc285_fixup_hp_gpio_amp_init`），且 3.5mm 耳麦孔麦克风（`Node 0x19 -> Mixer 0x23 -> ADC 0x08`）需显式解静音。需部署 `/usr/local/bin/hp-alc285-ampinit.sh`（配合 `hp-select-dmic.py` 与睡眠唤醒恢复助手 `/usr/local/bin/hp-wake-helper` SHA256 `b592620b3ef2f816b006d0fa6414e206b142da5779ece3b82604b6bf12f7b491`）及 `/Library/LaunchDaemons/com.hp.alc285.ampinit.plist`（以 `KeepAlive` 常驻运行 `/usr/local/bin/hp-wake-helper`），在开机与每次 S0ix 唤醒后自动下发 HDA 动词并锁定默认输入/输出设备：
      ```sh
      #!/bin/sh
      # Wait up to 30s for ALCUserClientProvider
@@ -992,39 +993,44 @@ ls -la /var/log/hp/current/ && sudo launchctl print system/com.hp.syslogger | he
 
 | SSDT 表名称 | `.dsl` 源码路径、字节数与 SHA256 | `.aml` 产物路径、字节数与 SHA256 | 配套 `config.plist` `ACPI -> Patch / Delete` 与功能说明 |
 | --- | --- | --- | --- |
-| **`SSDT-EC0-ITLB.aml`** | `SSDT-EC0-ITLB.dsl`<br>`7,231` B<br>SHA256 `30dd9d79d501cb83cab902fe9acc3f46553ef6efafc5878641fe1174387186ed` | `SSDT-EC0-ITLB.aml`<br>`1,572` B<br>SHA256 `122a5b9d778c6429d32f73f1da7e695ba7498e6714e172f708b22894bd8ddaf8` | 配合 4 条 `Count=1` 精确重命名（`DSDT`: `ITLB\0 -> XTLB\0`；`NVTEC`: `EC12\0 -> XC12\0`、`EC13\0 -> XC13\0`；`DptfTabl`: `ODVP\x08 -> XDVP\x08`）+ 1 条 `ACPI -> Delete`（丢弃 `OemTableId="HP_XHC_P"` `TableLength=2362` 的 `SSDT13`），将 `ECEnabler` 挂载前（`t=1.93s`）访问的 4 个 16-bit EC 寄存器（`BDC`/`BFC`/`BDV`/`ACPR`）拆分为 8-bit 字节对，实现冷启动 **`0` 次 ACPI Error/Exception** 并完整走通 `ECRI -> ITLB -> SBTN -> PRIT` |
-| **`SSDT-DEEPIDLE.aml`** | [SSDT-DEEPIDLE.dsl](../../EFI/ACPI/SSDT-DEEPIDLE.dsl)<br>`2,793` B<br>SHA256 `1f569b6bbb0d4305a27fcadeedf69a463c18f47b581d5140fb8acb2ecccfb1b9` | `SSDT-DEEPIDLE.aml`<br>`371` B<br>SHA256 `280e3a4ad5541bb482c357b785d10d74e95b0128dc309bc10f2617bc585effe1` | 配合 `OemTableId="MS-SSDT"` 限定重命名 `14275F53544100 -> 14275853544100`（`PEPD._STA -> XSTA`, `Count=1`），在 Darwin 下注入 `\_SB.LPS0 = One`、`\_GPE.LXEN = One`、`\_SB.PEPD._STA` 置 `S0ID = One` 返回 `0x0F`，置 `\USWE = Zero` 全局屏蔽 USB/XDCI/Thunderbolt `_PRW` 唤醒（支持 `-s0ixusbwake` 动态覆盖），并为 `\_SB.LID` 与 `\_SB.SLPB` 注入 `_PRW`/`PRW0` (`Package (0x02) { 0x6E, 0x04 }`) 与 `_S0W` (`0x04`)，激活 `IOPMDeepIdleSupported = Yes`、`S0ixStandby.kext` 与 GPE `0x6E` 开盖/电源键唤醒 |
-| **`SSDT-PLUG.aml`** | `SSDT-PLUG.dsl`<br>`1,355` B<br>SHA256 `b49fccae93979f77d61f34b3b0ed22920d93ac4ed87dfe73bdb42c2f9743654a` | `SSDT-PLUG.aml`<br>`113` B<br>SHA256 `24956a41669b37fce98f09b9b6d28475a099693bb3522391d35609415e0ffed2` | 在 `\_SB.PR00` 注入 `plugin-type = 1`，配合 `Cpuid1Data` 仿冒 `0x706E5` 挂载 `X86PlatformPlugin`（`39` 档 P-States） |
-| **`SSDT-EC-USBX-HP.aml`** | `SSDT-EC-USBX-HP.dsl`<br>`2,602` B<br>SHA256 `6ef5245418774d2bb84c177065f6294eeac7d57cd6202866b0be5f0bda400b45` | `SSDT-EC-USBX-HP.aml`<br>`372` B<br>SHA256 `296212e084666dfc9ed0ab69fbbecaaa3525da71f528526c2d22d0d81d7f6781` | 导出伪 `\_SB.PCI0.LPCB.EC` 与 `\_SB.USBX` USB 供电属性（`kUSBSleepPowerSupply = 5100`、`kUSBWakePowerSupply = 5100`） |
-| **`SSDT-RHUB-HP.aml`** | `SSDT-RHUB-HP.dsl`<br>`1,050` B<br>SHA256 `6c0c75476502328fba31c6b77d8b144ac5dde53ed29eb3eea3fdaa33759c9498` | `SSDT-RHUB-HP.aml`<br>`108` B<br>SHA256 `4cf78eacb8f2529a3a93a3bb9406ad4cc5446fe19828c49241130ab0503daec9` | 在 Darwin 下为 `\_SB.PC00.XHCI.RHUB` 注入 `_STA = 0`，强制 `AppleUSBXHCISPT` 直接从硬件寄存器枚举 PCH XHCI 端口 |
-| **`SSDT-PNLF-HP-GA419.aml`** | `SSDT-PNLF-HP-GA419.dsl`<br>`1,297` B<br>SHA256 `a442ccf1ed4f563e691c0a96b1c431fc9c0b07314615f89af1c19a76ba980911` | `SSDT-PNLF-HP-GA419.aml`<br>`142` B<br>SHA256 `72ec07163115d8c327f1c7f143b0375b7b0262adc9422c2628ab2177cc71414e` | 在 `\_SB.PC00.GFX0` 下注入 `PNLF` 背光设备（`_HID = "APP0002"`，`_UID = 0x13`） |
-| **`SSDT-HP-Hotkeys.aml`** *(归档备查)* | `SSDT-HP-Hotkeys.dsl`<br>`3,389` B<br>SHA256 `a02df811c0ce77f01b0d5e9c6a4aecfec17fd432b3f08f802b0beb35d5d7e445` | `SSDT-HP-Hotkeys.aml`<br>`692` B<br>SHA256 `ba463a93a38fd9a8b8a79850d4c9fab184f1603ff07b6ee8a555d220863577f8` | 早期 EC `_Q86`/`_Q87` 与 WMI `GVWE` 队列排空转 `PS2K` 通知实验表；因实机顶排 16 键已通过原生 `i8042` 扫描码 + `VoodooPS2Keyboard` `24` 条 `Custom ADB Map` 完整驱动，生产环境 `config.plist` 不加载此表 |
+| **`SSDT-EC0-ITLB.aml`** | [`acpi/SSDT-EC0-ITLB.dsl`](../acpi/SSDT-EC0-ITLB.dsl)（同步副本 [`EFI/ACPI/SSDT-EC0-ITLB.dsl`](../../EFI/ACPI/SSDT-EC0-ITLB.dsl)）<br>`7,231` B<br>SHA256 `30dd9d79d501cb83cab902fe9acc3f46553ef6efafc5878641fe1174387186ed` | `SSDT-EC0-ITLB.aml`<br>`1,572` B<br>SHA256 `122a5b9d778c6429d32f73f1da7e695ba7498e6714e172f708b22894bd8ddaf8` | 配合 4 条 `Count=1` 精确重命名（`DSDT`: `ITLB\0 -> XTLB\0`；`NVTEC`: `EC12\0 -> XC12\0`、`EC13\0 -> XC13\0`；`DptfTabl`: `ODVP\x08 -> XDVP\x08`）+ 1 条 `ACPI -> Delete`（丢弃 `OemTableId="HP_XHC_P"` `TableLength=2362` 的 `SSDT13`），将 `ECEnabler` 挂载前（`t=1.93s`）访问的 4 个 16-bit EC 寄存器（`BDC`/`BFC`/`BDV`/`ACPR`）拆分为 8-bit 字节对，实现冷启动 **`0` 次 ACPI Error/Exception** 并完整走通 `ECRI -> ITLB -> SBTN -> PRIT` |
+| **`SSDT-DEEPIDLE.aml`** | [`acpi/SSDT-DEEPIDLE.dsl`](../acpi/SSDT-DEEPIDLE.dsl)（同步副本 [`EFI/ACPI/SSDT-DEEPIDLE.dsl`](../../EFI/ACPI/SSDT-DEEPIDLE.dsl)）<br>`2,793` B<br>SHA256 `1f569b6bbb0d4305a27fcadeedf69a463c18f47b581d5140fb8acb2ecccfb1b9` | `SSDT-DEEPIDLE.aml`<br>`371` B<br>SHA256 `280e3a4ad5541bb482c357b785d10d74e95b0128dc309bc10f2617bc585effe1` | 配合 `OemTableId="MS-SSDT"` 限定重命名 `14275F53544100 -> 14275853544100`（`PEPD._STA -> XSTA`, `Count=1`），在 Darwin 下注入 `\_SB.LPS0 = One`、`\_GPE.LXEN = One`、`\_SB.PEPD._STA` 置 `S0ID = One` 返回 `0x0F`，置 `\USWE = Zero` 全局屏蔽 USB/XDCI/Thunderbolt `_PRW` 唤醒（支持 `-s0ixusbwake` 动态覆盖），并为 `\_SB.LID` 与 `\_SB.SLPB` 注入 `_PRW`/`PRW0` (`Package (0x02) { 0x6E, 0x04 }`) 与 `_S0W` (`0x04`)，激活 `IOPMDeepIdleSupported = Yes`、`S0ixStandby.kext` 与 GPE `0x6E` 开盖/电源键唤醒 |
+| **`SSDT-PLUG.aml`** | [`acpi/SSDT-PLUG.dsl`](../acpi/SSDT-PLUG.dsl)<br>`715` B，SHA256 `aab42b4ec4d952cadfe40704a1e561e528f81cb4f9b1fed2fd3aacca84ef570f`<br>*(注：本地 `.local/` `iasl -d` 反编译往返源为 `1,355` B，SHA256 `b49fccae93979f77d61f34b3b0ed22920d93ac4ed87dfe73bdb42c2f9743654a`；两者编译出完全相同的 `.aml`)* | `SSDT-PLUG.aml`<br>`113` B<br>SHA256 `24956a41669b37fce98f09b9b6d28475a099693bb3522391d35609415e0ffed2` | 在 `\_SB.PR00` 注入 `plugin-type = 1`，配合 `Cpuid1Data` 仿冒 `0x706E5` 挂载 `X86PlatformPlugin`（`39` 档 P-States） |
+| **`SSDT-EC-USBX-HP.aml`** | [`acpi/SSDT-EC-USBX-HP.dsl`](../acpi/SSDT-EC-USBX-HP.dsl)（同步副本 [`EFI/ACPI/SSDT-EC-USBX-HP.dsl`](../../EFI/ACPI/SSDT-EC-USBX-HP.dsl)）<br>`1,828` B，SHA256 `f9db2e03453d4c593aec344a3a07ca966c136d3ff1a48c550ec6837f8ec290df`<br>*(注：本地 `.local/` `iasl -d` 反编译往返源为 `2,602` B，SHA256 `6ef5245418774d2bb84c177065f6294eeac7d57cd6202866b0be5f0bda400b45`；两者编译出完全相同的 `.aml`)* | `SSDT-EC-USBX-HP.aml`<br>`372` B<br>SHA256 `296212e084666dfc9ed0ab69fbbecaaa3525da71f528526c2d22d0d81d7f6781` | 导出伪 `\_SB.PCI0.LPCB.EC` 与 `\_SB.USBX` USB 供电属性（`kUSBSleepPowerSupply = 5100`、`kUSBWakePowerSupply = 5100`） |
+| **`SSDT-RHUB-HP.aml`** | [`acpi/SSDT-RHUB-HP.dsl`](../acpi/SSDT-RHUB-HP.dsl)（同步副本 [`EFI/ACPI/SSDT-RHUB-HP.dsl`](../../EFI/ACPI/SSDT-RHUB-HP.dsl)）<br>`997` B，SHA256 `2d441f3d40dfac5e91586fd4bc89ecd68c13b525ab143e25a555ed7a6799cf48`<br>*(注：本地 `.local/` `iasl -d` 反编译往返源为 `1,050` B，SHA256 `6c0c75476502328fba31c6b77d8b144ac5dde53ed29eb3eea3fdaa33759c9498`；两者编译出完全相同的 `.aml`)* | `SSDT-RHUB-HP.aml`<br>`108` B<br>SHA256 `4cf78eacb8f2529a3a93a3bb9406ad4cc5446fe19828c49241130ab0503daec9` | 在 Darwin 下为 `\_SB.PC00.XHCI.RHUB` 注入 `_STA = 0`，强制 `AppleUSBXHCISPT` 直接从硬件寄存器枚举 PCH XHCI 端口 |
+| **`SSDT-PNLF-HP-GA419.aml`** | [`acpi/SSDT-PNLF-HP-GA419.dsl`](../acpi/SSDT-PNLF-HP-GA419.dsl)（同步副本 [`EFI/ACPI/SSDT-PNLF-HP-GA419.dsl`](../../EFI/ACPI/SSDT-PNLF-HP-GA419.dsl)）<br>`593` B，SHA256 `f24fc67b2ae9d9314895b33536860a1e099e4b1a0b7637dd2a96725371616cd5`<br>*(注：本地 `.local/` `iasl -d` 反编译往返源为 `1,297` B，SHA256 `a442ccf1ed4f563e691c0a96b1c431fc9c0b07314615f89af1c19a76ba980911`；两者编译出完全相同的 `.aml`)* | `SSDT-PNLF-HP-GA419.aml`<br>`142` B<br>SHA256 `72ec07163115d8c327f1c7f143b0375b7b0262adc9422c2628ab2177cc71414e` | 在 `\_SB.PC00.GFX0` 下注入 `PNLF` 背光设备（`_HID = "APP0002"`，`_UID = 0x13`） |
+| **`SSDT-HP-Hotkeys.aml`** *(归档备查)* | [`EFI/ACPI/SSDT-HP-Hotkeys.dsl`](../../EFI/ACPI/SSDT-HP-Hotkeys.dsl)<br>`3,100` B，SHA256 `ffcebfc0b124ecb406d17333b3c08d74804aaf710d721f40c874cac9034590e5`<br>*(注：早期本地 `.local/` `iasl -d` 归档副本为 `3,389` B，SHA256 `a02df811c0ce77f01b0d5e9c6a4aecfec17fd432b3f08f802b0beb35d5d7e445`)* | `SSDT-HP-Hotkeys.aml`<br>`688` B，SHA256 `e226e082bb26a3c67a1b3a95512ae5c178b99ec6c2c766817cba8b478cd10fbc`<br>*(早期归档副本 `692` B，SHA256 `ba463a93a38fd9a8b8a79850d4c9fab184f1603ff07b6ee8a555d220863577f8`)* | 早期 EC `_Q86`/`_Q87` 与 WMI `GVWE` 队列排空转 `PS2K` 通知实验表；因实机顶排 16 键已通过原生 `i8042` 扫描码 + `VoodooPS2Keyboard` `24` 条 `Custom ADB Map` 完整驱动，生产环境 `config.plist` 不加载此表 |
 
 #### 从 `.dsl` 源码重编译全部 `.aml` 并执行 OpenCore `ocvalidate` 校验
 
 ```sh
-cd /srv/mac-for-elitebook
+# 在仓库 mac-for-elitebook/ 目录下执行（公开克隆与本地开发机通用）：
+# 1. 使用 nix develop 中的 iasl 编译器将 acpi/ 下全部 6 张无 DMI 生产环境 SSDT 编译至 /tmp/acpi-out
+nix develop -c bash -c '
+  mkdir -p /tmp/acpi-out
+  for dsl in \
+    acpi/SSDT-EC0-ITLB.dsl \
+    acpi/SSDT-DEEPIDLE.dsl \
+    acpi/SSDT-PLUG.dsl \
+    acpi/SSDT-EC-USBX-HP.dsl \
+    acpi/SSDT-RHUB-HP.dsl \
+    acpi/SSDT-PNLF-HP-GA419.dsl; do
+    iasl -ve -p "/tmp/acpi-out/$(basename "${dsl%.dsl}")" "$dsl"
+  done
+'
 
-# 1. 使用 nix develop 中的 iasl 编译器重编译全部 6 张生产环境 SSDT
-nix develop -c iasl -ve \
-  .local/driver-repair-20261103/s0ix-standby-prep-20261107/subsystem-audit-3b5cd162/live-acpi/SSDT-EC0-ITLB.dsl \
-  .local/driver-repair-20261103/s0ix-standby-prep-20261107/SSDT-DEEPIDLE.dsl \
-  .local/driver-repair-20261103/s0ix-standby-prep-20261107/subsystem-audit-3b5cd162/live-acpi/SSDT-PLUG.dsl \
-  .local/driver-repair-20261103/s0ix-standby-prep-20261107/subsystem-audit-3b5cd162/live-acpi/SSDT-EC-USBX-HP.dsl \
-  .local/driver-repair-20261103/s0ix-standby-prep-20261107/subsystem-audit-3b5cd162/live-acpi/SSDT-RHUB-HP.dsl \
-  .local/driver-repair-20261103/s0ix-standby-prep-20261107/subsystem-audit-3b5cd162/live-acpi/SSDT-PNLF-HP-GA419.dsl
-
-# 2. 校验生成的 .aml 二进制 SHA256
+# 2. 校验生成的 6 张 .aml 二进制 SHA256（与生产环境 EFI-OC/OC/ACPI/*.aml 100% 逐字节一致）
 sha256sum \
-  .local/driver-repair-20261103/s0ix-standby-prep-20261107/subsystem-audit-3b5cd162/live-acpi/SSDT-EC0-ITLB.aml \
-  .local/driver-repair-20261103/s0ix-standby-prep-20261107/SSDT-DEEPIDLE.aml \
-  .local/driver-repair-20261103/s0ix-standby-prep-20261107/subsystem-audit-3b5cd162/live-acpi/SSDT-PLUG.aml \
-  .local/driver-repair-20261103/s0ix-standby-prep-20261107/subsystem-audit-3b5cd162/live-acpi/SSDT-EC-USBX-HP.aml \
-  .local/driver-repair-20261103/s0ix-standby-prep-20261107/subsystem-audit-3b5cd162/live-acpi/SSDT-RHUB-HP.aml \
-  .local/driver-repair-20261103/s0ix-standby-prep-20261107/subsystem-audit-3b5cd162/live-acpi/SSDT-PNLF-HP-GA419.aml
+  /tmp/acpi-out/SSDT-EC0-ITLB.aml \
+  /tmp/acpi-out/SSDT-DEEPIDLE.aml \
+  /tmp/acpi-out/SSDT-PLUG.aml \
+  /tmp/acpi-out/SSDT-EC-USBX-HP.aml \
+  /tmp/acpi-out/SSDT-RHUB-HP.aml \
+  /tmp/acpi-out/SSDT-PNLF-HP-GA419.aml
 
 # 3. 使用与 OpenCore 1.0.8 版本严格匹配的 ocvalidate 校验 config.plist (应输出 No issues found.)
-.local/opencore-1.0.8/Utilities/ocvalidate/ocvalidate.linux \
+#    （公开仓库可直接校验 ../EFI/config-accelerated.example.plist；本地开发机校验生产 config.plist）
+.local/tools/OpenCorePkg/1.0.8/ocvalidate.linux \
   .local/driver-repair-20261103/s0ix-standby-prep-20261107/config.plist
 ```
 
@@ -1287,7 +1293,7 @@ rm -f /tmp/va_repro
 | **`verify-postinstall.sh` / `verify-phase10-lidwake-and-video.sh` / `test_420v_blitalign`** | `.local/driver-repair-20261103/s0ix-standby-prep-20261107/postinstall-bundle-20261108/HP-Tahoe-PostInstall-20261108/` | `verify-postinstall.sh`：`8,852` B，SHA256 `499ac36510ffa2c67bf492330377dc7577dc719853fe8280a94ed00e19319387`<br>`verify-phase10-lidwake-and-video.sh`：`7,639` B，SHA256 `eeebfac56d8e79b59fc42db33e3672112d9eeb8bf136148018ac5024762ea218`<br>`test_420v_blitalign`：`51,680` B，SHA256 `887743ebd0b11797fa46553fa2420df21adf266c76ce6d0d540ac51e415e75bf` |
 | **`HP-UPSTREAM-6F03560-REPAIR32-PCFIX33-S0IX-RECOVERY.img`** | `.local/driver-repair-20261103/s0ix-standby-prep-20261107/HP-UPSTREAM-6F03560-REPAIR32-PCFIX33-S0IX-RECOVERY.img`（FAT32 偏移 `@@1048576`） | `1,343,225,856` B（`1.25 GiB`），SHA256 `4ab8aff3a2f65cfc126faf19c9334798ef623a8dfbbe534ec78ede7f968850c9` |
 | **`after-lidwake-greenfix-boot-oc.tar`** | `.local/driver-repair-20261103/s0ix-standby-prep-20261107/post-wake-ebaba2ee/after-lidwake-greenfix-boot-oc.tar`（内置盘 `disk0s1` `/EFI/OC` 回读归档） | `41,838,592` B，SHA256 `a2fe4a561a09dee92baa64558d9a0883cd099f6de765a7d9dee321182237ded2` |
-| **`scripts/verify_release_artifacts.py` & `Makefile` (`verify-release`)** | [`scripts/verify_release_artifacts.py`](../scripts/verify_release_artifacts.py)<br>[`Makefile`](../Makefile) | `scripts/verify_release_artifacts.py`：`110,025` B，SHA256 `d66a58b9245f8e03b2a05cc9d2c721828a951b350113e6b34357285aa55ff161`<br>`Makefile`：`2,019` B，SHA256 `8c9cb233f61f5b7265dd83a7dee74ab88c24d9ba395ac85d0c8da22a5d443157` |
+| **`scripts/verify_release_artifacts.py` & `Makefile` (`verify-release`)** | [`scripts/verify_release_artifacts.py`](../scripts/verify_release_artifacts.py)<br>[`Makefile`](../Makefile) | `scripts/verify_release_artifacts.py`：`130,605` B，SHA256 `5fb6ff8b2a45b0fd0d5408c0764a6cc1ca0eb493fd2b7db29e19a1a0d45028fd`<br>`Makefile`：`2,019` B，SHA256 `8c9cb233f61f5b7265dd83a7dee74ab88c24d9ba395ac85d0c8da22a5d443157` |
 
 - **使用 `nix develop` (`mtools`) 更新急救恢复镜像并回读校验命令**：
   ```sh

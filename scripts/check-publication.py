@@ -80,13 +80,32 @@ def main():
         for values in data['NVRAM']['Add'].values():
             if any(k.lower().startswith('bluetooth') for k in values):
                 errors.append(f'Cached Bluetooth identity: {path.name}')
-    for path in [ROOT / 'README.md', *(ROOT / 'docs').glob('*.md'), ROOT / 'EFI/README.md', ROOT / 'evidence/README.md']:
-        for link in re.findall(r'\]\(([^)\s]+)\)', path.read_text()):
+    md_paths = [
+        ROOT / 'README.md',
+        *sorted((ROOT / 'docs').glob('*.md')),
+        ROOT / 'EFI/README.md',
+        ROOT / 'evidence/README.md',
+        *sorted((ROOT / 'graphics').rglob('*.md')),
+        *sorted((ROOT / 'mac-for-elitebook').rglob('*.md')),
+    ]
+    for path in md_paths:
+        text = path.read_text()
+        if 'file://' in text:
+            errors.append(f'Local file:// link in public documentation: {path.relative_to(ROOT)}')
+        for link in re.findall(r'\]\(([^)\s]+)(?:\s+[^)]*)?\)', text):
             if re.match(r'[a-zA-Z][a-zA-Z0-9+.-]*:', link) or link.startswith('#'):
                 continue
             target = link.split('#', 1)[0]
             if target and not (path.parent / target).exists():
                 errors.append(f'Broken current documentation link: {path.relative_to(ROOT)} -> {target}')
+    efi_export = ROOT / 'EFI/export-manifest.json'
+    if efi_export.is_file():
+        for cfg in json.loads(efi_export.read_text()).get('configurations', []):
+            cfg_path = (ROOT / 'EFI' / cfg['public_config']).resolve()
+            if not cfg_path.is_relative_to(ROOT / 'EFI') or not cfg_path.is_file():
+                errors.append(f'Invalid EFI export config path: {cfg.get("public_config")}')
+            elif hashlib.sha256(cfg_path.read_bytes()).hexdigest() != cfg['public_config_sha256']:
+                errors.append(f'EFI export config hash mismatch: {cfg["public_config"]}')
     manifest = ROOT / 'evidence/panics-manifest.json'
     if manifest.is_file():
         for record in json.loads(manifest.read_text())['records']:

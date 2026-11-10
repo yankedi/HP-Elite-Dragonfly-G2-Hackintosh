@@ -65,7 +65,7 @@ sudo /Volumes/Yan/HP-Tahoe-PostInstall-20261108/install-all-postinstall.sh
 #    (verify-postinstall.sh 8,852 B SHA256: 499ac36510ffa2c67bf492330377dc7577dc719853fe8280a94ed00e19319387)
 /Volumes/Yan/HP-Tahoe-PostInstall-20261108/verify-postinstall.sh
 
-# 4. 在本地开发机运行端到端发布产物、9/9 无尘源码重编译与实机 NixOS 一致性校验（scripts/verify_release_artifacts.py 110,025 B SHA256: d66a58b9245f8e03b2a05cc9d2c721828a951b350113e6b34357285aa55ff161）
+# 4. 在本地开发机运行端到端发布产物、9/9 无尘源码重编译与实机 NixOS 一致性校验（scripts/verify_release_artifacts.py 130,605 B SHA256: 5fb6ff8b2a45b0fd0d5408c0764a6cc1ca0eb493fd2b7db29e19a1a0d45028fd）
 nix develop -c make verify-release
 nix develop -c python3 scripts/verify_release_artifacts.py --check-source-rebuilds --check-live-nixos <user>@<nixos-host>
 ```
