@@ -58,7 +58,7 @@
     {
       "date": "2026-11-09",
       "topic": "Tiger Lake quad-DMIC (TGLDmic v0.5.0), 420v NV12 HP-BLITALIGN (R32-PCFIX35), and Modern Standby S0ix Deep Idle (S0ixStandby v0.4.4 + R32-PCFIX32..PCFIX36)",
-      "summary": "Implemented TGLDmic.kext v0.5.0 (1,199,424 B, SHA-256 b0d0715d5a795958a2d557e6362839ce2b4947a899f18094c05eb48ac067a5aa + TGLDmic.driver CoreAudio HAL driving Tiger Lake Intel cAVS 2.5 DSP sof-tgl.ri 48 kHz 4-ch internal quad-DMIC), eliminated 420v NV12 video green/corruption via R32-PCFIX35 HP-BLITALIGN + xe-h264sw-fixd, and verified 51m 37s Modern Standby S0ix Deep Idle sleep/wake via S0ixStandby.kext v0.4.4 + SSDT-DEEPIDLE + R32-PCFIX32..PCFIX36 (540,656 B, SHA-256 85eac4f7247f8de0bb84f3be9c83ec3fe664a6c1e8043a18b078b25d3320b339, UUID 4C4C446E-5555-3144-A18C-AEFB17BBF3B7).",
+      "summary": "Implemented TGLDmic.kext v0.5.0 (1,199,424 B, SHA-256 b0d0715dfb49b6ea15208cdfa0f99373e2e62ee4e2a02448462252ef6721b416 + TGLDmic.driver CoreAudio HAL driving Tiger Lake Intel cAVS 2.5 DSP sof-tgl.ri 48 kHz 4-ch internal quad-DMIC), eliminated 420v NV12 video green/corruption via R32-PCFIX35 HP-BLITALIGN + xe-h264sw-fixd, and verified 51m 37s Modern Standby S0ix Deep Idle sleep/wake via S0ixStandby.kext v0.4.4 + SSDT-DEEPIDLE + R32-PCFIX32..PCFIX36 (540,656 B, SHA-256 85eac4f7247f8de0bb84f3be9c83ec3fe664a6c1e8043a18b078b25d3320b339, UUID 4C4C446E-5555-3144-A18C-AEFB17BBF3B7).",
       "public_docs": ["../README.md", "../docs/clean-install-guide.md", "../docs/from-source-rebuild-guide.md", "../patches/nootedgreen-r32-pcfix35-blitalign-20261108.patch", "../patches/nootedgreen-r32-pcfix36-wakecolor-20261109.patch"],
       "limitation": "Post-wake transient green tint and unwanted USB wake were subsequently refined on 2026-11-11."
     },
