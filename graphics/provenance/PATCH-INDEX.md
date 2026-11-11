@@ -35,11 +35,11 @@ The staged progression is:
    `_WA_TABLE` `0x20d8`/`0x7010` cross-context persistence (`PCFIX25`, `PCFIX26`),
    and `ResetPreambleCmds` Packet 3 (`dw[+19] = 0x001000a0U`) GPGPU-mode
    `RT_CACHE_FLUSH` decoupling (`PCFIX27`).
-10. `nootedgreen-pcfix31-backlight-20261107.patch` .. `nootedgreen-pcfix37-wakergb-20261111.patch` —
+10. `nootedgreen-pcfix31-backlight-20261107.patch` .. `nootedgreen-pcfix38-wakecolor-20261111.patch` —
     `AppleBacklightDisplay` + PCH `SBLC_PWM_CTL2` (`0xc8254`) duty-cycle synchronization (`PCFIX31`),
     `HP-S0IX-IDLE` / `HP-S0IX-DRM` display & GT quiesce/restore across Deep Idle S0ix (`PCFIX32`–`PCFIX34`),
     `HP-BLITALIGN` 64-byte row-pitch alignment & BCS0 Blit2D / SIMD16 routing for `420v` NV12 `IOSurface` Metal blits (`PCFIX35`),
-    and `ngreen-wake-plane-rgb-fix` (`xeNormalizePlane1ARgb()`) normalizing Pipe A `PLANE_CTL_1_A [0x70180]` (`0x82000400 -> 0x84000400`), `PLANE_COLOR_CTL_1_A [0x701CC] = 0x2000`, and `CSC_MODE_A [0x4A480] = 0` on display wake (`PCFIX36`–`PCFIX37`, corresponding to the current `src/NootedGreen/kern_gen11.cpp` and `src/NootedGreen/kern_green.cpp` snapshot).
+    and `ngreen-wake-color-fix` / `ngreen-wake-xrgb10-preserved` (`xeNormalizePlane1AColor()`) preserving native Tiger Lake 10-bit Deep Color RGB `PLANE_CTL_FORMAT_XRGB_2101010` (`0x82000400` in `PLANE_CTL_1_A [0x70180]`, superseding `PCFIX37`) while normalizing `PLANE_COLOR_CTL_1_A [0x701CC] = 0x2000` and `CSC_MODE_A [0x4A480] = 0` on display wake (`PCFIX36`–`PCFIX38`, corresponding to the current `src/NootedGreen/kern_gen11.cpp` and `src/NootedGreen/kern_green.cpp` snapshot).
 
 `NootedGreen-upstream-to-GA416.diff` is the cumulative source comparison from
 NootedGreen upstream commit `95f81898be65cb9f7b3d370ca78054be4cc8a62d` to the

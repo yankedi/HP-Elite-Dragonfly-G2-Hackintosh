@@ -221,7 +221,7 @@ void Gen11::init() {
 	callback = this;
 
 	if (checkKernelArgument("-ngreentglfb") || checkKernelArgument("-ngreentglwithgfx")) {
-		SYSLOG("ngreen", "Gen11::init: FB tier → TGL (ICL FB skipped, R32-PCFIX36-WAKECOLOR)");
+		SYSLOG("ngreen", "Gen11::init: FB tier → TGL (ICL FB skipped, R32-PCFIX38-WAKECOLOR)");
 		lilu.onKextLoadForce(&kextG11FBT);
 		lilu.onKextLoadForce(&kextG11FBTA);
 		if (checkKernelArgument("-ngreentglwithgfx")) {
@@ -5362,18 +5362,13 @@ static void xeBlDiagStart() {
 static uint32_t gXeFbBlcCtl = 0, gXeFbBlcDuty = 0, gXeFbBlcFreq = 0;
 static bool gXeFbFake = false;
 static volatile uint32_t gXeLastDesktopSurf = 0;
-static volatile uint32_t gXeLastDesktopCtl = 0x84000400u;
 static volatile uint32_t gXeWakeSurfAtArm = 0;
 static volatile uint64_t gXeWakeHoldStartNs = 0;
 static volatile bool gXeWakeBlHold = false;
 static thread_call_t gXeWakeBlTimer = nullptr;
 
-static void xeNormalizePlane1ARgb() {
+static void xeNormalizePlane1AColor() {
 	if (!NGreen::callback) return;
-	uint32_t pctl = NGreen::callback->readReg32(0x70180);
-	if (pctl != 0xFFFFFFFFu && (pctl & 0x80000000u) != 0 && (pctl & 0x0F800000u) == 0x02000000u) {
-		NGreen::callback->writeReg32(0x70180, (pctl & ~0x0F800000u) | 0x04000000u);
-	}
 	uint32_t csc = NGreen::callback->readReg32(0x701CC);
 	if (csc != 0xFFFFFFFFu && ((csc & 0x20000000u) != 0 || (csc & 0x2000u) == 0)) {
 		NGreen::callback->writeReg32(0x701CC, (csc & ~0x20000000u) | 0x2000u);
@@ -5394,7 +5389,7 @@ static void xeWakeHoldRelease(const char *why) {
 		thread_call_cancel(gXeWakeBlTimer);
 	}
 	if (NGreen::callback) {
-		xeNormalizePlane1ARgb();
+		xeNormalizePlane1AColor();
 		if (gXeFbBlcFreq && gXeFbBlcFreq != 0xFFFFFFFFu) NGreen::callback->writeReg32(0xC8254, gXeFbBlcFreq);
 		if (gXeFbBlcDuty && gXeFbBlcDuty != 0xFFFFFFFFu) NGreen::callback->writeReg32(0xC8258, gXeFbBlcDuty);
 		uint32_t ctl = NGreen::callback->readReg32(0xC8250);
@@ -5521,13 +5516,6 @@ static uint32_t xeFixFilterWrite(unsigned long reg, uint32_t val, bool isRealTGL
 			static int allowGamma = -1;
 			if (allowGamma < 0) allowGamma = checkKernelArgument("-ngreenallowgamma") ? 1 : 0;
 			if (!allowGamma) return 0;
-		}
-		if (r == 0x70180) {
-			if ((val & 0x80000000u) != 0 && (val & 0x0F800000u) == 0x04000000u) {
-				gXeLastDesktopCtl = val;
-			} else if (gXeBhDone && (val & 0x80000000u) != 0 && (val & 0x0F800000u) == 0x02000000u) {
-				val = (val & ~0x0F800000u) | 0x04000000u;
-			}
 		}
 		if (r == 0x701CC) {
 			static int allowPlaneCsc = -1;
@@ -6710,11 +6698,11 @@ bool Gen11::AppleIntelBaseControllerstart(AppleIntel::AppleIntelBaseController *
 	SYSLOG("ngreen", "FBController::start() entering...");
 	if (param_1) {
 		param_1->setProperty("ngreen-wake-color-fix", kOSBooleanTrue);
-		param_1->setProperty("ngreen-wake-plane-rgb-fix", kOSBooleanTrue);
+		param_1->setProperty("ngreen-wake-xrgb10-preserved", kOSBooleanTrue);
 	}
 	if (that) {
 		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-color-fix", kOSBooleanTrue);
-		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-plane-rgb-fix", kOSBooleanTrue);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-xrgb10-preserved", kOSBooleanTrue);
 	}
 	xeBootHoldInit();
 	xeBlDiagStart();
@@ -8653,7 +8641,7 @@ IOReturn Gen11::wrapSetFramebufferPowerState(void *that, unsigned int state)
 			if (state == 0 && gHpIOFBHandleEvent) {
 				gHpIOFBHandleEvent(fb, 3, reinterpret_cast<void *>(1));
 			}
-			xeNormalizePlane1ARgb();
+			xeNormalizePlane1AColor();
 			*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
 			*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
 			IOLog("XeNG FBDPMS: FB0 %u -> %u: só luz de fundo off (BLC_CTL 0x%x freq 0x%x duty 0x%x lastDesktop=0x%x CTL=0x%x handleEvent=0x%llx)\n",
@@ -8664,14 +8652,14 @@ IOReturn Gen11::wrapSetFramebufferPowerState(void *that, unsigned int state)
 			if (cur > 0 && state == 0) {
 				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
 				if (gHpIOFBHandleEvent) gHpIOFBHandleEvent(fb, 3, reinterpret_cast<void *>(1));
-				xeNormalizePlane1ARgb();
+				xeNormalizePlane1AColor();
 				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
 				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
 			} else if (cur == 0 && state > 0) {
 				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
 				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
 				if (gHpIOFBHandleEvent) gHpIOFBHandleEvent(fb, 4, reinterpret_cast<void *>(1));
-				xeNormalizePlane1ARgb();
+				xeNormalizePlane1AColor();
 				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
 			} else {
 				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
@@ -8681,10 +8669,10 @@ IOReturn Gen11::wrapSetFramebufferPowerState(void *that, unsigned int state)
 		}
 		if (cur < 2 && state == 2 && gXeFbFake) {
 			reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-color-fix", kOSBooleanTrue);
-			reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-plane-rgb-fix", kOSBooleanTrue);
+			reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-xrgb10-preserved", kOSBooleanTrue);
 			if (gXeFbBlcFreq && gXeFbBlcFreq != 0xFFFFFFFFu) NGreen::callback->writeReg32(0xC8254, gXeFbBlcFreq);
 			if (gXeFbBlcDuty && gXeFbBlcDuty != 0xFFFFFFFFu) NGreen::callback->writeReg32(0xC8258, gXeFbBlcDuty);
-			xeNormalizePlane1ARgb();
+			xeNormalizePlane1AColor();
 			NGreen::callback->writeReg32(0xC8250, (gXeFbBlcCtl ? gXeFbBlcCtl : 0x80000000u) & ~0x80000000u);
 			*reinterpret_cast<uint32_t *>(fb + 0x4284) = 2;
 			*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
@@ -8693,7 +8681,7 @@ IOReturn Gen11::wrapSetFramebufferPowerState(void *that, unsigned int state)
 				gHpIOFBHandleEvent(fb, 4, reinterpret_cast<void *>(1));
 				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
 			}
-			xeNormalizePlane1ARgb();
+			xeNormalizePlane1AColor();
 			gXeWakeSurfAtArm = gXeLastDesktopSurf;
 			uint64_t nowNs = 0;
 			absolutetime_to_nanoseconds(mach_absolute_time(), &nowNs);

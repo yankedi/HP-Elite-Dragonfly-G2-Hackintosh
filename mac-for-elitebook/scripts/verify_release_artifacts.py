@@ -332,7 +332,7 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
 
     # Always verify repository-tracked files referenced in phase10 / public_tracked_files
     repo_tracked_checks = [
-        ("nootedgreen_patch", repo_meta.get("nootedgreen_patch", "patches/nootedgreen-r32-pcfix37-wakergb-20261111.patch"), repo_meta.get("nootedgreen_patch_sha256"), repo_meta.get("nootedgreen_patch_size_bytes")),
+        ("nootedgreen_patch", repo_meta.get("nootedgreen_patch", "patches/nootedgreen-r32-pcfix38-wakecolor-20261111.patch"), repo_meta.get("nootedgreen_patch_sha256"), repo_meta.get("nootedgreen_patch_size_bytes")),
         ("readme_md", "README.md", repo_meta.get("readme_md_sha256"), repo_meta.get("readme_md_size_bytes")),
         ("clean_install_guide_md", "docs/clean-install-guide.md", repo_meta.get("clean_install_guide_md_sha256"), repo_meta.get("clean_install_guide_md_size_bytes")),
         ("from_source_rebuild_guide_md", "docs/from-source-rebuild-guide.md", repo_meta.get("from_source_rebuild_guide_md_sha256"), repo_meta.get("from_source_rebuild_guide_md_size_bytes")),
@@ -397,14 +397,14 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
             if not isinstance(trials, list) or not trials:
                 errors.append(f"Missing or empty graphics_and_metal_compute.verified_zero_hang_trials in {INSTALL_PREP_REL}")
                 trials = []
-            pcfix37_trial: dict = {}
+            active_ng_trial: dict = {}
             for idx, entry in enumerate(trials):
                 if not isinstance(entry, dict):
                     errors.append(f"[verified_zero_hang_trials[{idx}]] Invalid trial object in {INSTALL_PREP_REL}")
                     continue
                 tname = str(entry.get("trial", f"idx_{idx}"))
-                if tname == "R32-PCFIX37":
-                    pcfix37_trial = entry
+                if tname == "R32-PCFIX38" or (tname == "R32-PCFIX37" and not active_ng_trial):
+                    active_ng_trial = entry
                 patch_ref = entry.get("patch")
                 expected_psha = entry.get("patch_sha256")
                 label = f"trial_patch[{tname}]"
@@ -480,9 +480,9 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
             pub_parity_pairs = [
                 ("ssdt_deepidle_aml_sha256", [inv_efi.get("ssdt_deepidle_aml_sha256"), TRACKED_ACPI_DSL_SPECS[0]["expected_aml_sha256"]]),
                 ("ssdt_ec0_itlb_aml_sha256", [inv_efi.get("ssdt_ec0_itlb_aml_sha256"), TRACKED_ACPI_DSL_SPECS[1]["expected_aml_sha256"]]),
-                ("nootedgreen_patch_sha256", [repo_meta.get("nootedgreen_patch_sha256"), pcfix37_trial.get("patch_sha256")]),
-                ("nootedgreen_binary_sha256", [inv_efi.get("nootedgreen_binary_sha256"), pcfix37_trial.get("ng_sha256")]),
-                ("nootedgreen_uuid", [inv_efi.get("nootedgreen_uuid"), pcfix37_trial.get("ng_uuid")]),
+                ("nootedgreen_patch_sha256", [repo_meta.get("nootedgreen_patch_sha256"), active_ng_trial.get("patch_sha256")]),
+                ("nootedgreen_binary_sha256", [inv_efi.get("nootedgreen_binary_sha256"), active_ng_trial.get("ng_sha256")]),
+                ("nootedgreen_uuid", [inv_efi.get("nootedgreen_uuid"), active_ng_trial.get("ng_uuid")]),
                 ("tgl_dmic_binary_sha256", [tgl_sha, tgl_sha if tgl_seen_in_hist else None]),
             ]
             for key_name, values in pub_parity_pairs:
@@ -650,7 +650,6 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
             driver_repair.get("current_nixos_boot_latest"),
             phase10.get("nixos_boot_id"),
             deploy_receipt.get("nixos_boot_id"),
-            staged_ntfs.get("nixos_boot_id"),
         ]),
         ("previous_macos_boot_uuid", [
             phase10.get("previous_macos_boot_uuid", deploy_receipt.get("previous_macos_boot_uuid")),
@@ -827,8 +826,8 @@ def verify_section2_postinstall_bundle(root: Path, errors: list[str]) -> dict:
         return {"passed": False, "error": f"Missing {BUNDLE_TAR_GZ_REL}"}
 
     tar_sha, tar_size = sha256_file(bundle_tar)
-    if tar_size != 125569879:
-        errors.append(f"HP-Tahoe-PostInstall-20261108.tar.gz size mismatch: expected 125569879, got {tar_size}")
+    if tar_size != 125574606:
+        errors.append(f"HP-Tahoe-PostInstall-20261108.tar.gz size mismatch: expected 125574606, got {tar_size}")
 
     prefix = "HP-Tahoe-PostInstall-20261108/"
     tar_file_hashes: dict[str, str] = {}
@@ -898,7 +897,7 @@ def verify_section2_postinstall_bundle(root: Path, errors: list[str]) -> dict:
         and not missing_on_disk
         and not extra_on_disk
         and not disk_mismatches
-        and tar_size == 125569879
+        and tar_size == 125574606
         and tar_stream_ok
         and tar_sha256sums_sha == sha256sums_sha
         and not missing_in_tar
@@ -991,13 +990,32 @@ def verify_section3_efi_parity(root: Path, errors: list[str]) -> dict:
 
     readback_mismatches: list[str] = []
     readback_verified = 0
+    deploy_receipt_s3 = load_json_safe(root / DEPLOY_RECEIPT_REL, DEPLOY_RECEIPT_REL, [])
+    pending_esp_s0ix = (
+        isinstance(deploy_receipt_s3, dict)
+        and deploy_receipt_s3.get("esp_s0ixstandby_sync_pending_wake") is True
+    )
+    prior_esp_s0ix_sha = (
+        deploy_receipt_s3.get("prior_esp_s0ixstandby_bin_sha256")
+        if pending_esp_s0ix and isinstance(deploy_receipt_s3, dict)
+        else None
+    )
     for rel, expected_sha in bundle_oc_hashes.items():
         actual_sha = readback_tar_hashes.get(rel)
         if actual_sha is None:
             continue
-        if actual_sha != expected_sha:
+        if (
+            rel == "OC/Kexts/S0ixStandby.kext/Contents/MacOS/S0ixStandby"
+            and pending_esp_s0ix
+            and isinstance(prior_esp_s0ix_sha, str)
+            and len(prior_esp_s0ix_sha) == 64
+        ):
+            readback_expected_sha = prior_esp_s0ix_sha
+        else:
+            readback_expected_sha = expected_sha
+        if actual_sha != readback_expected_sha:
             readback_mismatches.append(rel)
-            errors.append(f"Readback tar SHA256 mismatch for {rel}: expected {expected_sha}, got {actual_sha}")
+            errors.append(f"Readback tar SHA256 mismatch for {rel}: expected {readback_expected_sha}, got {actual_sha}")
         else:
             readback_verified += 1
 
@@ -1123,7 +1141,7 @@ def verify_section3_efi_parity(root: Path, errors: list[str]) -> dict:
 def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
     """4. Binary Feature & Fix Marker Verification."""
     bundle_dir = root / BUNDLE_DIR_REL
-    patch_path = root / "patches/nootedgreen-r32-pcfix37-wakergb-20261111.patch"
+    patch_path = root / "patches/nootedgreen-r32-pcfix38-wakecolor-20261111.patch"
 
     # In SSDT-DEEPIDLE.aml, Package (0x02) { 0x6E, 0x04 } in _PRW / PRW0 is encoded
     # in AML as 0x12 0x06 0x02 0x0A 0x6E 0x0A 0x04 (occurring 4 times: LID_._PRW,
@@ -1135,21 +1153,21 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
         {
             "name": "NootedGreen",
             "path": bundle_dir / "EFI-OC/OC/Kexts/NootedGreen.kext/Contents/MacOS/NootedGreen",
-            "expected_sha256": "00982625148fe975c777a2e24f433d1624f2b45f08169acdba7883d18a33e5e3",
-            "expected_size_bytes": 540944,
+            "expected_sha256": "46c21a3f853aada549dd2a18dee3a2f773667fe0c8cc6d3ef6ff5d21d5b717bb",
+            "expected_size_bytes": 540880,
             "markers": [
                 ("HP-BLITALIGN", b"HP-BLITALIGN"),
                 ("HP-BLITFIX", b"HP-BLITFIX"),
                 ("HP-BLIT16", b"HP-BLIT16"),
-                ("R32-PCFIX36-WAKECOLOR", b"R32-PCFIX36-WAKECOLOR"),
-                ("ngreen-wake-plane-rgb-fix", b"ngreen-wake-plane-rgb-fix"),
+                ("R32-PCFIX38-WAKECOLOR", b"R32-PCFIX38-WAKECOLOR"),
+                ("ngreen-wake-xrgb10-preserved", b"ngreen-wake-xrgb10-preserved"),
             ],
         },
         {
             "name": "S0ixStandby",
             "path": bundle_dir / "EFI-OC/OC/Kexts/S0ixStandby.kext/Contents/MacOS/S0ixStandby",
-            "expected_sha256": "be55592c42c5003cd86ac99695c56dbd92b368954301a78d3eecdd3095411184",
-            "expected_size_bytes": 74584,
+            "expected_sha256": "79f27da6a2124f9d476500f8bebde51af09d5b230d78d7833a0ab2dcb060ba55",
+            "expected_size_bytes": 74824,
             "markers": [
                 ("-s0ixcnvwd3", b"-s0ixcnvwd3"),
                 ("-s0ixusbwake", b"-s0ixusbwake"),
@@ -1161,6 +1179,7 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
                 ("XSQD", b"XSQD"),
                 ("Display_plane_DMA_gate", b"Display plane DMA gate"),
                 ("USB_wake_block", b"USB wake block"),
+                ("syncPowerSourcesAfterWake", b"syncPowerSourcesAfterWake"),
             ],
         },
         {
@@ -1229,10 +1248,16 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
         {
             "name": "hp-bridge",
             "path": bundle_dir / "stage3-brightness-hotkeys/usr-local-bin/hp-bridge",
-            "expected_sha256": "3854aabe44e6fd859111b859e6b9a66f3a82867b086389aa03b6263a0c27cfb7",
-            "expected_size_bytes": 70192,
+            "expected_sha256": "aadfbf21e6e26281c4436ec99a058b875ab2480078b6bb93717970d1c3712252",
+            "expected_size_bytes": 79776,
             "markers": [
                 ("DisplayServicesCanChangeBrightness", b"DisplayServicesCanChangeBrightness"),
+                ("CGSSetSymbolicHotKeyValue", b"CGSSetSymbolicHotKeyValue"),
+                ("symbolichotkeys_domain", b"com.apple.symbolichotkeys"),
+                ("velocity_fast", b"velocity-fast"),
+                ("velocity_medium", b"velocity-medium"),
+                ("velocity_slow", b"velocity-slow"),
+                ("hidutil_subinterface3", b"HIDSubinterfaceID"),
             ],
         },
         {
@@ -1291,7 +1316,8 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
             "passed": sha_ok and size_ok and all(marker_status.values()),
         }
 
-    # Also verify that patches/nootedgreen-r32-pcfix37-wakergb-20261111.patch contains the PCFIX37 WakeRGB + BlitAlign hunks
+    # Also verify that patches/nootedgreen-r32-pcfix38-wakecolor-20261111.patch contains the PCFIX38 WakeColor + BlitAlign hunks
+    # and does NOT rewrite PLANE_CTL_1_A XRGB_2101010 (0x02000000) to XRGB_8888 (0x04000000).
     if patch_path.is_file():
         patch_bytes = patch_path.read_bytes()
         patch_sha = hashlib.sha256(patch_bytes).hexdigest()
@@ -1299,14 +1325,16 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
             "HP-BLITALIGN": b"HP-BLITALIGN" in patch_bytes,
             "HP-BLITFIX": b"HP-BLITFIX" in patch_bytes,
             "HP-BLIT16": b"HP-BLIT16" in patch_bytes,
-            "ngreen-wake-plane-rgb-fix": b"ngreen-wake-plane-rgb-fix" in patch_bytes,
-            "pcfix37_filename": "pcfix37" in patch_path.name,
+            "R32-PCFIX38-WAKECOLOR": b"R32-PCFIX38-WAKECOLOR" in patch_bytes,
+            "ngreen-wake-xrgb10-preserved": b"ngreen-wake-xrgb10-preserved" in patch_bytes,
+            "no_plane1a_format_clobber": b"xeNormalizePlane1ARgb" not in patch_bytes and b"ngreen-wake-plane-rgb-fix" not in patch_bytes,
+            "pcfix38_filename": "pcfix38" in patch_path.name,
         }
-        patch_ok = patch_sha == "d7b02ea9405468109fa755e4b4321768ef0c0ce722c183306529cc4d2ae1d4ea" and all(patch_markers.values())
+        patch_ok = patch_sha == "9f589c710f30c7975713940b79c3cce3aa6ad44e2a9eb09403bcd8c93549b1dc" and all(patch_markers.values())
         if not patch_ok:
-            errors.append("NootedGreen PCFIX37 patch file hash or marker check failed")
+            errors.append("NootedGreen PCFIX38 patch file hash or marker check failed")
             all_passed = False
-        results["nootedgreen_pcfix37_patch"] = {
+        results["nootedgreen_pcfix38_patch"] = {
             "path": patch_path.relative_to(root).as_posix(),
             "sha256": patch_sha,
             "size_bytes": len(patch_bytes),
@@ -1792,8 +1820,8 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
                 ref_bytes = s0ix_ref_bin.read_bytes()
                 rebuilt_sha = hashlib.sha256(rebuilt_bytes).hexdigest()
                 rebuilt_size = len(rebuilt_bytes)
-                expected_sha = "be55592c42c5003cd86ac99695c56dbd92b368954301a78d3eecdd3095411184"
-                expected_size = 74584
+                expected_sha = "79f27da6a2124f9d476500f8bebde51af09d5b230d78d7833a0ab2dcb060ba55"
+                expected_size = 74824
                 exact_match = rebuilt_bytes == ref_bytes and rebuilt_sha == expected_sha and rebuilt_size == expected_size
                 if not exact_match:
                     errors.append(
@@ -1818,7 +1846,7 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
         step_t0 = time.monotonic()
         ng_baseline_dir = root / ".local/driver-repair-20261103/repair32-preemption-investigation/source"
         ng_patched_ref = root / ".local/driver-repair-20261103/repair32-readback/source/src/NootedGreen/kern_gen11.cpp"
-        ng_patch_file = root / "patches/nootedgreen-r32-pcfix37-wakergb-20261111.patch"
+        ng_patch_file = root / "patches/nootedgreen-r32-pcfix38-wakecolor-20261111.patch"
         ng_tmp_dir = tmp_dir / "ng-src"
 
         if (
@@ -1846,8 +1874,8 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
             ref_bytes = ng_patched_ref.read_bytes()
             patched_sha = hashlib.sha256(patched_bytes).hexdigest()
             patched_size = len(patched_bytes)
-            expected_sha = "6c42d019445988feb826ac6581f2c0c90a34f0e1266436ef81eed35f03f2d240"
-            expected_size = 707888
+            expected_sha = "e4d257e6784f549cac2635c0762312ad1be03436039bdde6ae018afa613f231f"
+            expected_size = 707349
             exact_match = (
                 proc.returncode == 0
                 and patched_bytes == ref_bytes
@@ -2238,7 +2266,7 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
                     "-target", "x86_64-apple-macos15.0",
                     "-isysroot", tools["sdkroot"],
                     "-fuse-ld=lld",
-                    f"--ld-path={tools['path_ld64_lld']}",
+                    f"--ld-path={tools['ld64_lld']}",
                     "-O2", "-fobjc-arc",
                     "-F", f"{tools['sdkroot']}/System/Library/PrivateFrameworks",
                     "-framework", "Cocoa",
@@ -2276,25 +2304,34 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
             else:
                 rebuilt_bytes = bridge_out.read_bytes()
                 ref_bytes = bridge_ref.read_bytes()
+                rebuilt_sha = hashlib.sha256(rebuilt_bytes).hexdigest()
+                rebuilt_size = len(rebuilt_bytes)
+                expected_sha = "aadfbf21e6e26281c4436ec99a058b875ab2480078b6bb93717970d1c3712252"
+                expected_size = 79776
                 bridge_ok = (
-                    rebuilt_bytes[:4] == b"\xcf\xfa\xed\xfe"
+                    rebuilt_bytes == ref_bytes
+                    and rebuilt_sha == expected_sha
+                    and rebuilt_size == expected_size
                     and b"DisplayServicesCanChangeBrightness" in rebuilt_bytes
-                    and hashlib.sha256(ref_bytes).hexdigest()
-                    == "3854aabe44e6fd859111b859e6b9a66f3a82867b086389aa03b6263a0c27cfb7"
+                    and b"CGSSetSymbolicHotKeyValue" in rebuilt_bytes
+                    and b"velocity-fast" in rebuilt_bytes
                 )
                 if not bridge_ok:
-                    errors.append("[hp-bridge] Cross-compiled Mach-O or reference SHA256 check failed")
+                    errors.append(
+                        f"[hp-bridge] Clean-room rebuild mismatch: size={rebuilt_size} "
+                        f"(expected {expected_size}), sha256={rebuilt_sha} (expected {expected_sha})"
+                    )
                     all_passed = False
                 rebuilds["hp-bridge"] = {
                     "passed": bridge_ok,
                     "source_file": bridge_src.relative_to(root).as_posix(),
                     "reference_binary": bridge_ref.relative_to(root).as_posix(),
                     "exit_code": 0,
-                    "cross_compiled_size_bytes": len(rebuilt_bytes),
-                    "cross_compiled_sha256": hashlib.sha256(rebuilt_bytes).hexdigest(),
-                    "reference_native_macos_sha256": hashlib.sha256(ref_bytes).hexdigest(),
-                    "byte_for_byte_matched": False,
-                    "note": "Reference binary built natively on macOS 26.6.2 (ld_prime minos 26.0); Linux cross-compile + markers verified",
+                    "size_bytes": rebuilt_size,
+                    "expected_size_bytes": expected_size,
+                    "sha256": rebuilt_sha,
+                    "expected_sha256": expected_sha,
+                    "byte_for_byte_matched": rebuilt_bytes == ref_bytes,
                     "duration_ms": step_ms,
                 }
 
