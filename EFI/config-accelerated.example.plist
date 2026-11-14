@@ -46,11 +46,285 @@
 				<key>Path</key>
 				<string>SSDT-PNLF-HP-GA419.aml</string>
 			</dict>
+			<dict>
+				<key>Comment</key>
+				<string>Enable Apple Deep Idle (LPS0/LXEN) and Darwin PEPD (PNP0D80) for S0ixStandby</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Path</key>
+				<string>SSDT-DEEPIDLE.aml</string>
+			</dict>
+			<dict>
+				<key>Comment</key>
+				<string>Override EC0.ITLB/EC12/EC13/ODVP 8-bit split and Darwin PT04 PL4/IccMax fix</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Path</key>
+				<string>SSDT-EC0-ITLB.aml</string>
+			</dict>
 		</array>
 		<key>Delete</key>
-		<array/>
+		<array>
+			<dict>
+				<key>All</key>
+				<false/>
+				<key>Comment</key>
+				<string>Drop OEM SSDT13 HP_XHC_P to fix early RHUB.HS09 AE_NOT_FOUND</string>
+				<key>Enabled</key>
+				<true/>
+				<key>OemTableId</key>
+				<data>
+				SFBfWEhDX1A=
+				</data>
+				<key>TableLength</key>
+				<integer>2362</integer>
+				<key>TableSignature</key>
+				<data>
+				U1NEVA==
+				</data>
+			</dict>
+		</array>
 		<key>Patch</key>
-		<array/>
+		<array>
+			<dict>
+				<key>Base</key>
+				<string></string>
+				<key>BaseSkip</key>
+				<integer>0</integer>
+				<key>Comment</key>
+				<string>PEPD _STA to XSTA in MS-SSDT for S0ixStandby</string>
+				<key>Count</key>
+				<integer>1</integer>
+				<key>Enabled</key>
+				<true/>
+				<key>Find</key>
+				<data>
+				FCdfU1RBAA==
+				</data>
+				<key>Limit</key>
+				<integer>0</integer>
+				<key>Mask</key>
+				<data>
+				</data>
+				<key>OemTableId</key>
+				<data>
+				TVMtU1NEVAA=
+				</data>
+				<key>Replace</key>
+				<data>
+				FCdYU1RBAA==
+				</data>
+				<key>ReplaceMask</key>
+				<data>
+				</data>
+				<key>Skip</key>
+				<integer>0</integer>
+				<key>TableLength</key>
+				<integer>0</integer>
+				<key>TableSignature</key>
+				<data>
+				U1NEVA==
+				</data>
+			</dict>
+			<dict>
+				<key>Base</key>
+				<string></string>
+				<key>BaseSkip</key>
+				<integer>0</integer>
+				<key>Comment</key>
+				<string>Rename EC0.ITLB definition to XTLB for 8-bit BFC split</string>
+				<key>Count</key>
+				<integer>1</integer>
+				<key>Enabled</key>
+				<true/>
+				<key>Find</key>
+				<data>
+				SVRMQgA=
+				</data>
+				<key>Limit</key>
+				<integer>0</integer>
+				<key>Mask</key>
+				<data>
+				</data>
+				<key>OemTableId</key>
+				<data>
+				</data>
+				<key>Replace</key>
+				<data>
+				WFRMQgA=
+				</data>
+				<key>ReplaceMask</key>
+				<data>
+				</data>
+				<key>Skip</key>
+				<integer>0</integer>
+				<key>TableLength</key>
+				<integer>0</integer>
+				<key>TableSignature</key>
+				<data>
+				RFNEVA==
+				</data>
+			</dict>
+			<dict>
+				<key>Base</key>
+				<string></string>
+				<key>BaseSkip</key>
+				<integer>0</integer>
+				<key>Comment</key>
+				<string>Rename EC0.EC12 definition to XC12 in NVTEC SSDT for 8-bit ACPR split</string>
+				<key>Count</key>
+				<integer>1</integer>
+				<key>Enabled</key>
+				<true/>
+				<key>Find</key>
+				<data>
+				RUMxMgA=
+				</data>
+				<key>Limit</key>
+				<integer>0</integer>
+				<key>Mask</key>
+				<data>
+				</data>
+				<key>OemTableId</key>
+				<data>
+				TlZURUMAAAA=
+				</data>
+				<key>Replace</key>
+				<data>
+				WEMxMgA=
+				</data>
+				<key>ReplaceMask</key>
+				<data>
+				</data>
+				<key>Skip</key>
+				<integer>0</integer>
+				<key>TableLength</key>
+				<integer>0</integer>
+				<key>TableSignature</key>
+				<data>
+				U1NEVA==
+				</data>
+			</dict>
+			<dict>
+				<key>Base</key>
+				<string></string>
+				<key>BaseSkip</key>
+				<integer>0</integer>
+				<key>Comment</key>
+				<string>Rename EC0.EC13 definition to XC13 in NVTEC SSDT for 8-bit BDC/BDV split</string>
+				<key>Count</key>
+				<integer>1</integer>
+				<key>Enabled</key>
+				<true/>
+				<key>Find</key>
+				<data>
+				RUMxMwA=
+				</data>
+				<key>Limit</key>
+				<integer>0</integer>
+				<key>Mask</key>
+				<data>
+				</data>
+				<key>OemTableId</key>
+				<data>
+				TlZURUMAAAA=
+				</data>
+				<key>Replace</key>
+				<data>
+				WEMxMwA=
+				</data>
+				<key>ReplaceMask</key>
+				<data>
+				</data>
+				<key>Skip</key>
+				<integer>0</integer>
+				<key>TableLength</key>
+				<integer>0</integer>
+				<key>TableSignature</key>
+				<data>
+				U1NEVA==
+				</data>
+			</dict>
+			<dict>
+				<key>Base</key>
+				<string></string>
+				<key>BaseSkip</key>
+				<integer>0</integer>
+				<key>Comment</key>
+				<string>Rename IETM.ODVP definition to XDVP in DptfTabl SSDT for 8-bit ACPR/BDC/BDV split</string>
+				<key>Count</key>
+				<integer>1</integer>
+				<key>Enabled</key>
+				<true/>
+				<key>Find</key>
+				<data>
+				T0RWUAg=
+				</data>
+				<key>Limit</key>
+				<integer>0</integer>
+				<key>Mask</key>
+				<data>
+				</data>
+				<key>OemTableId</key>
+				<data>
+				RHB0ZlRhYmw=
+				</data>
+				<key>Replace</key>
+				<data>
+				WERWUAg=
+				</data>
+				<key>ReplaceMask</key>
+				<data>
+				</data>
+				<key>Skip</key>
+				<integer>0</integer>
+				<key>TableLength</key>
+				<integer>0</integer>
+				<key>TableSignature</key>
+				<data>
+				U1NEVA==
+				</data>
+			</dict>
+			<dict>
+				<key>Base</key>
+				<string></string>
+				<key>BaseSkip</key>
+				<integer>0</integer>
+				<key>Comment</key>
+				<string>Rename EC0.PT04 definition to XT04 in DSDT to fix DOSS==0 GSWS(0xB6) PL4 clamp</string>
+				<key>Count</key>
+				<integer>1</integer>
+				<key>Enabled</key>
+				<true/>
+				<key>Find</key>
+				<data>
+				UFQwNAk=
+				</data>
+				<key>Limit</key>
+				<integer>0</integer>
+				<key>Mask</key>
+				<data>
+				</data>
+				<key>OemTableId</key>
+				<data>
+				</data>
+				<key>Replace</key>
+				<data>
+				WFQwNAk=
+				</data>
+				<key>ReplaceMask</key>
+				<data>
+				</data>
+				<key>Skip</key>
+				<integer>0</integer>
+				<key>TableLength</key>
+				<integer>0</integer>
+				<key>TableSignature</key>
+				<data>
+				RFNEVA==
+				</data>
+			</dict>
+		</array>
 		<key>Quirks</key>
 		<dict>
 			<key>FadtEnableReset</key>
@@ -132,6 +406,17 @@
 				AABJmg==
 				</data>
 			</dict>
+			<key>PciRoot(0x0)/Pci(0x1F,0x3)</key>
+			<dict>
+				<key>layout-id</key>
+				<data>
+				RwAAAA==
+				</data>
+				<key>alc-verbs</key>
+				<data>
+				AQAAAA==
+				</data>
+			</dict>
 		</dict>
 		<key>Delete</key>
 		<dict/>
@@ -151,6 +436,42 @@
 				<true/>
 				<key>ExecutablePath</key>
 				<string>Contents/MacOS/Lilu</string>
+				<key>MaxKernel</key>
+				<string>25.99.99</string>
+				<key>MinKernel</key>
+				<string>25.0.0</string>
+				<key>PlistPath</key>
+				<string>Contents/Info.plist</string>
+			</dict>
+			<dict>
+				<key>Arch</key>
+				<string>x86_64</string>
+				<key>BundlePath</key>
+				<string>AppleALC.kext</string>
+				<key>Comment</key>
+				<string>AppleALC 1.9.8 (Realtek ALC285 layout 71)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>ExecutablePath</key>
+				<string>Contents/MacOS/AppleALC</string>
+				<key>MaxKernel</key>
+				<string>25.99.99</string>
+				<key>MinKernel</key>
+				<string>25.0.0</string>
+				<key>PlistPath</key>
+				<string>Contents/Info.plist</string>
+			</dict>
+			<dict>
+				<key>Arch</key>
+				<string>x86_64</string>
+				<key>BundlePath</key>
+				<string>SimpleHDA.kext</string>
+				<key>Comment</key>
+				<string>SimpleHDA 1.0.1 (Tahoe AppleHDA restoration)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>ExecutablePath</key>
+				<string>Contents/MacOS/SimpleHDA</string>
 				<key>MaxKernel</key>
 				<string>25.99.99</string>
 				<key>MinKernel</key>
@@ -191,6 +512,24 @@
 				<string>25.99.99</string>
 				<key>MinKernel</key>
 				<string>25.0.0</string>
+				<key>PlistPath</key>
+				<string>Contents/Info.plist</string>
+			</dict>
+			<dict>
+				<key>Arch</key>
+				<string>x86_64</string>
+				<key>BundlePath</key>
+				<string>SMCProcessor.kext</string>
+				<key>Comment</key>
+				<string>VirtualSMC CPU temperature and package power sensors</string>
+				<key>Enabled</key>
+				<true/>
+				<key>ExecutablePath</key>
+				<string>Contents/MacOS/SMCProcessor</string>
+				<key>MaxKernel</key>
+				<string></string>
+				<key>MinKernel</key>
+				<string></string>
 				<key>PlistPath</key>
 				<string>Contents/Info.plist</string>
 			</dict>
@@ -400,7 +739,7 @@
 				<key>Comment</key>
 				<string>Pinned stock 1.1.1 logging/buffer trial; actual HP allocation untested</string>
 				<key>Enabled</key>
-				<true/>
+				<false/>
 				<key>ExecutablePath</key>
 				<string>Contents/MacOS/DebugEnhancer</string>
 				<key>MaxKernel</key>
@@ -497,6 +836,42 @@
 				<string></string>
 				<key>MinKernel</key>
 				<string>21.0.0</string>
+				<key>PlistPath</key>
+				<string>Contents/Info.plist</string>
+			</dict>
+			<dict>
+				<key>Arch</key>
+				<string>x86_64</string>
+				<key>BundlePath</key>
+				<string>TGLDmic.kext</string>
+				<key>Comment</key>
+				<string>Intel Tiger Lake cAVS 2.5 SOF DMIC 4-mic array driver</string>
+				<key>Enabled</key>
+				<true/>
+				<key>ExecutablePath</key>
+				<string>Contents/MacOS/TGLDmic</string>
+				<key>MaxKernel</key>
+				<string></string>
+				<key>MinKernel</key>
+				<string></string>
+				<key>PlistPath</key>
+				<string>Contents/Info.plist</string>
+			</dict>
+			<dict>
+				<key>Arch</key>
+				<string>x86_64</string>
+				<key>BundlePath</key>
+				<string>S0ixStandby.kext</string>
+				<key>Comment</key>
+				<string>Modern Standby (S0ix) LPS0 _DSM and iGPU wake reset for Deep Idle</string>
+				<key>Enabled</key>
+				<true/>
+				<key>ExecutablePath</key>
+				<string>Contents/MacOS/S0ixStandby</string>
+				<key>MaxKernel</key>
+				<string>25.99.99</string>
+				<key>MinKernel</key>
+				<string>25.0.0</string>
 				<key>PlistPath</key>
 				<string>Contents/Info.plist</string>
 			</dict>
@@ -598,7 +973,7 @@
 			<key>HibernateSkipsPicker</key>
 			<false/>
 			<key>HideAuxiliary</key>
-			<false/>
+			<true/>
 			<key>InstanceIdentifier</key>
 			<string></string>
 			<key>LauncherOption</key>
@@ -614,39 +989,39 @@
 			<key>PickerVariant</key>
 			<string>Auto</string>
 			<key>PollAppleHotKeys</key>
-			<false/>
+			<true/>
 			<key>ShowPicker</key>
 			<true/>
 			<key>TakeoffDelay</key>
 			<integer>0</integer>
 			<key>Timeout</key>
-			<integer>0</integer>
+			<integer>1</integer>
 		</dict>
 		<key>Debug</key>
 		<dict>
 			<key>AppleDebug</key>
-			<true/>
+			<false/>
 			<key>ApplePanic</key>
-			<true/>
+			<false/>
 			<key>DisableWatchDog</key>
-			<true/>
+			<false/>
 			<key>DisplayDelay</key>
 			<integer>0</integer>
 			<key>DisplayLevel</key>
-			<integer>2147483650</integer>
+			<integer>0</integer>
 			<key>LogModules</key>
 			<string>*</string>
 			<key>SysReport</key>
 			<false/>
 			<key>Target</key>
-			<integer>67</integer>
+			<integer>0</integer>
 		</dict>
 		<key>Entries</key>
 		<array/>
 		<key>Security</key>
 		<dict>
 			<key>AllowSetDefault</key>
-			<false/>
+			<true/>
 			<key>ApECID</key>
 			<integer>0</integer>
 			<key>AuthRestart</key>
@@ -691,7 +1066,7 @@
 			<key>7C436110-AB2A-4BBB-A880-FE41995C9F82</key>
 			<dict>
 				<key>boot-args</key>
-				<string>-v keepsyms=1 debug=0x100 slide=0 -ngreentglwithgfx ngreenSched=3 ngreen-dmc=tgl -ngreentgltahoe -ngreenfixbootmode IGLogLevel=3 amfi_get_out_of_my_way=1 -allow3d -disablegfxfirmware</string>
+				<string>keepsyms=1 debug=0x100000 slide=0 -ngreentglwithgfx ngreenSched=3 ngreen-dmc=tgl -ngreenfixbootmode amfi_get_out_of_my_way=1 -allow3d -disablegfxfirmware ngreen-eu=80 ngreen-l3=6 -tgldmic -s0ixd3 -s0ixnogpureset -s0ixcnvwd3</string>
 				<key>csr-active-config</key>
 				<data>
 				AwIAAA==
@@ -1001,27 +1376,1131 @@
 		<array>
 			<dict>
 				<key>Address</key>
-				<integer>268435456</integer>
+				<integer>4311744512</integer>
 				<key>Comment</key>
-				<string>HD3000: IGPU memory corruption errata</string>
+				<string>Reserve 64KiB block at 0x101000000</string>
 				<key>Enabled</key>
-				<false/>
+				<true/>
 				<key>Size</key>
-				<integer>268435456</integer>
+				<integer>65536</integer>
 				<key>Type</key>
 				<string>Reserved</string>
 			</dict>
 			<dict>
 				<key>Address</key>
-				<integer>569344</integer>
+				<integer>4311810048</integer>
 				<key>Comment</key>
-				<string>Fix black screen on wake from hibernation for Lenovo Thinkpad T490</string>
+				<string>Reserve 64KiB block at 0x101010000</string>
 				<key>Enabled</key>
-				<false/>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4311875584</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101020000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4311941120</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101030000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312006656</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101040000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312072192</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101050000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312137728</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101060000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312203264</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101070000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312268800</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101080000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312334336</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101090000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312399872</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1010a0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312465408</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1010b0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312530944</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1010c0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312596480</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1010d0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312662016</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1010e0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312727552</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1010f0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312793088</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101100000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312858624</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101110000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312924160</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101120000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4312989696</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101130000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313055232</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101140000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313120768</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101150000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313186304</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101160000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313251840</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101170000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313317376</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101180000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313382912</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101190000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313448448</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1011a0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313513984</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1011b0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313579520</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1011c0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313645056</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1011d0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313710592</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1011e0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313776128</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1011f0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313841664</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101200000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313907200</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101210000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4313972736</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101220000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314038272</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101230000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314103808</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101240000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314169344</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101250000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314234880</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101260000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314300416</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101270000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314365952</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101280000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314431488</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101290000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314497024</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1012a0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314562560</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1012b0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314628096</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1012c0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314693632</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1012d0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314759168</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1012e0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314824704</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1012f0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314890240</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101300000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
 				<key>Size</key>
 				<integer>4096</integer>
 				<key>Type</key>
-				<string>RuntimeCode</string>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314894336</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101301000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314898432</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101302000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314902528</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101303000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314906624</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101304000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314910720</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101305000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314914816</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101306000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314918912</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101307000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314923008</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101308000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314927104</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101309000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314931200</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x10130a000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314935296</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x10130b000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314939392</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x10130c000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314943488</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x10130d000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314947584</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x10130e000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314951680</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x10130f000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314955776</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101310000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314959872</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101311000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314963968</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101312000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314968064</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101313000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314972160</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101314000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314976256</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101315000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314980352</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101316000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314984448</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101317000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314988544</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101318000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314992640</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x101319000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4314996736</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x10131a000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315000832</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x10131b000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315004928</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x10131c000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315009024</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x10131d000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315013120</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x10131e000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315017216</integer>
+				<key>Comment</key>
+				<string>Reserve 4KiB page at 0x10131f000 (pmap_recycle_page window)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>4096</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315021312</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101320000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315086848</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101330000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315152384</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101340000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315217920</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101350000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315283456</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101360000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315348992</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101370000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315414528</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101380000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315480064</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x101390000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315545600</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1013a0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315611136</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1013b0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315676672</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1013c0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315742208</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1013d0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315807744</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1013e0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
+			</dict>
+			<dict>
+				<key>Address</key>
+				<integer>4315873280</integer>
+				<key>Comment</key>
+				<string>Reserve 64KiB block at 0x1013f0000</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Size</key>
+				<integer>65536</integer>
+				<key>Type</key>
+				<string>Reserved</string>
 			</dict>
 		</array>
 		<key>Unload</key>

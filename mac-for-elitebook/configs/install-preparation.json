@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "record_type": "sanitized_public_current_status",
-  "as_of": "2026-11-14",
+  "as_of": "2026-11-15",
   "target": {
     "model": "HP Elite Dragonfly G2",
     "board_id": "8716",
@@ -11,7 +11,7 @@
     "macos": "26.6.2",
     "build": "25G83",
     "bootloader": "OpenCore 1.0.8",
-    "installation_status": "installed on internal Micron 2210 NVMe SSD; independent ~18.5s fastboot via primary ESP (disk0s1 / /dev/nvme0n1p1, 314.6 MB EFI shared with Windows & NixOS systemd-boot; disk0s6 1.0 GB is secondary unmounted EFI) live-verified on 2040D82F-1389-42DE-A348-7E753BA323E6 with OpenCore 1.0.8 and R32-PCFIX50-HDMI (native 10-bit eDP + built-in DDI-B HDMI 2.0b 600 MHz SCDC 2560x1440@60/120/144Hz); synced to disk0s1 (111/111), recovery IMG (112/112, 7c6601ee...), and Ventoy USB (436/436)"
+    "installation_status": "installed on internal Micron 2210 NVMe SSD and finalized for daily use; independent ~18.5s fastboot via primary ESP (disk0s1 / /dev/nvme0n1p1, 314.6 MB EFI shared with Windows & NixOS systemd-boot; disk0s6 1.0 GB is secondary unmounted EFI) verified with daily-use OpenCore 1.0.8 (Timeout=1, HideAuxiliary=true, PollAppleHotKeys=true, AllowSetDefault=true, ApplePanic=false, DisableWatchDog=false, ShowPicker=true, ScanPolicy=0) and R32-PCFIX50-HDMI (native 10-bit eDP + built-in DDI-B HDMI 2.0b 600 MHz SCDC 2560x1440@60/120/144Hz); synced to disk0s1 (111/111, /boot free space raised to 117M), systemd-boot macos-opencore.conf, recovery IMG (112/112, 7ca6ea48...), and Windows NTFS staging (06502878...); external Ventoy USB was unplugged during NixOS finalization and retains prior PCFIX50 (88889d06...)"
   },
   "nix_flake_tooling": {
     "flake_files": [
@@ -24,26 +24,26 @@
     "nootedgreen_patch": "patches/nootedgreen-r32-pcfix50-hdmi-20261114.patch",
     "nootedgreen_patch_sha256": "08704b5256cca92b56784909c377c257109c42ffdc9dcdb7e4b0b752174b9eb3",
     "nootedgreen_patch_size_bytes": 184879,
-    "readme_md_sha256": "8d4c6967523c176b40e06e02a7f95829f973c8e035710b82daf294e73b9a0408",
-    "readme_md_size_bytes": 77369,
-    "clean_install_guide_md_sha256": "43733a00625f82a1e8e69f2e561c195a4c037a2635128e1b72e10973f8dba26b",
-    "clean_install_guide_md_size_bytes": 188656,
-    "from_source_rebuild_guide_md_sha256": "f742b5d4dae2c52382480a6287886287e5e8c1f6b328b65ed0ea8f94fc36d152",
-    "from_source_rebuild_guide_md_size_bytes": 72136,
+    "readme_md_sha256": "c47546938153ea896c735f9d8aef1dcc39b4db007da48fb46f4ba4525a417429",
+    "readme_md_size_bytes": 78265,
+    "clean_install_guide_md_sha256": "c38135ad5f80b36fbc8354d1d237fd961a0ff3f4d8b6f948ac4689a45a90d46e",
+    "clean_install_guide_md_size_bytes": 189662,
+    "from_source_rebuild_guide_md_sha256": "1ed1bac265964cab67b32b6e1e5835f03407f30f32a5285cc67ce265d0550f5f",
+    "from_source_rebuild_guide_md_size_bytes": 72173,
     "makefile": "Makefile",
     "makefile_sha256": "8c9cb233f61f5b7265dd83a7dee74ab88c24d9ba395ac85d0c8da22a5d443157",
     "makefile_size_bytes": 2019,
     "verify_release_artifacts_py": "scripts/verify_release_artifacts.py",
-    "verify_release_artifacts_py_sha256": "6c19edc49335fd58543ef0e64cc930a2b8e0c89cfce90c1aeedcb31a1261730c",
+    "verify_release_artifacts_py_sha256": "9fbe332edf0fd58982dd3389010426739ff188fde606d177ce1abed4bd59fe96",
     "verify_release_artifacts_py_size_bytes": 154637
   },
   "project_completion_policy": {
-    "updated": "2026-11-14",
+    "updated": "2026-11-15",
     "scope": "Complete daily-driver macOS 26.6.2 (25G83) adaptation on HP Elite Dragonfly G2: Iris Xe 80 EU Metal compute endurance (R32-PCFIX27, 705,024 encoders, 0 hangs; Phase 8 cumulative enc#2,341,120), built-in Tiger Lake ComboPHY DDI-B HDMI 2.0b 600 MHz SCDC + DPLL relocation output at 2560x1440@60/120/144Hz (R32-PCFIX42..PCFIX50-HDMI, opt-out -ngreennohdmi), Camellia NULL-pointer guard + 512 MiB orphan pool reuse + quiet hotpath + ~18.5s fastboot (R32-PCFIX39..PCFIX41), eDP PWM backlight, velocity-adaptive dimming & zero-TCC native screenshot (R32-PCFIX31 + libhp_cb_shim.dylib + event-driven hp-bridge v3 via SkyLight AppleSymbolicHotKeys 30/31), 420v NV12 video blit alignment (R32-PCFIX35 + xe-h264sw-fixd), Deep Idle S0ix sleep/wake, ICCMAX/PL4 fix (SSDT-EC0-ITLB PT04->XT04 + EC12>=0x41 + S0ixStandby v0.4.4 EC0.PWUP/AC._PSR), 48s Maintenance DarkWake Bluetooth fix (pmset + mDNSResponder NoMulticastAdvertisements), Realtek ALC285 speakers/headphone/mic (SimpleHDA 1.0.1 + AppleALC 1.9.8 + hp-alc285-ampinit.sh), Tiger Lake quad-DMIC (TGLDmic v0.5.0 + TGLDmic.driver), SYNA30B6 trackpad + WACF4233/PenBridge, RidgeKey 1.0.0 fingerprint unlock, AirportItlwm 2.4.0 + pre-login Tailscale (~20s) + Clash Verge coexistence, bluetoothd APFS decmpfs mlock + idle HCI heal, and persistent logging (hp-syslogger v1.3 + newsyslog).",
     "final_gpu_baseline": "R32-PCFIX50-HDMI",
     "internal_nvme_efi_deployment": {
-      "config_plist_sha256": "d84c0952940599962bda0e74c5cdefc3eb03d09de0df1bf710cd6a128ff81ece",
-      "config_plist_size_bytes": 60988,
+      "config_plist_sha256": "80f1e1bfe46ea7fb22a57e4486c8f405fe790b85167969df2ee003d938dad8e5",
+      "config_plist_size_bytes": 60987,
       "nootedgreen_binary_sha256": "da62b067f6561568fe0f203ef18663f1f0c137c30d2759ab37d736346dbffca6",
       "nootedgreen_binary_size_bytes": 580640,
       "nootedgreen_uuid": "4C4C44B8-5555-3144-A17C-F348EF4AFF41",
@@ -60,9 +60,9 @@
       "tgl_dmic_binary_size_bytes": 1187520,
       "tgl_dmic_uuid": "4C4C4439-5555-3144-A1BB-0136F2E83A52",
       "postinstall_bundle_file_count": 436,
-      "postinstall_bundle_tar_gz_sha256": "88889d06920381235c5a7faa1c96223db8baa651855799df92b4ec55dc3ef99d",
-      "postinstall_bundle_tar_gz_size_bytes": 126889726,
-      "recovery_img_sha256": "7c6601eed85564f16dee144ef8daac6525df4dea702debe5170f141b7f071304",
+      "postinstall_bundle_tar_gz_sha256": "065028783005f135d5968d2d8f33517696631d5834b1fc8a15c3137ab8a1673b",
+      "postinstall_bundle_tar_gz_size_bytes": 126893844,
+      "recovery_img_sha256": "7ca6ea48a1092e372969d7f5227ba768fb1e63a88428a1da7d6a0a8ec245dd5a4",
       "recovery_img_size_bytes": 1343225856,
       "esp_partition": "disk0s1 (/dev/nvme0n1p1, 314.6 MB primary EFI shared with Windows & NixOS systemd-boot; disk0s6 1.0 GB is secondary spare EFI)",
       "hp_bridge_binary_sha256": "b79773763955e2ca64e78b93b978f37ffd6b18374dae0442a45f979dccfd9cff",
@@ -281,7 +281,7 @@
   "unresolved": [
     "AWDL-dependent wireless Continuity features (AirDrop / iPhone Mirroring) hit non-Apple hardware boundaries under AirportItlwm IO80211, Intel AX201 BT (no Apple LE RPA offload), and missing Apple T2/SEP",
     "SimpleHDA.kext does not expose iGPU HDMI digital audio (codec 2 8086:2812); built-in speakers, 3.5 mm jack, USB, and Bluetooth audio are unaffected",
-    "/Applications/PenBridge.app requires one-time interactive macOS Accessibility permission toggle approval on first GUI launch; optional cross-OS staging archive on Windows NTFS awaits sync to 88889d06... on the next NixOS boot"
+    "/Applications/PenBridge.app requires one-time interactive macOS Accessibility permission toggle approval on first GUI launch; Windows NTFS staging archive synced to 06502878... and unmounted cleanly; external Ventoy USB was unplugged during NixOS daily-use finalization and retains prior PCFIX50 (88889d06...)"
   ],
   "evidence_policy": {
     "private_raw_evidence_included": false,

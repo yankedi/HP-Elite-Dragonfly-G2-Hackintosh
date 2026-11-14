@@ -830,8 +830,8 @@ def verify_section2_postinstall_bundle(root: Path, errors: list[str]) -> dict:
         return {"passed": False, "error": f"Missing {BUNDLE_TAR_GZ_REL}"}
 
     tar_sha, tar_size = sha256_file(bundle_tar)
-    if tar_size != 126889726:
-        errors.append(f"HP-Tahoe-PostInstall-20261108.tar.gz size mismatch: expected 126889726, got {tar_size}")
+    if tar_size != 126893844:
+        errors.append(f"HP-Tahoe-PostInstall-20261108.tar.gz size mismatch: expected 126893844, got {tar_size}")
 
     prefix = "HP-Tahoe-PostInstall-20261108/"
     tar_file_hashes: dict[str, str] = {}
@@ -901,7 +901,7 @@ def verify_section2_postinstall_bundle(root: Path, errors: list[str]) -> dict:
         and not missing_on_disk
         and not extra_on_disk
         and not disk_mismatches
-        and tar_size == 126889726
+        and tar_size == 126893844
         and tar_stream_ok
         and tar_sha256sums_sha == sha256sums_sha
         and not missing_in_tar

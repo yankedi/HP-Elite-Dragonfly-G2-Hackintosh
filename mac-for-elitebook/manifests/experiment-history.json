@@ -145,7 +145,25 @@
         "../patches/nootedgreen-r32-pcfix50-hdmi-20261114.patch",
         "../scripts/verify_release_artifacts.py"
       ],
-      "limitation": "SimpleHDA.kext does not expose iGPU HDMI audio (codec 2 8086:2812); PenBridge.app awaits first interactive GUI Accessibility toggle approval; optional Windows NTFS staging copy awaits sync on the next NixOS boot."
+      "limitation": "SimpleHDA.kext does not expose iGPU HDMI audio (codec 2 8086:2812); PenBridge.app awaits first interactive GUI Accessibility toggle approval; Windows NTFS staging archive was later synced to 06502878... in Phase 39 while external Ventoy USB was unplugged."
+    },
+    {
+      "date": "2026-11-14",
+      "topic": "Phase 39 daily-use OpenCore 1.0.8 finalization, ESP cleanup, systemd-boot tidy, and Windows NTFS staging sync",
+      "summary": "Finalized OpenCore 1.0.8 config.plist (60,987 B, SHA-256 80f1e1bfe46ea7fb22a57e4486c8f405fe790b85167969df2ee003d938dad8e5) for daily use with Timeout=1, HideAuxiliary=true, PollAppleHotKeys=true, AllowSetDefault=true, ApplePanic=false, and DisableWatchDog=false (keeping ShowPicker=true, ScanPolicy=0 for MBR recovery IMG compatibility, AppleDebug=false, Target=0, PMAPFIX, PT04->XT04, and R32-PCFIX50-HDMI); passed ocvalidate 1.0.8; rebuilt 436-file post-install tar.gz (126,893,844 B, SHA-256 065028783005f135d5968d2d8f33517696631d5834b1fc8a15c3137ab8a1673b) and recovery IMG (1,343,225,856 B, SHA-256 7ca6ea48a1092e372969d7f5227ba768fb1e63a88428a1da7d6a0a8ec245dd5a4); deployed to internal disk0s1 ESP (/boot/EFI/OC) while archiving and removing 4 stale ESP test backup directories (raising /boot free space from 49M to 117M); updated systemd-boot macos-opencore.conf (keeping NixOS default); and synced Windows NTFS staging archive to 06502878... with clean unmount (macOS userland pmset, trackpad, mDNSResponder, and Alt+Space settings were already finalized live on boot 2040D82F).",
+      "public_docs": [
+        "../README.md",
+        "../docs/continuation.md",
+        "../docs/clean-install-guide.md",
+        "../docs/from-source-rebuild-guide.md",
+        "../acpi/SSDT-EC0-ITLB.dsl",
+        "../patches/nootedgreen-r32-pcfix44-hdmi-20261113.patch",
+        "../patches/nootedgreen-r32-pcfix47-hdmi-20261113.patch",
+        "../patches/nootedgreen-r32-pcfix49-hdmi-20261114.patch",
+        "../patches/nootedgreen-r32-pcfix50-hdmi-20261114.patch",
+        "../scripts/verify_release_artifacts.py"
+      ],
+      "limitation": "External Ventoy USB was unplugged during NixOS finalization and retains prior PCFIX50 (88889d06...); SimpleHDA.kext does not expose iGPU HDMI audio (codec 2 8086:2812); PenBridge.app awaits first interactive GUI Accessibility toggle approval."
     }
   ],
   "privacy_note": "Personal paths, network endpoints, serial/SMBIOS identities, credentials, private keys, and raw logs are intentionally not included. A missing private artifact is not a verified result."
