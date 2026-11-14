@@ -75,10 +75,10 @@ TRACKED_ACPI_DSL_SPECS = (
         "name": "SSDT-EC0-ITLB.aml",
         "prefix": "SSDT-EC0-ITLB",
         "dsl_rel": "acpi/SSDT-EC0-ITLB.dsl",
-        "expected_dsl_sha256": "30dd9d79d501cb83cab902fe9acc3f46553ef6efafc5878641fe1174387186ed",
-        "expected_dsl_size": 7231,
-        "expected_aml_sha256": "122a5b9d778c6429d32f73f1da7e695ba7498e6714e172f708b22894bd8ddaf8",
-        "expected_aml_size": 1572,
+        "expected_dsl_sha256": "816a580303df3316ad90aa0f90e6a181d32b2c41f7cd0e820fe89a4857eaf19b",
+        "expected_dsl_size": 10011,
+        "expected_aml_sha256": "8a931eb6565d57e58cb4a798028486e443e72ff0756edb7afff9a8ffa15ee998",
+        "expected_aml_size": 1854,
     },
     {
         "name": "SSDT-PLUG.aml",
@@ -332,7 +332,7 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
 
     # Always verify repository-tracked files referenced in phase10 / public_tracked_files
     repo_tracked_checks = [
-        ("nootedgreen_patch", repo_meta.get("nootedgreen_patch", "patches/nootedgreen-r32-pcfix38-wakecolor-20261111.patch"), repo_meta.get("nootedgreen_patch_sha256"), repo_meta.get("nootedgreen_patch_size_bytes")),
+        ("nootedgreen_patch", repo_meta.get("nootedgreen_patch", "patches/nootedgreen-r32-pcfix50-hdmi-20261114.patch"), repo_meta.get("nootedgreen_patch_sha256"), repo_meta.get("nootedgreen_patch_size_bytes")),
         ("readme_md", "README.md", repo_meta.get("readme_md_sha256"), repo_meta.get("readme_md_size_bytes")),
         ("clean_install_guide_md", "docs/clean-install-guide.md", repo_meta.get("clean_install_guide_md_sha256"), repo_meta.get("clean_install_guide_md_size_bytes")),
         ("from_source_rebuild_guide_md", "docs/from-source-rebuild-guide.md", repo_meta.get("from_source_rebuild_guide_md_sha256"), repo_meta.get("from_source_rebuild_guide_md_size_bytes")),
@@ -403,7 +403,7 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
                     errors.append(f"[verified_zero_hang_trials[{idx}]] Invalid trial object in {INSTALL_PREP_REL}")
                     continue
                 tname = str(entry.get("trial", f"idx_{idx}"))
-                if tname == "R32-PCFIX38" or (tname == "R32-PCFIX37" and not active_ng_trial):
+                if tname == "R32-PCFIX50-HDMI" or (tname in ("R32-PCFIX49-HDMI", "R32-PCFIX48-HDMI", "R32-PCFIX47-HDMI", "R32-PCFIX46-HDMI", "R32-PCFIX44-HDMI", "R32-PCFIX41", "R32-PCFIX40", "R32-PCFIX39", "R32-PCFIX38", "R32-PCFIX37") and not active_ng_trial):
                     active_ng_trial = entry
                 patch_ref = entry.get("patch")
                 expected_psha = entry.get("patch_sha256")
@@ -707,7 +707,7 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
         ("postinstall_sha256sums_file_count", [
             deployed.get("postinstall_sha256sums_file_count"),
             bundle_receipt.get("total_files_in_manifest"),
-            431,
+            436,
         ]),
         ("postinstall_bundle_receipt_sha256", [
             phase10.get("postinstall_bundle_receipt_sha256"),
@@ -716,6 +716,10 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
         ("verify_postinstall_sh_sha256", [
             deployed.get("verify_postinstall_sh_sha256"),
             bundle_scripts.get("verify-postinstall.sh"),
+        ]),
+        ("install_stage3_peripherals_sh_sha256", [
+            deployed.get("install_stage3_peripherals_sh_sha256"),
+            bundle_scripts.get("install-stage3-peripherals.sh"),
         ]),
         ("verify_phase10_lidwake_and_video_sh_sha256", [
             deployed.get("verify_phase10_lidwake_and_video_sh_sha256"),
@@ -777,7 +781,7 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
 
 
 def verify_section2_postinstall_bundle(root: Path, errors: list[str]) -> dict:
-    """2. 431-File Post-Install Bundle (HP-Tahoe-PostInstall-20261108) Integrity."""
+    """2. 436-File Post-Install Bundle (HP-Tahoe-PostInstall-20261108) Integrity."""
     bundle_dir = root / BUNDLE_DIR_REL
     bundle_tar = root / BUNDLE_TAR_GZ_REL
     sha256sums_path = bundle_dir / "SHA256SUMS.txt"
@@ -787,14 +791,14 @@ def verify_section2_postinstall_bundle(root: Path, errors: list[str]) -> dict:
         return {"passed": False, "error": "Missing post-install bundle"}
 
     sha256sums_sha, sha256sums_size = sha256_file(sha256sums_path)
-    if sha256sums_size != 64420:
-        errors.append(f"SHA256SUMS.txt byte size mismatch: expected 64420, got {sha256sums_size}")
+    if sha256sums_size != 65035:
+        errors.append(f"SHA256SUMS.txt byte size mismatch: expected 65035, got {sha256sums_size}")
 
     manifest_entries = parse_sha256sums(sha256sums_path.read_text(encoding="utf-8", errors="replace"), errors)
-    if len(manifest_entries) != 431:
-        errors.append(f"SHA256SUMS.txt entry count mismatch: expected 431, got {len(manifest_entries)}")
+    if len(manifest_entries) != 436:
+        errors.append(f"SHA256SUMS.txt entry count mismatch: expected 436, got {len(manifest_entries)}")
 
-    # Verify all 431 files on disk against SHA256SUMS.txt and check for untracked extra files
+    # Verify all 436 files on disk against SHA256SUMS.txt and check for untracked extra files
     disk_files = {
         p.relative_to(bundle_dir).as_posix()
         for p in bundle_dir.rglob("*")
@@ -826,8 +830,8 @@ def verify_section2_postinstall_bundle(root: Path, errors: list[str]) -> dict:
         return {"passed": False, "error": f"Missing {BUNDLE_TAR_GZ_REL}"}
 
     tar_sha, tar_size = sha256_file(bundle_tar)
-    if tar_size != 125574606:
-        errors.append(f"HP-Tahoe-PostInstall-20261108.tar.gz size mismatch: expected 125574606, got {tar_size}")
+    if tar_size != 126889726:
+        errors.append(f"HP-Tahoe-PostInstall-20261108.tar.gz size mismatch: expected 126889726, got {tar_size}")
 
     prefix = "HP-Tahoe-PostInstall-20261108/"
     tar_file_hashes: dict[str, str] = {}
@@ -892,12 +896,12 @@ def verify_section2_postinstall_bundle(root: Path, errors: list[str]) -> dict:
             tar_verified += 1
 
     passed = (
-        sha256sums_size == 64420
-        and len(manifest_entries) == 431
+        sha256sums_size == 65035
+        and len(manifest_entries) == 436
         and not missing_on_disk
         and not extra_on_disk
         and not disk_mismatches
-        and tar_size == 125574606
+        and tar_size == 126889726
         and tar_stream_ok
         and tar_sha256sums_sha == sha256sums_sha
         and not missing_in_tar
@@ -1141,7 +1145,7 @@ def verify_section3_efi_parity(root: Path, errors: list[str]) -> dict:
 def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
     """4. Binary Feature & Fix Marker Verification."""
     bundle_dir = root / BUNDLE_DIR_REL
-    patch_path = root / "patches/nootedgreen-r32-pcfix38-wakecolor-20261111.patch"
+    patch_path = root / "patches/nootedgreen-r32-pcfix50-hdmi-20261114.patch"
 
     # In SSDT-DEEPIDLE.aml, Package (0x02) { 0x6E, 0x04 } in _PRW / PRW0 is encoded
     # in AML as 0x12 0x06 0x02 0x0A 0x6E 0x0A 0x04 (occurring 4 times: LID_._PRW,
@@ -1153,21 +1157,47 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
         {
             "name": "NootedGreen",
             "path": bundle_dir / "EFI-OC/OC/Kexts/NootedGreen.kext/Contents/MacOS/NootedGreen",
-            "expected_sha256": "46c21a3f853aada549dd2a18dee3a2f773667fe0c8cc6d3ef6ff5d21d5b717bb",
-            "expected_size_bytes": 540880,
+            "expected_sha256": "da62b067f6561568fe0f203ef18663f1f0c137c30d2759ab37d736346dbffca6",
+            "expected_size_bytes": 580640,
             "markers": [
                 ("HP-BLITALIGN", b"HP-BLITALIGN"),
                 ("HP-BLITFIX", b"HP-BLITFIX"),
                 ("HP-BLIT16", b"HP-BLIT16"),
-                ("R32-PCFIX38-WAKECOLOR", b"R32-PCFIX38-WAKECOLOR"),
+                ("R32-PCFIX50-HDMI", b"R32-PCFIX50-HDMI"),
+                ("ngreen-hdmi-600mhz-fix", b"ngreen-hdmi-600mhz-fix"),
+                ("ngreen-hdmi-scdc-writes", b"ngreen-hdmi-scdc-writes"),
+                ("ngreen-hdmi-high-tmds", b"ngreen-hdmi-high-tmds"),
+                ("HP-HDMI-SCDC", b"HP-HDMI-SCDC"),
+                ("HP-HDMI-MODESET", b"HP-HDMI-MODESET"),
+                ("R32-PCFIX49-HDMI", b"R32-PCFIX49-HDMI"),
+                ("ngreen-hdmi-dpll-fix", b"ngreen-hdmi-dpll-fix"),
+                ("ngreen-hdmi-dpll1-cfgcr0", b"ngreen-hdmi-dpll1-cfgcr0"),
+                ("HP-HDMI-DPLL", b"HP-HDMI-DPLL"),
+                ("R32-PCFIX48-HDMI", b"R32-PCFIX48-HDMI"),
+                ("R32-PCFIX47-HDMI", b"R32-PCFIX47-HDMI"),
+                ("ngreen-hdmi-rgb8-fix", b"ngreen-hdmi-rgb8-fix"),
+                ("ngreen-hdmi-gmbus-fix", b"ngreen-hdmi-gmbus-fix"),
+                ("ngreen-hdmi-gmbus-ok", b"ngreen-hdmi-gmbus-ok"),
+                ("HP-HDMI-TIMING", b"HP-HDMI-TIMING"),
+                ("ngreen-hdmi-fix", b"ngreen-hdmi-fix"),
+                ("R32-PCFIX41-FASTBOOT", b"R32-PCFIX41-FASTBOOT"),
+                ("HP-FASTBOOT", b"HP-FASTBOOT"),
+                ("R32-PCFIX40-QUIET-HOTPATH", b"R32-PCFIX40-QUIET-HOTPATH"),
+                ("HP-QUIET-HOTPATH", b"HP-QUIET-HOTPATH"),
+                ("HP-CAMELLIA-NULLGUARD", b"HP-CAMELLIA-NULLGUARD"),
+                ("HP-ORPHAN-CAP", b"HP-ORPHAN-CAP"),
+                ("ngreen-fastboot", b"ngreen-fastboot"),
+                ("ngreen-quiet-hotpath", b"ngreen-quiet-hotpath"),
+                ("ngreen-camellia-nullguard", b"ngreen-camellia-nullguard"),
+                ("ngreen-orphan-pool-512mb", b"ngreen-orphan-pool-512mb"),
                 ("ngreen-wake-xrgb10-preserved", b"ngreen-wake-xrgb10-preserved"),
             ],
         },
         {
             "name": "S0ixStandby",
             "path": bundle_dir / "EFI-OC/OC/Kexts/S0ixStandby.kext/Contents/MacOS/S0ixStandby",
-            "expected_sha256": "79f27da6a2124f9d476500f8bebde51af09d5b230d78d7833a0ab2dcb060ba55",
-            "expected_size_bytes": 74824,
+            "expected_sha256": "bffd2681628aca10f8039ac7ca312d6103f487e1457b99b63d29cd99ff5f9d3c",
+            "expected_size_bytes": 74840,
             "markers": [
                 ("-s0ixcnvwd3", b"-s0ixcnvwd3"),
                 ("-s0ixusbwake", b"-s0ixusbwake"),
@@ -1180,6 +1210,17 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
                 ("Display_plane_DMA_gate", b"Display plane DMA gate"),
                 ("USB_wake_block", b"USB wake block"),
                 ("syncPowerSourcesAfterWake", b"syncPowerSourcesAfterWake"),
+                ("PWUP", b"PWUP"),
+            ],
+        },
+        {
+            "name": "TGLDmic",
+            "path": bundle_dir / "EFI-OC/OC/Kexts/TGLDmic.kext/Contents/MacOS/TGLDmic",
+            "expected_sha256": "04cd2c7d38ae8fd8dff1c3d2375c53f5f756b0b0bdad2c9535bfc59e9649ecfe",
+            "expected_size_bytes": 1187520,
+            "markers": [
+                ("TGLDmic", b"TGLDmic"),
+                ("FW_READY", b"FW_READY"),
             ],
         },
         {
@@ -1211,8 +1252,8 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
         {
             "name": "SSDT-EC0-ITLB.aml",
             "path": bundle_dir / "EFI-OC/OC/ACPI/SSDT-EC0-ITLB.aml",
-            "expected_sha256": "122a5b9d778c6429d32f73f1da7e695ba7498e6714e172f708b22894bd8ddaf8",
-            "expected_size_bytes": 1572,
+            "expected_sha256": "8a931eb6565d57e58cb4a798028486e443e72ff0756edb7afff9a8ffa15ee998",
+            "expected_size_bytes": 1854,
             "markers": [
                 ("ITLB", b"ITLB"),
                 ("XTLB", b"XTLB"),
@@ -1222,6 +1263,9 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
                 ("XC13", b"XC13"),
                 ("ODVP", b"ODVP"),
                 ("XDVP", b"XDVP"),
+                ("PT04", b"PT04"),
+                ("XT04", b"XT04"),
+                ("GSWS", b"GSWS"),
             ],
         },
         {
@@ -1248,8 +1292,8 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
         {
             "name": "hp-bridge",
             "path": bundle_dir / "stage3-brightness-hotkeys/usr-local-bin/hp-bridge",
-            "expected_sha256": "aadfbf21e6e26281c4436ec99a058b875ab2480078b6bb93717970d1c3712252",
-            "expected_size_bytes": 79776,
+            "expected_sha256": "b79773763955e2ca64e78b93b978f37ffd6b18374dae0442a45f979dccfd9cff",
+            "expected_size_bytes": 79888,
             "markers": [
                 ("DisplayServicesCanChangeBrightness", b"DisplayServicesCanChangeBrightness"),
                 ("CGSSetSymbolicHotKeyValue", b"CGSSetSymbolicHotKeyValue"),
@@ -1258,18 +1302,56 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
                 ("velocity_medium", b"velocity-medium"),
                 ("velocity_slow", b"velocity-slow"),
                 ("hidutil_subinterface3", b"HIDSubinterfaceID"),
+                ("adaptive_bklt_poll", b"adaptive-bklt-poll"),
             ],
         },
         {
             "name": "hp-syslogger.py",
             "path": bundle_dir / "stage3-logging/usr-local-bin/hp-syslogger.py",
-            "expected_sha256": "9f22348437736568d9ca6906b2934e5358432200615fe4503729b851e2f89f59",
-            "expected_size_bytes": 13043,
+            "expected_sha256": "e2d8af1e31f920176a28a555a59289842e37f2f16ed39ee5f2d532f862fe15e4",
+            "expected_size_bytes": 15384,
             "markers": [
                 ("STOP_EVENT", b"STOP_EVENT"),
                 ("Out_of_range_RSSI", b"Out of range RSSI value"),
                 ("unified_errors_rotate", b"unified-errors.log.1"),
                 ("mlock", b"mlock"),
+                ("BENIGN_ERR_SUBSTRINGS", b"BENIGN_ERR_SUBSTRINGS"),
+                ("MAX_DUP_EVENTS_PER_WINDOW", b"MAX_DUP_EVENTS_PER_WINDOW"),
+                ("bt_wedge_heal", b"--wedge-heal"),
+            ],
+        },
+        {
+            "name": "PenBridge",
+            "path": bundle_dir / "stage3-penbridge/PenBridge.app/Contents/MacOS/PenBridge",
+            "expected_sha256": "caff70ce5d4da40647d2f7d0fd80c026fec0bac1fc8a9e1589a979fce0413d0f",
+            "expected_size_bytes": 203072,
+            "markers": [
+                ("bundle_id", b"com.oscacace.PenBridge"),
+                ("WACF", b"WACF"),
+                ("PenBridge", b"PenBridge"),
+                ("CGEventPost", b"CGEventPost"),
+            ],
+        },
+        {
+            "name": "VoodooI2C_Info",
+            "path": bundle_dir / "EFI-OC/OC/Kexts/VoodooI2C.kext/Contents/Info.plist",
+            "expected_sha256": "07314ac8fe696d217894241d522313b7c469bf1701c50d95abdaec584e548e19",
+            "expected_size_bytes": 23828,
+            "markers": [
+                ("Dragging_1", b"<key>Dragging</key>\n\t\t\t\t<integer>1</integer>"),
+                ("TrackpadThreeFingerDrag_false", b"<key>TrackpadThreeFingerDrag</key>\n\t\t\t\t<false/>"),
+                ("TrackpadThreeFingerHorizSwipeGesture_2", b"<key>TrackpadThreeFingerHorizSwipeGesture</key>\n\t\t\t\t<integer>2</integer>"),
+            ],
+        },
+        {
+            "name": "install-stage3-peripherals.sh",
+            "path": bundle_dir / "install-stage3-peripherals.sh",
+            "expected_sha256": "26c665f6db39ce8e48f3f4ec2a49b0f941e5f46bee3442f23762e9c059303833",
+            "expected_size_bytes": 19554,
+            "markers": [
+                ("Dragging_true", b"Dragging -bool true"),
+                ("TrackpadThreeFingerDrag_false", b"TrackpadThreeFingerDrag -bool false"),
+                ("TrackpadThreeFingerHorizSwipeGesture_2", b"TrackpadThreeFingerHorizSwipeGesture -int 2"),
             ],
         },
     ]
@@ -1316,7 +1398,8 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
             "passed": sha_ok and size_ok and all(marker_status.values()),
         }
 
-    # Also verify that patches/nootedgreen-r32-pcfix38-wakecolor-20261111.patch contains the PCFIX38 WakeColor + BlitAlign hunks
+    # Also verify that patches/nootedgreen-r32-pcfix50-hdmi-20261114.patch (and historical PCFIX39..PCFIX49 patches)
+    # contains all 600MHz/SCDC + DPLL + HDMI + FastBoot + QuietHotpath + Camellia + OrphanPool + WakeColor + BlitAlign hunks
     # and does NOT rewrite PLANE_CTL_1_A XRGB_2101010 (0x02000000) to XRGB_8888 (0x04000000).
     if patch_path.is_file():
         patch_bytes = patch_path.read_bytes()
@@ -1325,16 +1408,39 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
             "HP-BLITALIGN": b"HP-BLITALIGN" in patch_bytes,
             "HP-BLITFIX": b"HP-BLITFIX" in patch_bytes,
             "HP-BLIT16": b"HP-BLIT16" in patch_bytes,
-            "R32-PCFIX38-WAKECOLOR": b"R32-PCFIX38-WAKECOLOR" in patch_bytes,
+            "R32-PCFIX50-HDMI": b"R32-PCFIX50-HDMI" in patch_bytes,
+            "ngreen-hdmi-600mhz-fix": b"ngreen-hdmi-600mhz-fix" in patch_bytes,
+            "ngreen-hdmi-scdc-writes": b"ngreen-hdmi-scdc-writes" in patch_bytes,
+            "ngreen-hdmi-high-tmds": b"ngreen-hdmi-high-tmds" in patch_bytes,
+            "HP-HDMI-SCDC": b"HP-HDMI-SCDC" in patch_bytes,
+            "HP-HDMI-MODESET": b"HP-HDMI-MODESET" in patch_bytes,
+            "R32-PCFIX49-HDMI": b"R32-PCFIX49-HDMI" in patch_bytes,
+            "ngreen-hdmi-dpll-fix": b"ngreen-hdmi-dpll-fix" in patch_bytes,
+            "ngreen-hdmi-dpll1-cfgcr0": b"ngreen-hdmi-dpll1-cfgcr0" in patch_bytes,
+            "HP-HDMI-DPLL": b"HP-HDMI-DPLL" in patch_bytes,
+            "R32-PCFIX48-HDMI": b"R32-PCFIX48-HDMI" in patch_bytes,
+            "R32-PCFIX47-HDMI": b"R32-PCFIX47-HDMI" in patch_bytes,
+            "ngreen-hdmi-rgb8-fix": b"ngreen-hdmi-rgb8-fix" in patch_bytes,
+            "ngreen-hdmi-gmbus-fix": b"ngreen-hdmi-gmbus-fix" in patch_bytes,
+            "ngreen-hdmi-gmbus-ok": b"ngreen-hdmi-gmbus-ok" in patch_bytes,
+            "HP-HDMI-TIMING": b"HP-HDMI-TIMING" in patch_bytes,
+            "R32-PCFIX41-FASTBOOT": b"R32-PCFIX41-FASTBOOT" in patch_bytes,
+            "HP-FASTBOOT": b"HP-FASTBOOT" in patch_bytes,
+            "ngreen-fastboot": b"ngreen-fastboot" in patch_bytes,
+            "R32-PCFIX40-QUIET-HOTPATH": b"R32-PCFIX40-QUIET-HOTPATH" in patch_bytes,
+            "HP-QUIET-HOTPATH": b"HP-QUIET-HOTPATH" in patch_bytes,
+            "ngreen-quiet-hotpath": b"ngreen-quiet-hotpath" in patch_bytes,
+            "HP-CAMELLIA-NULLGUARD": b"HP-CAMELLIA-NULLGUARD" in patch_bytes,
+            "HP-ORPHAN-CAP": b"HP-ORPHAN-CAP" in patch_bytes,
             "ngreen-wake-xrgb10-preserved": b"ngreen-wake-xrgb10-preserved" in patch_bytes,
             "no_plane1a_format_clobber": b"xeNormalizePlane1ARgb" not in patch_bytes and b"ngreen-wake-plane-rgb-fix" not in patch_bytes,
-            "pcfix38_filename": "pcfix38" in patch_path.name,
+            "pcfix50_filename": "pcfix50" in patch_path.name,
         }
-        patch_ok = patch_sha == "9f589c710f30c7975713940b79c3cce3aa6ad44e2a9eb09403bcd8c93549b1dc" and all(patch_markers.values())
+        patch_ok = patch_sha == "08704b5256cca92b56784909c377c257109c42ffdc9dcdb7e4b0b752174b9eb3" and all(patch_markers.values())
         if not patch_ok:
-            errors.append("NootedGreen PCFIX38 patch file hash or marker check failed")
+            errors.append("NootedGreen PCFIX50 patch file hash or marker check failed")
             all_passed = False
-        results["nootedgreen_pcfix38_patch"] = {
+        results["nootedgreen_pcfix50_patch"] = {
             "path": patch_path.relative_to(root).as_posix(),
             "sha256": patch_sha,
             "size_bytes": len(patch_bytes),
@@ -1344,6 +1450,38 @@ def verify_section4_binary_markers(root: Path, errors: list[str]) -> dict:
     else:
         errors.append(f"Missing patch file for marker check: {patch_path}")
         all_passed = False
+
+    historical_patches = (
+        ("nootedgreen_pcfix39_patch", "patches/nootedgreen-r32-pcfix39-camellia-orphan-20261111.patch", "b124045deb81da9d352c384b0b193580873d28a82973cdbbb6ca4f792e563d10", b"HP-CAMELLIA-NULLGUARD"),
+        ("nootedgreen_pcfix40_patch", "patches/nootedgreen-r32-pcfix40-quiet-hotpath-20261111.patch", "7e86537e46e0bf2adb55961a4c4039584c05a8e99e4ad8927b6ed63614721abb", b"R32-PCFIX40-QUIET-HOTPATH"),
+        ("nootedgreen_pcfix41_patch", "patches/nootedgreen-r32-pcfix41-fastboot-20261112.patch", "0483a614c9c86437c6ad2e23ff79a3c608ec1906420f9e9429a59bfab56256d3", b"R32-PCFIX41-FASTBOOT"),
+        ("nootedgreen_pcfix42_patch", "patches/nootedgreen-r32-pcfix42-hdmi-20261112.patch", "3520fe4522773722459c569993fd9bcbc4590057bffd71cb7ae9715015e9bcb9", None),
+        ("nootedgreen_pcfix43_patch", "patches/nootedgreen-r32-pcfix43-hdmi-20261113.patch", "a87d22ec60638d5a06037344af694bb12f00aa37bc7ce713750c1684e57cfb8c", None),
+        ("nootedgreen_pcfix44_patch", "patches/nootedgreen-r32-pcfix44-hdmi-20261113.patch", "02be13825ab4714d05ec70616f617247d620481049dd093b4ef059b151d37baa", None),
+        ("nootedgreen_pcfix45_patch", "patches/nootedgreen-r32-pcfix45-hdmi-20261113.patch", "bed797f874af231c5d0501b2f5b179fc53a10ed6a54b3e40951f72331297f815", None),
+        ("nootedgreen_pcfix46_patch", "patches/nootedgreen-r32-pcfix46-hdmi-20261113.patch", "3d509c1e5351321b70202f32a436e9531d3c02ea479f2ffb09e21883850ef6c9", b"R32-PCFIX46-HDMI"),
+        ("nootedgreen_pcfix47_patch", "patches/nootedgreen-r32-pcfix47-hdmi-20261113.patch", "1abb94847dfd8c0fac3e25f704c860a61f903cf52bffa07ac14ae50c46d8680d", b"R32-PCFIX47-HDMI"),
+        ("nootedgreen_pcfix48_patch", "patches/nootedgreen-r32-pcfix48-hdmi-20261114.patch", "c597f1b42d4ece02e87c4fbe6738039f853bec10cb2d8bdc4f27a961f0a29401", b"R32-PCFIX48-HDMI"),
+        ("nootedgreen_pcfix49_patch", "patches/nootedgreen-r32-pcfix49-hdmi-20261114.patch", "063106ad7cfd34ab269e83203de222213b20d22ea73766e03546b1cf5a8fdfdf", b"R32-PCFIX49-HDMI"),
+    )
+    for result_key, hist_rel, hist_expected_sha, hist_marker in historical_patches:
+        hist_path = root / hist_rel
+        if not hist_path.is_file():
+            errors.append(f"Missing historical NootedGreen patch: {hist_rel}")
+            all_passed = False
+            continue
+        hist_bytes = hist_path.read_bytes()
+        hist_sha = hashlib.sha256(hist_bytes).hexdigest()
+        hist_ok = hist_sha == hist_expected_sha and (hist_marker is None or hist_marker in hist_bytes)
+        if not hist_ok:
+            errors.append(f"Historical NootedGreen patch hash or marker check failed: {hist_rel}")
+            all_passed = False
+        results[result_key] = {
+            "path": hist_rel,
+            "sha256": hist_sha,
+            "size_bytes": len(hist_bytes),
+            "passed": hist_ok,
+        }
 
     return {
         "passed": all_passed,
@@ -1589,7 +1727,7 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
         return {
             "passed": False,
             "verified_target_count": 0,
-            "expected_target_count": 9,
+            "expected_target_count": 11,
             "temp_dir_cleaned_up": True,
             "remaining_temp_bytes": 0,
             "total_duration_ms": 0.0,
@@ -1625,11 +1763,11 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
                     ".local/driver-repair-20261103/s0ix-standby-prep-20261107/"
                     "subsystem-audit-3b5cd162/live-acpi/SSDT-EC0-ITLB.dsl"
                 ),
-                "expected_dsl_sha256": "30dd9d79d501cb83cab902fe9acc3f46553ef6efafc5878641fe1174387186ed",
-                "expected_dsl_size": 7231,
+                "expected_dsl_sha256": "816a580303df3316ad90aa0f90e6a181d32b2c41f7cd0e820fe89a4857eaf19b",
+                "expected_dsl_size": 10011,
                 "ref_aml_rel": f"{BUNDLE_DIR_REL}/EFI-OC/OC/ACPI/SSDT-EC0-ITLB.aml",
-                "expected_aml_sha256": "122a5b9d778c6429d32f73f1da7e695ba7498e6714e172f708b22894bd8ddaf8",
-                "expected_aml_size": 1572,
+                "expected_aml_sha256": "8a931eb6565d57e58cb4a798028486e443e72ff0756edb7afff9a8ffa15ee998",
+                "expected_aml_size": 1854,
             },
         ]
 
@@ -1820,8 +1958,8 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
                 ref_bytes = s0ix_ref_bin.read_bytes()
                 rebuilt_sha = hashlib.sha256(rebuilt_bytes).hexdigest()
                 rebuilt_size = len(rebuilt_bytes)
-                expected_sha = "79f27da6a2124f9d476500f8bebde51af09d5b230d78d7833a0ab2dcb060ba55"
-                expected_size = 74824
+                expected_sha = "bffd2681628aca10f8039ac7ca312d6103f487e1457b99b63d29cd99ff5f9d3c"
+                expected_size = 74840
                 exact_match = rebuilt_bytes == ref_bytes and rebuilt_sha == expected_sha and rebuilt_size == expected_size
                 if not exact_match:
                     errors.append(
@@ -1842,24 +1980,149 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
                     "duration_ms": step_ms,
                 }
 
+        # 6.2b TGLDmic.kext (v0.5.0) Clean-Room Compilation + Bundle Signing
+        step_t0 = time.monotonic()
+        dmic_repo = root / ".local/peripheral-prep-20261105/TGLDmic-repo"
+        dmic_src = dmic_repo / "kext/TGLDmic"
+        dmic_info = dmic_src / "Info.plist"
+        dmic_ref_bin = bundle_dir / "EFI-OC/OC/Kexts/TGLDmic.kext/Contents/MacOS/TGLDmic"
+        dmic_tmp = tmp_dir / "tgldmic-build"
+        dmic_kext_tmp = dmic_tmp / "TGLDmic.kext"
+        dmic_out_bin = dmic_kext_tmp / "Contents/MacOS/TGLDmic"
+
+        if (
+            not (dmic_src / "TGLDmic.cpp").is_file()
+            or not (dmic_repo / "tools/gen-fw.py").is_file()
+            or not dmic_info.is_file()
+            or not dmic_ref_bin.is_file()
+            or not (ksdk / "Headers").is_dir()
+        ):
+            errors.append("[TGLDmic] Missing TGLDmic source tree, MacKernelSDK, or reference binary")
+            rebuilds["TGLDmic"] = {"passed": False, "error": "Missing TGLDmic sources, SDK, or reference"}
+            all_passed = False
+        else:
+            (dmic_kext_tmp / "Contents/MacOS").mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(dmic_info, dmic_kext_tmp / "Contents/Info.plist")
+            fw_c = dmic_tmp / "Firmware.c"
+            dmic_common = [
+                "-target", "x86_64-apple-macos10.15",
+                "-mkernel", "-nostdinc", "-fno-builtin", "-fno-common", "-fno-stack-protector",
+                "-mmmx", "-msse", "-msse2",
+                "-DKERNEL", "-DKERNEL_PRIVATE", "-DDRIVER_PRIVATE", "-DAPPLE", "-DNeXT",
+                "-isystem", str(ksdk / "Headers"),
+                f"-I{dmic_src}",
+                "-O2", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-unused-private-field", "-Werror",
+                "-fno-use-cxa-atexit", "-fno-register-global-dtors-with-atexit",
+                "-mllvm", "-disable-atexit-based-global-dtor-lowering",
+                "-fno-asynchronous-unwind-tables",
+            ]
+            dmic_cxx = [*dmic_common, "-std=gnu++17", "-fapple-kext", "-fno-rtti", "-fno-exceptions"]
+            dmic_cc = [*dmic_common, "-std=gnu11"]
+            dmic_objs: list[str] = []
+            dmic_cmds: list[list[str]] = [
+                [
+                    sys.executable,
+                    str(dmic_repo / "tools/gen-fw.py"),
+                    "--tgl", str(dmic_repo / "firmware/intel/sof-tgl.ri"),
+                    "--cml", str(dmic_repo / "firmware/intel/sof-cml.ri"),
+                    "-o", str(fw_c),
+                ]
+            ]
+            for src_name in ("TGLDmic.cpp", "DspBoot.cpp", "Capture.cpp", "TGLDmicUserClient.cpp"):
+                obj_p = dmic_tmp / f"{Path(src_name).stem}.o"
+                dmic_objs.append(str(obj_p))
+                dmic_cmds.append([tools["clang"], *dmic_cxx, "-c", str(dmic_src / src_name), "-o", str(obj_p)])
+            for c_path, o_name in ((fw_c, "Firmware.o"), (dmic_src / "kmod_info.c", "kmod_info.o")):
+                obj_p = dmic_tmp / o_name
+                dmic_objs.append(str(obj_p))
+                dmic_cmds.append([tools["clang"], *dmic_cc, "-c", str(c_path), "-o", str(obj_p)])
+            dmic_cmds.append([
+                tools["ld64_lld"],
+                "-kext", "-arch", "x86_64",
+                "-platform_version", "macos", "10.15", "26.5",
+                "-export_dynamic",
+                *dmic_objs,
+                str(ksdk / "Library/x86_64/libkmod.a"),
+                str(ksdk / "Library/universal/libkmodc++.a"),
+                "-o", str(dmic_out_bin),
+            ])
+            dmic_rc = 0
+            dmic_err = ""
+            for cmd in dmic_cmds:
+                proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+                if proc.returncode != 0:
+                    dmic_rc = proc.returncode
+                    dmic_err = proc.stderr.strip() or proc.stdout.strip()
+                    break
+            if dmic_rc == 0 and dmic_out_bin.is_file():
+                dmic_out_bin.chmod(0o755)
+                sproc = subprocess.run(
+                    [tools["rcodesign"], "sign", "--config-file", "/dev/null", "--timestamp-url", "none", str(dmic_kext_tmp)],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    check=False,
+                )
+                if sproc.returncode != 0:
+                    dmic_rc = sproc.returncode
+                    dmic_err = sproc.stderr.strip() or sproc.stdout.strip()
+            step_ms = round((time.monotonic() - step_t0) * 1000.0, 2)
+
+            if dmic_rc != 0 or not dmic_out_bin.is_file():
+                errors.append(f"[TGLDmic] Clean-room compilation failed (rc={dmic_rc}): {dmic_err}")
+                rebuilds["TGLDmic"] = {"passed": False, "exit_code": dmic_rc, "duration_ms": step_ms}
+                all_passed = False
+            else:
+                rebuilt_bytes = dmic_out_bin.read_bytes()
+                ref_bytes = dmic_ref_bin.read_bytes()
+                rebuilt_sha = hashlib.sha256(rebuilt_bytes).hexdigest()
+                rebuilt_size = len(rebuilt_bytes)
+                expected_sha = "04cd2c7d38ae8fd8dff1c3d2375c53f5f756b0b0bdad2c9535bfc59e9649ecfe"
+                expected_size = 1187520
+                exact_match = rebuilt_bytes == ref_bytes and rebuilt_sha == expected_sha and rebuilt_size == expected_size
+                if not exact_match:
+                    errors.append(
+                        f"[TGLDmic] Clean-room rebuild mismatch: size={rebuilt_size} (expected {expected_size}), "
+                        f"sha256={rebuilt_sha} (expected {expected_sha})"
+                    )
+                    all_passed = False
+                rebuilds["TGLDmic"] = {
+                    "passed": exact_match,
+                    "source_dir": ".local/peripheral-prep-20261105/TGLDmic-repo/kext/TGLDmic",
+                    "reference_binary": dmic_ref_bin.relative_to(root).as_posix(),
+                    "exit_code": 0,
+                    "size_bytes": rebuilt_size,
+                    "expected_size_bytes": expected_size,
+                    "sha256": rebuilt_sha,
+                    "expected_sha256": expected_sha,
+                    "byte_for_byte_matched": exact_match,
+                    "duration_ms": step_ms,
+                }
+
         # 6.3 NootedGreen Patch Application Clean-Room Verification
         step_t0 = time.monotonic()
         ng_baseline_dir = root / ".local/driver-repair-20261103/repair32-preemption-investigation/source"
         ng_patched_ref = root / ".local/driver-repair-20261103/repair32-readback/source/src/NootedGreen/kern_gen11.cpp"
-        ng_patch_file = root / "patches/nootedgreen-r32-pcfix38-wakecolor-20261111.patch"
+        ng_green_ref = root / ".local/driver-repair-20261103/repair32-readback/source/src/NootedGreen/kern_green.cpp"
+        ng_policy_ref = root / ".local/driver-repair-20261103/repair32-readback/source/src/NootedGreen/hp_repair_policy.hpp"
+        ng_patch_file = root / "patches/nootedgreen-r32-pcfix50-hdmi-20261114.patch"
         ng_tmp_dir = tmp_dir / "ng-src"
 
         if (
             not (ng_baseline_dir / "src/NootedGreen/kern_gen11.cpp").is_file()
             or not ng_patched_ref.is_file()
+            or not ng_green_ref.is_file()
+            or not ng_policy_ref.is_file()
             or not ng_patch_file.is_file()
         ):
-            errors.append("[NootedGreen_patch] Missing baseline NootedGreen source tree, patch file, or reference kern_gen11.cpp")
+            errors.append("[NootedGreen_patch] Missing baseline NootedGreen source tree, patch file, or reference sources")
             rebuilds["NootedGreen_patch"] = {"passed": False, "error": "Missing NootedGreen patch inputs"}
             all_passed = False
         else:
             shutil.copytree(ng_baseline_dir, ng_tmp_dir)
             baseline_kg_path = ng_tmp_dir / "src/NootedGreen/kern_gen11.cpp"
+            baseline_kgr_path = ng_tmp_dir / "src/NootedGreen/kern_green.cpp"
+            baseline_pol_path = ng_tmp_dir / "src/NootedGreen/hp_repair_policy.hpp"
             baseline_kg_sha, baseline_kg_size = sha256_file(baseline_kg_path)
             proc = subprocess.run(
                 [tools["patch"], "-p1", "--batch", "--forward", "-i", str(ng_patch_file)],
@@ -1874,18 +2137,29 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
             ref_bytes = ng_patched_ref.read_bytes()
             patched_sha = hashlib.sha256(patched_bytes).hexdigest()
             patched_size = len(patched_bytes)
-            expected_sha = "e4d257e6784f549cac2635c0762312ad1be03436039bdde6ae018afa613f231f"
-            expected_size = 707349
+            patched_green_bytes = baseline_kgr_path.read_bytes()
+            patched_green_sha = hashlib.sha256(patched_green_bytes).hexdigest()
+            patched_green_size = len(patched_green_bytes)
+            patched_pol_bytes = baseline_pol_path.read_bytes()
+            expected_sha = "2ae6b521828f795bd4a5efe253ec0b3662a8eb0f44319da40143fff513083e99"
+            expected_size = 766393
+            expected_green_sha = "013fcf407dc494bd6b76af7f68b0ea2f64ce68c6f6195d01faa1f9a65278d577"
+            expected_green_size = 54428
             exact_match = (
                 proc.returncode == 0
                 and patched_bytes == ref_bytes
                 and patched_sha == expected_sha
                 and patched_size == expected_size
+                and patched_green_bytes == ng_green_ref.read_bytes()
+                and patched_green_sha == expected_green_sha
+                and patched_green_size == expected_green_size
+                and patched_pol_bytes == ng_policy_ref.read_bytes()
             )
             if not exact_match:
                 errors.append(
                     f"[NootedGreen_patch] Clean-room patch verification failed: rc={proc.returncode}, "
-                    f"size={patched_size} (expected {expected_size}), sha256={patched_sha} (expected {expected_sha})"
+                    f"gen11_size={patched_size} (expected {expected_size}), gen11_sha256={patched_sha} (expected {expected_sha}), "
+                    f"green_size={patched_green_size} (expected {expected_green_size}), green_sha256={patched_green_sha} (expected {expected_green_sha})"
                 )
                 all_passed = False
             rebuilds["NootedGreen_patch"] = {
@@ -1895,11 +2169,16 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
                 "baseline_kern_gen11_sha256": baseline_kg_sha,
                 "patch_file": ng_patch_file.relative_to(root).as_posix(),
                 "reference_kern_gen11": ng_patched_ref.relative_to(root).as_posix(),
+                "reference_kern_green": ng_green_ref.relative_to(root).as_posix(),
                 "exit_code": proc.returncode,
                 "size_bytes": patched_size,
                 "expected_size_bytes": expected_size,
                 "sha256": patched_sha,
                 "expected_sha256": expected_sha,
+                "kern_green_size_bytes": patched_green_size,
+                "expected_kern_green_size_bytes": expected_green_size,
+                "kern_green_sha256": patched_green_sha,
+                "expected_kern_green_sha256": expected_green_sha,
                 "byte_for_byte_matched": exact_match,
                 "duration_ms": step_ms,
             }
@@ -2306,8 +2585,8 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
                 ref_bytes = bridge_ref.read_bytes()
                 rebuilt_sha = hashlib.sha256(rebuilt_bytes).hexdigest()
                 rebuilt_size = len(rebuilt_bytes)
-                expected_sha = "aadfbf21e6e26281c4436ec99a058b875ab2480078b6bb93717970d1c3712252"
-                expected_size = 79776
+                expected_sha = "b79773763955e2ca64e78b93b978f37ffd6b18374dae0442a45f979dccfd9cff"
+                expected_size = 79888
                 bridge_ok = (
                     rebuilt_bytes == ref_bytes
                     and rebuilt_sha == expected_sha
@@ -2315,6 +2594,7 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
                     and b"DisplayServicesCanChangeBrightness" in rebuilt_bytes
                     and b"CGSSetSymbolicHotKeyValue" in rebuilt_bytes
                     and b"velocity-fast" in rebuilt_bytes
+                    and b"adaptive-bklt-poll" in rebuilt_bytes
                 )
                 if not bridge_ok:
                     errors.append(
@@ -2326,6 +2606,97 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
                     "passed": bridge_ok,
                     "source_file": bridge_src.relative_to(root).as_posix(),
                     "reference_binary": bridge_ref.relative_to(root).as_posix(),
+                    "exit_code": 0,
+                    "size_bytes": rebuilt_size,
+                    "expected_size_bytes": expected_size,
+                    "sha256": rebuilt_sha,
+                    "expected_sha256": expected_sha,
+                    "byte_for_byte_matched": rebuilt_bytes == ref_bytes,
+                    "duration_ms": step_ms,
+                }
+
+        # 6.4f Userspace PenBridge Clean-Room Compilation + Bundle Signing
+        step_t0 = time.monotonic()
+        pb_src = root / ".local/touch-penbridge-20261112/PenBridge-hp/Source/PenBridgeObjC/PenBridge.m"
+        pb_plist = root / ".local/touch-penbridge-20261112/PenBridge-hp/Source/PenBridge/Info.plist"
+        pb_icns = root / ".local/touch-penbridge-20261112/PenBridge-hp/Source/PenBridge/icon/AppIcon.icns"
+        pb_ref = bundle_dir / "stage3-penbridge/PenBridge.app/Contents/MacOS/PenBridge"
+        pb_app = tmp_dir / "PenBridge.app"
+        pb_out = pb_app / "Contents/MacOS/PenBridge"
+        if not pb_src.is_file() or not pb_plist.is_file() or not pb_icns.is_file() or not pb_ref.is_file():
+            errors.append("[PenBridge] Missing PenBridge.m, bundle assets, or reference binary")
+            rebuilds["PenBridge"] = {"passed": False, "error": "Missing PenBridge inputs"}
+            all_passed = False
+        else:
+            (pb_app / "Contents/MacOS").mkdir(parents=True, exist_ok=True)
+            (pb_app / "Contents/Resources").mkdir(parents=True, exist_ok=True)
+            pb_clang = shutil.which("clang", path=env.get("PATH", "")) or tools["clang"]
+            pb_cmds = [
+                [
+                    pb_clang,
+                    "-target", "x86_64-apple-macos13.0",
+                    "-isysroot", tools["sdkroot"],
+                    "-fuse-ld=lld",
+                    f"--ld-path={tools['path_ld64_lld']}",
+                    "-O2",
+                    "-fobjc-arc",
+                    "-Wall", "-Wextra", "-Werror",
+                    "-Wno-deprecated-declarations",
+                    "-framework", "Foundation",
+                    "-framework", "AppKit",
+                    "-framework", "CoreGraphics",
+                    "-framework", "ApplicationServices",
+                    "-framework", "IOKit",
+                    str(pb_src),
+                    "-o", str(pb_out),
+                ],
+            ]
+            pb_rc = 0
+            pb_err = ""
+            for cmd in pb_cmds:
+                proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+                if proc.returncode != 0:
+                    pb_rc = proc.returncode
+                    pb_err = proc.stderr.strip() or proc.stdout.strip()
+                    break
+            if pb_rc == 0 and pb_out.is_file():
+                pb_out.chmod(0o755)
+                shutil.copy2(pb_plist, pb_app / "Contents/Info.plist")
+                shutil.copy2(pb_icns, pb_app / "Contents/Resources/AppIcon.icns")
+                proc = subprocess.run([tools["rcodesign"], "sign", str(pb_app)], capture_output=True, text=True, env=env, check=False)
+                if proc.returncode != 0:
+                    pb_rc = proc.returncode
+                    pb_err = proc.stderr.strip() or proc.stdout.strip()
+            step_ms = round((time.monotonic() - step_t0) * 1000.0, 2)
+            if pb_rc != 0 or not pb_out.is_file():
+                errors.append(f"[PenBridge] Clean-room cross-compilation or signing failed (rc={pb_rc}): {pb_err}")
+                rebuilds["PenBridge"] = {"passed": False, "exit_code": pb_rc, "duration_ms": step_ms}
+                all_passed = False
+            else:
+                rebuilt_bytes = pb_out.read_bytes()
+                ref_bytes = pb_ref.read_bytes()
+                rebuilt_sha = hashlib.sha256(rebuilt_bytes).hexdigest()
+                rebuilt_size = len(rebuilt_bytes)
+                expected_sha = "caff70ce5d4da40647d2f7d0fd80c026fec0bac1fc8a9e1589a979fce0413d0f"
+                expected_size = 203072
+                pb_ok = (
+                    rebuilt_bytes == ref_bytes
+                    and rebuilt_sha == expected_sha
+                    and rebuilt_size == expected_size
+                    and b"com.oscacace.PenBridge" in rebuilt_bytes
+                    and b"WACF" in rebuilt_bytes
+                    and b"CGEventPost" in rebuilt_bytes
+                )
+                if not pb_ok:
+                    errors.append(
+                        f"[PenBridge] Clean-room rebuild mismatch: size={rebuilt_size} "
+                        f"(expected {expected_size}), sha256={rebuilt_sha} (expected {expected_sha})"
+                    )
+                    all_passed = False
+                rebuilds["PenBridge"] = {
+                    "passed": pb_ok,
+                    "source_file": pb_src.relative_to(root).as_posix(),
+                    "reference_binary": pb_ref.relative_to(root).as_posix(),
                     "exit_code": 0,
                     "size_bytes": rebuilt_size,
                     "expected_size_bytes": expected_size,
@@ -2388,12 +2759,12 @@ def verify_section6_source_rebuilds(root: Path, errors: list[str]) -> dict:
     return {
         "passed": (
             all_passed
-            and len(rebuilds) == 9
+            and len(rebuilds) == 11
             and tracked_acpi_verified == len(TRACKED_ACPI_DSL_SPECS)
             and all(r.get("passed", False) for r in rebuilds.values())
         ),
         "verified_target_count": sum(1 for r in rebuilds.values() if r.get("passed", False)),
-        "expected_target_count": 9,
+        "expected_target_count": 11,
         "tracked_acpi_dsl_verified_count": tracked_acpi_verified,
         "temp_dir_cleaned_up": temp_cleaned,
         "remaining_temp_bytes": remaining_bytes,
@@ -2607,7 +2978,7 @@ def run_verification(
     sec4 = verify_section4_binary_markers(root, errors)
     sections = {
         "1_core_config_and_receipt_parity": sec1,
-        "2_postinstall_bundle_431_integrity": sec2,
+        "2_postinstall_bundle_436_integrity": sec2,
         "3_opencore_efi_112_parity": sec3,
         "4_binary_feature_and_aml_markers": sec4,
     }
@@ -2686,7 +3057,7 @@ def print_summary(report: dict) -> None:
         f"{s1.get('cross_manifest_parity_count', 0)} cross-manifest keys verified"
     )
 
-    s2 = sections["2_postinstall_bundle_431_integrity"]
+    s2 = sections["2_postinstall_bundle_436_integrity"]
     print(
         f"[{'PASS' if s2.get('passed') else 'FAIL'}] 2. Post-Install Bundle Integrity: "
         f"disk={s2.get('disk_verified_count', 0)}/{s2.get('manifest_entry_count', 0)} files, "
@@ -2734,7 +3105,7 @@ def print_summary(report: dict) -> None:
         ) or str(s6.get("error", "no targets executed"))
         print(
             f"[{'PASS' if s6.get('passed') else 'FAIL'}] 6. Clean-Room Source Rebuilds "
-            f"({s6.get('verified_target_count', 0)}/{s6.get('expected_target_count', 9)} verified, "
+            f"({s6.get('verified_target_count', 0)}/{s6.get('expected_target_count', 11)} verified, "
             f"{s6.get('total_duration_ms', 0):.1f} ms, temp_bytes={s6.get('remaining_temp_bytes', 0)}): "
             f"{target_summary}"
         )
@@ -2763,7 +3134,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check-source-rebuilds",
         action="store_true",
-        help="Perform clean-room compilation of ACPI SSDTs, S0ixStandby.kext, NootedGreen patch, libxedrv.dylib, test_420v_blitalign, xe-h264sw-fixd, hp-wake-helper, and hp-bridge in a TemporaryDirectory.",
+        help="Perform clean-room compilation of ACPI SSDTs, S0ixStandby.kext, TGLDmic.kext, NootedGreen patch, libxedrv.dylib, test_420v_blitalign, xe-h264sw-fixd, hp-wake-helper, hp-bridge, and PenBridge in a TemporaryDirectory.",
     )
     parser.add_argument(
         "--json-out",

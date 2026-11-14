@@ -1,22 +1,39 @@
 /*
- * SSDT-EC0-ITLB.dsl — HP Elite Dragonfly G2 (Tiger Lake) Early-Boot EC0.ECRI 8-bit Split Fix
+ * SSDT-EC0-ITLB.dsl — HP Elite Dragonfly G2 (Tiger Lake) Early-Boot EC0.ECRI 8-bit Split
+ *                      & Darwin EC12/PT04 IccMax/PL4 Clamp Fix
  *
- * Root cause:
- *   During early macOS boot (t ~ 1.63s), AppleACPIEC::start registers its EmbeddedControl
- *   address-space handler and evaluates \_SB.PC00.LPCB.EC0._REG(3, 1) -> ECRI() BEFORE
- *   ECEnabler.kext attaches (t ~ 2.57s, "ECEnabler::init: Primed successfully!").
- *   Stock AppleACPIEC rejects >8-bit EC FieldUnit reads with AE_BAD_PARAMETER.
- *   Inside ECRI(), four methods perform 16-bit EC FieldUnit reads:
- *     1. \_SB.PC00.LPCB.EC0.ITLB (DSDT): reads BFC (Offset 0x8D, 16-bit)
- *     2. \_SB.PC00.LPCB.EC0.EC12 (SSDT2 "NVTEC"): reads ACPR (Offset 0xF9, 16-bit)
- *     3. \_SB.PC00.LPCB.EC0.EC13 (SSDT2 "NVTEC"): reads BDC (Offset 0x89, 16-bit) and BDV (Offset 0x95, 16-bit)
- *     4. \_SB.IETM.ODVP (SSDT14 "DptfTabl"): reads ACPR (0xF9), BDC (0x89), and BDV (0x95)
+ * Root causes fixed:
+ *   A. Early-boot 16-bit EC FieldUnit split:
+ *      During early macOS boot (t ~ 1.63s), AppleACPIEC::start registers its EmbeddedControl
+ *      address-space handler and evaluates \_SB.PC00.LPCB.EC0._REG(3, 1) -> ECRI() BEFORE
+ *      ECEnabler.kext attaches (t ~ 2.57s, "ECEnabler::init: Primed successfully!").
+ *      Stock AppleACPIEC rejects >8-bit EC FieldUnit reads with AE_BAD_PARAMETER.
+ *      Inside ECRI(), four methods perform 16-bit EC FieldUnit reads:
+ *        1. \_SB.PC00.LPCB.EC0.ITLB (DSDT): reads BFC (Offset 0x8D, 16-bit)
+ *        2. \_SB.PC00.LPCB.EC0.EC12 (SSDT2 "NVTEC"): reads ACPR (Offset 0xF9, 16-bit)
+ *        3. \_SB.PC00.LPCB.EC0.EC13 (SSDT2 "NVTEC"): reads BDC (Offset 0x89, 16-bit) and BDV (Offset 0x95, 16-bit)
+ *        4. \_SB.IETM.ODVP (SSDT14 "DptfTabl"): reads ACPR (0xF9), BDC (0x89), and BDV (0x95)
+ *
+ *   B. Darwin ICCMAX/PL4 emergency clamp fix (DSDT.dsl:32592 PT04 + USB-C PD EC12):
+ *      On macOS, \_SB.IETM.DOSS remains Zero (no Windows DPTF driver). In HP's stock DSDT
+ *      PT04(0x41) under DOSS == 0 (line 32592), HP inverted "If (LNotEqual (Local1, Zero))"
+ *      into "If (LNotEqual (Local1, One))", causing pure battery operation (ADP == 0 ->
+ *      Local1 == 0, EC14 == 0) and sub-65W USB-C PD / multi-port PD renegotiation windows to
+ *      fire emergency weak-adapter SMM clamp GSWS(0xB6), latching MSR 0x64F / 0x6B0 Bit 8
+ *      (Package IA/GT ICCMAX/PL4 clipping). Under _OSI("Darwin"):
+ *        - EC12 clamps reported adapter wattage >= 0x41 (65W) when ADP == 1 and BT1I == 1 so
+ *          USB-C PD renegotiations do not collapse DDPL RAPL PPL1/PPL2 to weak-brick fallback;
+ *        - PT04 preserves GSWS(0xB7)/GSWS(0xB6) only for battery-removed bench power
+ *          (Local1 == One) and issues GSWS(0xB1) whenever internal battery is present
+ *          (Local1 == 0x02 AC+Battery or Local1 == Zero Battery, matching Windows DOSS == 1
+ *          full IccMax/PL4 ceiling while DDPL continues governing RAPL PPL1/PPL2).
  *
  * Companion OpenCore ACPI Patches:
- *   1. DSDT:                 49544C42 00 (ITLB\0) -> 58544C42 00 (XTLB\0), Count=1
- *   2. SSDT ("NVTEC"):       45433132 00 (EC12\0) -> 58433132 00 (XC12\0), Count=1
- *   3. SSDT ("NVTEC"):       45433133 00 (EC13\0) -> 58433133 00 (XC13\0), Count=1
+ *   1. DSDT:                 49544C42 00 (ITLB\0)   -> 58544C42 00 (XTLB\0),   Count=1
+ *   2. SSDT ("NVTEC"):       45433132 00 (EC12\0)   -> 58433132 00 (XC12\0),   Count=1
+ *   3. SSDT ("NVTEC"):       45433133 00 (EC13\0)   -> 58433133 00 (XC13\0),   Count=1
  *   4. SSDT ("DptfTabl"):    4F445650 08 (ODVP\x08) -> 58445650 08 (XDVP\x08), Count=1
+ *   5. DSDT:                 50543034 09 (PT04\x09) -> 58543034 09 (XT04\x09), Count=1
  */
 DefinitionBlock ("", "SSDT", 2, "HPTGL", "EC0ITLB", 0x00001000)
 {
@@ -24,7 +41,10 @@ DefinitionBlock ("", "SSDT", 2, "HPTGL", "EC0ITLB", 0x00001000)
     External (_SB_.IETM.ODVX, PkgObj)
     External (_SB_.IETM.XDVP, MethodObj)    // 0 Arguments
     External (_SB_.PC00.LPCB.EC0_, DeviceObj)
+    External (_SB_.PC00.LPCB.EC0_.ADP_, FieldUnitObj)
     External (_SB_.PC00.LPCB.EC0_.BATP, FieldUnitObj)
+    External (_SB_.PC00.LPCB.EC0_.BT1I, FieldUnitObj)
+    External (_SB_.PC00.LPCB.EC0_.EC18, MethodObj)    // 0 Arguments
     External (_SB_.PC00.LPCB.EC0_.ECMX, MutexObj)
     External (_SB_.PC00.LPCB.EC0_.ECRG, IntObj)
     External (_SB_.PC00.LPCB.EC0_.LB1_, FieldUnitObj)
@@ -33,8 +53,11 @@ DefinitionBlock ("", "SSDT", 2, "HPTGL", "EC0ITLB", 0x00001000)
     External (_SB_.PC00.LPCB.EC0_.NLB2, IntObj)
     External (_SB_.PC00.LPCB.EC0_.XC12, MethodObj)    // 0 Arguments
     External (_SB_.PC00.LPCB.EC0_.XC13, MethodObj)    // 0 Arguments
+    External (_SB_.PC00.LPCB.EC0_.XT04, MethodObj)    // 1 Arguments
     External (_SB_.PC00.LPCB.EC0_.XTLB, MethodObj)    // 0 Arguments
+    External (EC14, FieldUnitObj)
     External (G25F, FieldUnitObj)
+    External (GSWS, MethodObj)    // 1 Arguments
     External (HPID, FieldUnitObj)
     External (ODV0, IntObj)
     External (ODV1, IntObj)
@@ -108,6 +131,10 @@ DefinitionBlock ("", "SSDT", 2, "HPTGL", "EC0ITLB", 0x00001000)
                 If (ECRG)
                 {
                     Store (Or (ShiftLeft (ACPH, 0x08), ACPL), Local0)
+                    If (LAnd (LEqual (ADP, One), LAnd (LEqual (BT1I, One), LLess (Local0, 0x41))))
+                    {
+                        Store (0x41, Local0)
+                    }
                 }
 
                 Release (ECMX)
@@ -147,6 +174,43 @@ DefinitionBlock ("", "SSDT", 2, "HPTGL", "EC0ITLB", 0x00001000)
             If (CondRefOf (\_SB.PC00.LPCB.EC0.XC13))
             {
                 Return (XC13 ())
+            }
+
+            Return (Zero)
+        }
+
+        Method (PT04, 1, Serialized)
+        {
+            If (_OSI ("Darwin"))
+            {
+                Store (Zero, Local1)
+                If (CondRefOf (\_SB.PC00.LPCB.EC0.EC18))
+                {
+                    Store (EC18 (), Local1)
+                }
+
+                If (LEqual (Local1, One))
+                {
+                    If (LGreaterEqual (\EC14, Arg0))
+                    {
+                        \GSWS (0xB7)
+                    }
+                    Else
+                    {
+                        \GSWS (0xB6)
+                    }
+                }
+                Else
+                {
+                    \GSWS (0xB1)
+                }
+
+                Return (Zero)
+            }
+
+            If (CondRefOf (\_SB.PC00.LPCB.EC0.XT04))
+            {
+                XT04 (Arg0)
             }
 
             Return (Zero)

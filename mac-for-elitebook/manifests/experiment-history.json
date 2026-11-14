@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "record_type": "sanitized_public_evidence_index",
-  "as_of": "2026-11-11",
+  "as_of": "2026-11-14",
   "scope": "Concise milestones and evidence boundaries; not a transcript or complete event log.",
   "source_orchestration_history_copied": false,
   "private_raw_evidence_included": false,
@@ -114,6 +114,38 @@
         "../scripts/verify_release_artifacts.py"
       ],
       "limitation": "Phase 22 S0ixStandby v0.4.4 (74,824 B, SHA-256 79f27da6a2124f9d476500f8bebde51af09d5b230d78d7833a0ab2dcb060ba55) was built while the target remained in clamshell S0ix sleep and awaits sync to internal OpenCore ESP disk0s6 (/Volumes/EFI/EFI/OC/Kexts/S0ixStandby.kext/Contents/MacOS/S0ixStandby) on wake for the next reboot."
+    },
+    {
+      "date": "2026-11-12",
+      "topic": "Camellia NULL guard, 512 MiB orphan pool cap (R32-PCFIX39), quiet hotpath (R32-PCFIX40 / event-driven hp-bridge v3), ~18.5s fastboot (R32-PCFIX41) + pre-login Tailscale, and PL4/ICCMAX & DarkWake BT fix",
+      "summary": "Fixed CamelliaBase::UpdateDpbResidency(this=NULL) powermetrics panic + restored O(1) IOAccelOrphanedMemoryPool reuse capped at 512 MiB / 10m in R32-PCFIX39 (546,864 B, SHA-256 5053781af4064584e0bed981360b92b3bad0356c6501dca25f070969c8fcbc36); eliminated synchronous hotpath kernel logging (R32-PCFIX40, 547,936 B, SHA-256 72ea54b55dd1a979e34b6c3826811b894a273ef68157b0da15ff2a752389f08c) and 25 Hz XPC polling in hp-bridge v3 (79,888 B, SHA-256 b79773763955e2ca64e78b93b978f37ffd6b18374dae0442a45f979dccfd9cff, -99.81% corebrightnessd logs) alongside TGLDmic v0.5.0 (1,187,520 B, SHA-256 04cd2c7d38ae8fd8dff1c3d2375c53f5f756b0b0bdad2c9535bfc59e9649ecfe); cut cold boot to ~18.5s in R32-PCFIX41 (548,560 B, SHA-256 1a7dc72abc717222978f7ceed3001a76c03feed0801f0d935ee38c0f13b2ad4e) with pre-login Tailscale (~20s); and resolved ICCMAX/PL4 throttling + 48s Maintenance DarkWake BT stalls via SSDT-EC0-ITLB.aml (1,854 B, SHA-256 8a931eb6565d57e58cb4a798028486e443e72ff0756edb7afff9a8ffa15ee998), config.plist (60,988 B, SHA-256 d84c0952940599962bda0e74c5cdefc3eb03d09de0df1bf710cd6a128ff81ece), S0ixStandby v0.4.4 (74,840 B, SHA-256 bffd2681628aca10f8039ac7ca312d6103f487e1457b99b63d29cd99ff5f9d3c), pmset/mDNSResponder flags, and hp-bt-compat-check.sh.",
+      "public_docs": [
+        "../README.md",
+        "../docs/continuation.md",
+        "../acpi/SSDT-EC0-ITLB.dsl",
+        "../patches/nootedgreen-r32-pcfix39-camellia-orphan-20261111.patch",
+        "../patches/nootedgreen-r32-pcfix40-quiet-hotpath-20261111.patch",
+        "../patches/nootedgreen-r32-pcfix41-fastboot-20261112.patch"
+      ],
+      "limitation": "All kernel, ACPI, and userspace optimizations above remain active in the subsequent HDMI 2.0b releases."
+    },
+    {
+      "date": "2026-11-14",
+      "topic": "Native Tiger Lake ComboPHY DDI-B built-in HDMI 2.0b 600 MHz SCDC output at 2560x1440@60/120/144Hz (R32-PCFIX42..PCFIX50-HDMI), SYNA30B6/PenBridge deployment, and 11/11 release verification",
+      "summary": "Implemented and live-verified native built-in Tiger Lake ComboPHY DDI-B (ddi=1) HDMI 2.0b output across R32-PCFIX42..PCFIX50-HDMI (final binary 580,640 B, SHA-256 da62b067f6561568fe0f203ef18663f1f0c137c30d2759ab37d736346dbffca6, UUID 4C4C44B8-5555-3144-A17C-F348EF4AFF41): configured ConnectorHDMI + GMBUS busId=2 (opt-out -ngreennohdmi), guarded DP AUX in hpGetStreamAccessAUX (fixing probePortStateEv __cxa_pure_virtual boot hang), fixed hwDoGMBusRequest swapped (reg, val) + 0xC5108 poll, filtered FB1 wire modes to 24-bit 8bpc RGB 4:4:4, relocated AppleIntelTGLGraphicsFramebuffer 0xf3518 DPLL table from Ice Lake offsets to Tiger Lake ComboPHY DPLL{0,1,4}_CFGCR{0,1} (0x164284..0x164298) with Gen11::raWriteRegister32 masks, extended IOFBTimingRange to 600 MHz, and programmed HDMI 2.0 SCDC 0x54/0x20 scrambling + 1/40 bit clock ratio (>= 340 MHz) + TRANS_DDI_FUNC_CTL_B HIGH_TMDS_CHAR_RATE. Live-verified on boot 2040D82F-1389-42DE-A348-7E753BA323E6 driving dual Extended desktop (eDP 1920x1080 10-bit ARGB2101010 + ASUS VG27AQ5A HDMI 2560x1440@60/120/144Hz 24-bit ARGB8888, 593.700000 MHz, DPLL1=0x01A801CF/0x00002448, transB=0x90010011, scdc=3/3 cfg=3 st=1) alongside SYNA30B6 VoodooI2CNativeEngine trackpad and PenBridge (/Applications/PenBridge.app, 203,072 B, SHA-256 caff70ce5d4da40647d2f7d0fd80c026fec0bac1fc8a9e1589a979fce0413d0f), passing 11/11 verify-postinstall.sh checks, test_420v_blitalign PASS, and 11/11 clean-room source rebuilds across primary ESP disk0s1, 436-file bundle (88889d06...), recovery IMG (7c6601ee...), and Ventoy USB (436/436).",
+      "public_docs": [
+        "../README.md",
+        "../docs/continuation.md",
+        "../docs/clean-install-guide.md",
+        "../docs/from-source-rebuild-guide.md",
+        "../acpi/SSDT-EC0-ITLB.dsl",
+        "../patches/nootedgreen-r32-pcfix44-hdmi-20261113.patch",
+        "../patches/nootedgreen-r32-pcfix47-hdmi-20261113.patch",
+        "../patches/nootedgreen-r32-pcfix49-hdmi-20261114.patch",
+        "../patches/nootedgreen-r32-pcfix50-hdmi-20261114.patch",
+        "../scripts/verify_release_artifacts.py"
+      ],
+      "limitation": "SimpleHDA.kext does not expose iGPU HDMI audio (codec 2 8086:2812); PenBridge.app awaits first interactive GUI Accessibility toggle approval; optional Windows NTFS staging copy awaits sync on the next NixOS boot."
     }
   ],
   "privacy_note": "Personal paths, network endpoints, serial/SMBIOS identities, credentials, private keys, and raw logs are intentionally not included. A missing private artifact is not a verified result."

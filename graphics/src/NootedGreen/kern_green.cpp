@@ -11,6 +11,7 @@
 #include <Headers/kern_api.hpp>
 #include <Headers/kern_devinfo.hpp>
 #include "hp_repair_policy.hpp"
+#include <IOKit/IOLib.h>
 #include <libkern/c++/OSBoolean.h>
 #include <libkern/c++/OSDictionary.h>
 #include <libkern/c++/OSNumber.h>
@@ -667,25 +668,30 @@ static void *wrapPoolGetPtr(void *that, uint32_t ndw) {
 // chegam a rodar, e quantas transações são concluídas.
 static mach_vm_address_t orgDpTxIrq = 0, orgDpTxTimeout = 0, orgDpComplete = 0, orgDpQueue = 0;
 static volatile uint32_t dpTxIrqN = 0, dpTxTimeoutN = 0, dpCompleteN = 0, dpQueueN = 0;
+static inline bool xeFlipVerboseLog() {
+	static int sFlipLog = -1;
+	if (sFlipLog < 0) sFlipLog = checkKernelArgument("-ngreenevlog") ? 1 : 0;
+	return sFlipLog == 1;
+}
 static uint64_t wrapDpTxIrq(void *that) {
 	uint32_t n = ++dpTxIrqN;
-	if (n <= 24 || !(n & 4095)) IOLog("XeNG FLIP txIrq #%u (queue %u complete %u timeout %u)\n", n, dpQueueN, dpCompleteN, dpTxTimeoutN);
+	if (n <= 24 || (xeFlipVerboseLog() && !(n & 4095))) IOLog("XeNG FLIP txIrq #%u (queue %u complete %u timeout %u)\n", n, dpQueueN, dpCompleteN, dpTxTimeoutN);
 	return FunctionCast(wrapDpTxIrq, orgDpTxIrq)(that);
 }
 static uint64_t wrapDpTxTimeout(void *that, void *timer) {
 	uint32_t n = ++dpTxTimeoutN;
-	if (n <= 24 || !(n & 63)) IOLog("XeNG FLIP txTimeout #%u (queue %u complete %u irq %u)\n", n, dpQueueN, dpCompleteN, dpTxIrqN);
+	if (n <= 24 || (xeFlipVerboseLog() && !(n & 63))) IOLog("XeNG FLIP txTimeout #%u (queue %u complete %u irq %u)\n", n, dpQueueN, dpCompleteN, dpTxIrqN);
 	return FunctionCast(wrapDpTxTimeout, orgDpTxTimeout)(that, timer);
 }
 static uint64_t wrapDpComplete(void *that, void *t) {
 	uint32_t n = ++dpCompleteN;
-	if (n <= 24 || !(n & 1023)) IOLog("XeNG FLIP complete #%u (queue %u)\n", n, dpQueueN);
+	if (n <= 24 || (xeFlipVerboseLog() && !(n & 1023))) IOLog("XeNG FLIP complete #%u (queue %u)\n", n, dpQueueN);
 	return FunctionCast(wrapDpComplete, orgDpComplete)(that, t);
 }
 static uint64_t wrapDpQueue(void *that, void *t) {
 	uint32_t n = ++dpQueueN;
 	uint64_t r = FunctionCast(wrapDpQueue, orgDpQueue)(that, t);
-	if (n <= 24 || !(n & 1023)) IOLog("XeNG FLIP queue #%u ret=0x%x (complete %u)\n", n, (uint32_t)r, dpCompleteN);  // 19/10: era 1 linha por flip (ret nunca é 0)
+	if (n <= 24 || (xeFlipVerboseLog() && !(n & 1023))) IOLog("XeNG FLIP queue #%u ret=0x%x (complete %u)\n", n, (uint32_t)r, dpCompleteN);  // 19/10: era 1 linha por flip (ret nunca é 0)
 	return r;
 }
 
@@ -703,28 +709,88 @@ static uint64_t wrapUnlockCpu(void *that, void *task) {
 	if (that && that == gXeBlitMem && gXeBlitCpu) return 0;
 	return FunctionCast(wrapUnlockCpu, orgUnlockCpu)(that, task);
 }
-// xe/noorphan (20/10): pânico "corrupt list" no iconservicesagent em IOAccelSysMemory::unorphanIt <-
-// IOAccelOrphanedMemoryPool::getMemory <- IOAccelResource2::newResourceWithOptions <- new_resource. O pool de órfãos
-// guarda a memória de recursos liberados para reuso; com o driver TGL (eventos/ABI de outra geração) a lista corrompe
-// e memória reaproveitada pode ainda estar em uso pela GPU. getMemory -> nullptr = sempre aloca memória nova (o pool
-// segue sendo podado pelo próprio IOAcceleratorFamily2). -ngreenorphanreuse desliga.
+// HP-ORPHAN-CAP (R32-PCFIX39): On real Tiger Lake Tahoe, IGAccelSysMemory (0x198 B) matches Tahoe
+// IOAccelSysMemory (0x198 B) in object size and vtable layout, and all IOAccelOrphanedMemoryPool mutations
+// run under accel->lockAccelerator() (+0x158) with IOAccelMemory::testAllEvent gating reuse. Disabling
+// getMemory (NOORPHAN) caused 0% reuse hit rate, trapped ~4.27 GiB (ram_size >> 2, 80h maxAge) in orphaned
+// buffers, exhausted 16 GiB RAM, and forced synchronous kernel page zeroing + 64-bit PPGTT mapping on every
+// UI scroll/animation texture. Re-enable native reuse by default on real TGL (opt-out: -ngreennoorphan) and
+// cap IOAccelOrphanedMemoryPool::init to 512 MiB / 10 min (opt-out: -ngreenuncappedorphan).
+static constexpr uint64_t kHpOrphanPoolMaxBytes = 512ULL << 20;
+static constexpr uint32_t kHpOrphanPoolMaxAgeTicks = 10U;
 volatile uint32_t gXeOrphanMiss = 0;
 static mach_vm_address_t orgOrphanGet = 0;
+static mach_vm_address_t orgOrphanPoolInit = 0;
 static void *wrapOrphanGet(void *that, void *shared, void *res, uint64_t size, void *opt) {
 	(void)that; (void)shared; (void)res; (void)size; (void)opt;
 	gXeOrphanMiss++;
 	return nullptr;
 }
+static bool wrapOrphanPoolInit(void *that, void *accel, uint64_t maxBytes, uint32_t maxAge) {
+	uint64_t origBytes = maxBytes;
+	uint32_t origAge = maxAge;
+	if (maxBytes > kHpOrphanPoolMaxBytes) {
+		maxBytes = kHpOrphanPoolMaxBytes;
+	}
+	if (maxBytes > 0 && maxAge > kHpOrphanPoolMaxAgeTicks) {
+		maxAge = kHpOrphanPoolMaxAgeTicks;
+	}
+	bool ok = FunctionCast(wrapOrphanPoolInit, orgOrphanPoolInit)(that, accel, maxBytes, maxAge);
+	if (origBytes != maxBytes || origAge != maxAge) {
+		IOLog("HP-ORPHAN-CAP: IOAccelOrphanedMemoryPool::init maxBytes 0x%llx->0x%llx maxAge %u->%u ret=%d\n",
+		      static_cast<unsigned long long>(origBytes), static_cast<unsigned long long>(maxBytes),
+		      origAge, maxAge, ok ? 1 : 0);
+	}
+	return ok;
+}
 static mach_vm_address_t orgWaitForStamp = 0;
 static IOReturn wrapWaitForStamp(void *that, int32_t channel, unsigned int stamp, unsigned int *outStamp) {
+	static int sForceWaitStamp = -1;
+	if (sForceWaitStamp < 0) {
+		sForceWaitStamp = checkKernelArgument("-ngreenwaitstamp") ? 1 : 0;
+	}
+	if (!Gen11::gGfxAccelStartDone && sForceWaitStamp == 0) {
+		// HP-FASTBOOT-STAMP (R32-PCFIX41): Before IntelAccelerator::start() finishes installing its
+		// interrupt handler, CoreDisplay calls IOAccelEventMachine2::waitForStamp(8, 3), which
+		// otherwise sleeps 1s + 4s = 5.002s waiting on an IRQ that cannot fire yet while holding
+		// the IOKit lock that blocks IntelAccelerator::start(). Wait briefly for any in-flight
+		// RCS0/BCS0 ring or execlist submission to go idle in hardware (<= 10.2 ms), then complete
+		// the stamp immediately without sleeping 5s. Once gGfxAccelStartDone is true, normal
+		// runtime calls go straight through orgWaitForStamp.
+		uint32_t waitedUs = 0;
+		NGreen *cb = NGreen::callback;
+		if (cb && cb->mmioLength() >= 0x23000) {
+			IODelay(200);
+			waitedUs += 200;
+			for (uint32_t i = 0; i < 200; ++i) {
+				uint32_t rcsHead = cb->readReg32(0x2034) & 0x1FFFFCU;
+				uint32_t rcsTail = cb->readReg32(0x2030) & 0x1FFFFCU;
+				uint32_t bcsHead = cb->readReg32(0x22034) & 0x1FFFFCU;
+				uint32_t bcsTail = cb->readReg32(0x22030) & 0x1FFFFCU;
+				uint32_t rcsEx = cb->readReg32(0x2234);
+				uint32_t bcsEx = cb->readReg32(0x22234);
+				bool rcsIdle = (rcsHead == rcsTail) && (rcsEx == 0 || (rcsEx & 1U) != 0);
+				bool bcsIdle = (bcsHead == bcsTail) && (bcsEx == 0 || (bcsEx & 1U) != 0);
+				if (rcsIdle && bcsIdle) {
+					break;
+				}
+				IODelay(50);
+				waitedUs += 50;
+			}
+		}
+		if (outStamp) {
+			*outStamp = stamp;
+		}
+		static uint32_t sPreGfxFastStampLogs = 0;
+		uint32_t n = ++sPreGfxFastStampLogs;
+		if (n <= 8) {
+			IOLog("HP-FASTBOOT: V221 pre-GFX waitForStamp(%d,%u) fast-completed in %u us (-ngreenwaitstamp to restore)\n",
+			      channel, stamp, waitedUs);
+		}
+		return kIOReturnSuccess;
+	}
 	IOReturn ret = FunctionCast(wrapWaitForStamp, orgWaitForStamp)(that, channel, stamp, outStamp);
 	if (ret != kIOReturnSuccess && !Gen11::gGfxAccelStartDone) {
-		// Stamp timed out before GFX start() completed. The GPU DID execute the ring
-		// (HEAD==TAIL, IPEHR=MI_REPORT_HEAD) but the interrupt handler isn't installed
-		// yet so gpu_stamp was never bumped. Returning success here lets CoreDisplay
-		// proceed, which unblocks IOKit matching so GFX kext can start. GFX's interrupt
-		// handler will then process the pending GT_INTR_DW0 backlog when it installs.
-		// Blocking here causes a deadlock (CoreDisplay stuck → GFX never matches).
 		SYSLOG("ngreen", "V221: stamp(%d,%u) timed out before GFX start — faking success to unblock CoreDisplay",
 			   channel, stamp);
 		if (outStamp) *outStamp = stamp;
@@ -867,13 +933,26 @@ bool NGreen::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t
 			IOLog("XeNG BLITSCRATCH2: lock/unlockForCPUAccess %s\n", gXeLockRouted ? "hooked" : "NAO encontrados");
 		}
 
-		if ((checkKernelArgument("-ngreenxefix") || (getKernelVersion() == KernelVersion::Tahoe && getIsRealTGL())) && !checkKernelArgument("-ngreenorphanreuse")) {
+		const bool isRealTglTahoe = (getKernelVersion() == KernelVersion::Tahoe && getIsRealTGL());
+		const bool forceNoOrphan = checkKernelArgument("-ngreennoorphan") ||
+			(checkKernelArgument("-ngreenxefix") && !isRealTglTahoe && !checkKernelArgument("-ngreenorphanreuse"));
+		if (forceNoOrphan) {
 			RouteRequestPlus orphanRequest[] = {
 				{"__ZN25IOAccelOrphanedMemoryPool9getMemoryEP14IOAccelShared2P16IOAccelResource2yPv", wrapOrphanGet, orgOrphanGet},
 			};
 			bool ok = RouteRequestPlus::routeAll(patcher, index, orphanRequest, address, size);
 			if (!ok) patcher.clearError();
 			IOLog("XeNG NOORPHAN: IOAccelOrphanedMemoryPool::getMemory -> sem reuso: %s\n", ok ? "hooked" : "NAO encontrado");
+		} else if (isRealTglTahoe) {
+			IOLog("HP-ORPHAN-CAP: IOAccelOrphanedMemoryPool::getMemory native reuse ENABLED (-ngreennoorphan to disable)\n");
+		}
+		if (isRealTglTahoe && !checkKernelArgument("-ngreenuncappedorphan")) {
+			RouteRequestPlus orphanInitRequest[] = {
+				{"__ZN25IOAccelOrphanedMemoryPool4initEP22IOGraphicsAccelerator2yj", wrapOrphanPoolInit, orgOrphanPoolInit},
+			};
+			bool ok = RouteRequestPlus::routeAll(patcher, index, orphanInitRequest, address, size);
+			if (!ok) patcher.clearError();
+			IOLog("HP-ORPHAN-CAP: IOAccelOrphanedMemoryPool::init 512MiB/10m cap: %s\n", ok ? "hooked" : "FAILED");
 		}
 
 		// xe/pool: tamanho mínimo dos buffers de comando (ver wrapPoolInit).

@@ -12,7 +12,10 @@ static bool xeFixEnabled();  // xe/xefix, definido junto do FastWriteRegister32
 #include <IOKit/IOMemoryDescriptor.h>
 #include <IOKit/IOCatalogue.h>
 #include <IOKit/IOLib.h>
+#include <IOKit/IOWorkLoop.h>
+#include <IOKit/i2c/IOI2CInterface.h>
 #include <kern/thread_call.h>
+#include <stddef.h>
 // xe/blitscratch2: definidos em kern_green.cpp (wrapLockCpu)
 extern void *volatile gXeBlitMem, *volatile gXeBlitCpu;
 static volatile uint32_t gXeGtFreqApple = 0, gXeGtFreqN = 0;  // XE-GTFREQ: último pedido da Apple, nº de pedidos
@@ -221,7 +224,7 @@ void Gen11::init() {
 	callback = this;
 
 	if (checkKernelArgument("-ngreentglfb") || checkKernelArgument("-ngreentglwithgfx")) {
-		SYSLOG("ngreen", "Gen11::init: FB tier → TGL (ICL FB skipped, R32-PCFIX38-WAKECOLOR)");
+		SYSLOG("ngreen", "Gen11::init: FB tier → TGL (ICL FB skipped, R32-PCFIX50-HDMI, R32-PCFIX49-HDMI, R32-PCFIX48-HDMI, R32-PCFIX47-HDMI, R32-PCFIX46-HDMI, R32-PCFIX45-HDMI, R32-PCFIX44-HDMI, R32-PCFIX41-FASTBOOT, R32-PCFIX40-QUIET-HOTPATH, HP-QUIET-HOTPATH, HP-FASTBOOT)");
 		lilu.onKextLoadForce(&kextG11FBT);
 		lilu.onKextLoadForce(&kextG11FBTA);
 		if (checkKernelArgument("-ngreentglwithgfx")) {
@@ -649,22 +652,24 @@ static void xeCsStateWorker(thread_call_param_t, thread_call_param_t) {
 		uint32_t sk = gCsbSkipN;
 		if (sk != lastSkip && dumps < 6) { lastSkip = sk; dumps++; xeEvDumpRecent(120, dumps); }
 	}
-	if (tick % 8 == 0) for (int i = 0; i < 4; i++) {
-		uint8_t *c = gCs5Obj[i];
-		if (!c) continue;
-		uint32_t cur = *reinterpret_cast<volatile uint32_t *>(c + 0x50);
-		auto *c28 = *reinterpret_cast<uint8_t *volatile *>(c + 0x28);
-		uint32_t engId = xeKptr((uint64_t)c28) ? c28[0] : 99;
-		IOLog("XeNG CS t=%u cs%d id=%u cur=%u p0=%d/%d p1=%d/%d f1c00=%u f1c38=%u f1c3c=%u def=%u wsk=%u\n", tick, i, engId, cur,
-			  *reinterpret_cast<void *volatile *>(c + 0x30) != nullptr, *reinterpret_cast<void *volatile *>(c + 0x38) != nullptr,
-			  *reinterpret_cast<void *volatile *>(c + 0x40) != nullptr, *reinterpret_cast<void *volatile *>(c + 0x48) != nullptr,
-			  c[0x1c00], *reinterpret_cast<volatile uint32_t *>(c + 0x1c38), c[0x1c3c], gRcsDeferActiveN, gRcsWaitSkipPort1N);
+	if (evLog == 1 && tick % 8 == 0) {
+		for (int i = 0; i < 4; i++) {
+			uint8_t *c = gCs5Obj[i];
+			if (!c) continue;
+			uint32_t cur = *reinterpret_cast<volatile uint32_t *>(c + 0x50);
+			auto *c28 = *reinterpret_cast<uint8_t *volatile *>(c + 0x28);
+			uint32_t engId = xeKptr((uint64_t)c28) ? c28[0] : 99;
+			IOLog("XeNG CS t=%u cs%d id=%u cur=%u p0=%d/%d p1=%d/%d f1c00=%u f1c38=%u f1c3c=%u def=%u wsk=%u\n", tick, i, engId, cur,
+				  *reinterpret_cast<void *volatile *>(c + 0x30) != nullptr, *reinterpret_cast<void *volatile *>(c + 0x38) != nullptr,
+				  *reinterpret_cast<void *volatile *>(c + 0x40) != nullptr, *reinterpret_cast<void *volatile *>(c + 0x48) != nullptr,
+				  c[0x1c00], *reinterpret_cast<volatile uint32_t *>(c + 0x1c38), c[0x1c3c], gRcsDeferActiveN, gRcsWaitSkipPort1N);
+		}
+		if (gAccelObj)
+			IOLog("XeNG CS t=%u dpsm1458=0x%x cfg1190=0x%x (push %u exec %u) thrt=%u thrtSim=%u csbx=%u csbr=%u subsk=%u idlw=%u/%llums max=%uus to=%u pgoff=%u pgon=%u pgfix=%u stail=%u resfix=%u orf=%u dpms=%u fbdpms=%u gtf=%u/0x%x bl hw=%u apple=%u fw=%u duty=%u max=%u out=%u rc1474=%u\n", tick, *reinterpret_cast<volatile uint32_t *>(gAccelObj + 0x1458),
+				  *reinterpret_cast<volatile uint32_t *>(gAccelObj + 0x1190), gS5PushN, gCs5SubmitN, gThrtN, gThrtSimN, gCsbSkipN, gCsbResyncN, gSubSkipN, gIdlwN, (unsigned long long)(gIdlwUs / 1000), gIdlwMax, gIdlwTimeout, gPageoffN, gPageonN, gPageonFix, gSameTailForced, gXeResFreeFix, gXeOrphanMiss, gXeDpmsBlocked, gXeFbDpmsN, gXeGtFreqN, gXeGtFreqApple, gBlHwFreq, gBlAppleFreq, gBlFreqWrites, gBlLastDuty, gBlMaxDuty, gBlLastOut,
+				  (unsigned)*reinterpret_cast<volatile uint8_t *>(gAccelObj + 0x1474));
 	}
-	if (gAccelObj && tick % 8 == 0)
-		IOLog("XeNG CS t=%u dpsm1458=0x%x cfg1190=0x%x (push %u exec %u) thrt=%u thrtSim=%u csbx=%u csbr=%u subsk=%u idlw=%u/%llums max=%uus to=%u pgoff=%u pgon=%u pgfix=%u stail=%u resfix=%u orf=%u dpms=%u fbdpms=%u gtf=%u/0x%x bl hw=%u apple=%u fw=%u duty=%u max=%u out=%u rc1474=%u\n", tick, *reinterpret_cast<volatile uint32_t *>(gAccelObj + 0x1458),
-			  *reinterpret_cast<volatile uint32_t *>(gAccelObj + 0x1190), gS5PushN, gCs5SubmitN, gThrtN, gThrtSimN, gCsbSkipN, gCsbResyncN, gSubSkipN, gIdlwN, (unsigned long long)(gIdlwUs / 1000), gIdlwMax, gIdlwTimeout, gPageoffN, gPageonN, gPageonFix, gSameTailForced, gXeResFreeFix, gXeOrphanMiss, gXeDpmsBlocked, gXeFbDpmsN, gXeGtFreqN, gXeGtFreqApple, gBlHwFreq, gBlAppleFreq, gBlFreqWrites, gBlLastDuty, gBlMaxDuty, gBlLastOut,
-			  (unsigned)*reinterpret_cast<volatile uint8_t *>(gAccelObj + 0x1474));
-	if (tick < 2400 && gCsStateTc) {  // a cada 250 ms por ~10 min
+	if (evLog == 1 && tick < 2400 && gCsStateTc) {  // a cada 250 ms por ~10 min (apenas com -ngreenevlog)
 		uint64_t deadline;
 		clock_interval_to_deadline(250, kMillisecondScale, &deadline);
 		thread_call_enter_delayed(gCsStateTc, deadline);
@@ -783,7 +788,9 @@ static uint64_t xeCs5Submit(void *that, uint32_t x) {
 		if (gCs5Obj[i] == that) break;
 		if (!gCs5Obj[i]) { gCs5Obj[i] = static_cast<uint8_t *>(that); break; }
 	}
-	if (!gCsStateTc) {
+	static int sCsEvLog = -1;
+	if (sCsEvLog < 0) sCsEvLog = checkKernelArgument("-ngreenevlog") ? 1 : 0;
+	if (sCsEvLog == 1 && !gCsStateTc) {
 		gCsStateTc = thread_call_allocate(xeCsStateWorker, nullptr);
 		if (gCsStateTc) thread_call_enter(gCsStateTc);
 	}
@@ -1175,6 +1182,781 @@ static void xeCsbElSwitch(void *that, const uint32_t *e) {
 }
 using t_iofb_handle_event = IOReturn (*)(void *, int, void *);
 static t_iofb_handle_event gHpIOFBHandleEvent = nullptr;
+
+// HP-CAMELLIA-NULLGUARD (R32-PCFIX39): Under -ngreentglwithgfx (cameliav=2), standard non-Apple eDP 1.2 panels
+// (such as BOE X133NVFF R0) leave controller->fCamellia (+0xd0) NULL after InitTconSWCommon fails AUX probe.
+// Apple null-checks fCamellia on virtual calls, but omitted the null check before direct non-virtual CamelliaBase
+// calls (notably AppleIntelBaseController::pmtGetMiscCntr + 0x3b3 -> CamelliaBase::ReadDpbResidency ->
+// CamelliaBase::UpdateDpbResidency, which panicked kernel at CR2=0xc under powermetrics). Guard all 9 direct
+// CamelliaBase entry points against this == nullptr.
+static volatile uint32_t gHpCamelliaNullSkipN = 0;
+static uint32_t gHpCamelliaGuardsRouted = 0;
+static mach_vm_address_t gOrgCamelliaReadDpbResidency = 0;
+static mach_vm_address_t gOrgCamelliaUpdateDpbResidency = 0;
+static mach_vm_address_t gOrgCamelliaSaveActivityEvent = 0;
+static mach_vm_address_t gOrgCamelliaControlDPB = 0;
+static mach_vm_address_t gOrgCamelliaIsSet = 0;
+static mach_vm_address_t gOrgCamelliaSetDPCDBacklight = 0;
+static mach_vm_address_t gOrgCamelliaResetCache = 0;
+static mach_vm_address_t gOrgCamelliaReadReg = 0;
+static mach_vm_address_t gOrgCamelliaWriteReg = 0;
+
+static inline void hpLogCamelliaNullSkip(const char *fn) {
+	uint32_t n = ++gHpCamelliaNullSkipN;
+	if (n <= 8 || !(n & 1023U)) {
+		IOLog("HP-CAMELLIA-NULLGUARD: skipped NULL CamelliaBase::%s (#%u)\n", fn, n);
+	}
+}
+static uint64_t hpCamelliaReadDpbResidency(void *that, uint32_t dpbType) {
+	if (!that) { hpLogCamelliaNullSkip("ReadDpbResidency"); return 0; }
+	return FunctionCast(hpCamelliaReadDpbResidency, gOrgCamelliaReadDpbResidency)(that, dpbType);
+}
+static void hpCamelliaUpdateDpbResidency(void *that) {
+	if (!that) { hpLogCamelliaNullSkip("UpdateDpbResidency"); return; }
+	FunctionCast(hpCamelliaUpdateDpbResidency, gOrgCamelliaUpdateDpbResidency)(that);
+}
+static void hpCamelliaSaveActivityEvent(void *that, uint32_t exitOp) {
+	if (!that) { hpLogCamelliaNullSkip("SaveActivityEvent"); return; }
+	FunctionCast(hpCamelliaSaveActivityEvent, gOrgCamelliaSaveActivityEvent)(that, exitOp);
+}
+static uint64_t hpCamelliaControlDPB(void *that, uint32_t cmd, bool enable) {
+	if (!that) { hpLogCamelliaNullSkip("ControlDPB"); return 0; }
+	return FunctionCast(hpCamelliaControlDPB, gOrgCamelliaControlDPB)(that, cmd, enable);
+}
+static bool hpCamelliaIsSet(void *that, uint32_t mask) {
+	if (!that) { hpLogCamelliaNullSkip("IsSet"); return false; }
+	return FunctionCast(hpCamelliaIsSet, gOrgCamelliaIsSet)(that, mask);
+}
+static uint64_t hpCamelliaSetDPCDBacklight(void *that, uint32_t level) {
+	if (!that) { hpLogCamelliaNullSkip("SetDPCDBacklight"); return 0; }
+	return FunctionCast(hpCamelliaSetDPCDBacklight, gOrgCamelliaSetDPCDBacklight)(that, level);
+}
+static uint64_t hpCamelliaResetCache(void *that) {
+	if (!that) { hpLogCamelliaNullSkip("ResetCache"); return 0; }
+	return FunctionCast(hpCamelliaResetCache, gOrgCamelliaResetCache)(that);
+}
+static uint64_t hpCamelliaReadReg(void *that, uint32_t reg, uint8_t len, void *buf) {
+	if (!that) { hpLogCamelliaNullSkip("ReadCamelliaReg"); return 0; }
+	return FunctionCast(hpCamelliaReadReg, gOrgCamelliaReadReg)(that, reg, len, buf);
+}
+static uint64_t hpCamelliaWriteReg(void *that, uint32_t reg, uint8_t len, uint32_t val) {
+	if (!that) { hpLogCamelliaNullSkip("WriteCamelliaReg"); return 0; }
+	return FunctionCast(hpCamelliaWriteReg, gOrgCamelliaWriteReg)(that, reg, len, val);
+}
+// HP-FASTBOOT-MEI (R32-PCFIX41): AppleIntelBaseController::createMEIDriver calls
+// AppleIntelBaseController::findMEDevice("IMEI"), which blocks inside IOService::waitForMatchingService
+// for 10,000,000,000 ns (10.00s) when PCI HECI1/IMEI (00:16.0) has no macOS driver attached,
+// then returns nullptr and createMEIDriver cleanly skips MEI HDCP setup. Bypass the 10s stall
+// unless -ngreenmei is passed in boot-args.
+static mach_vm_address_t gOrgFindMEDevice = 0;
+static void *hpFindMEDevice(void *that, const char *name) {
+	static int sAllowMei = -1;
+	if (sAllowMei < 0) {
+		sAllowMei = checkKernelArgument("-ngreenmei") ? 1 : 0;
+	}
+	if (sAllowMei == 1 && gOrgFindMEDevice) {
+		return FunctionCast(hpFindMEDevice, gOrgFindMEDevice)(that, name);
+	}
+	static uint32_t sMeiBypassLogs = 0;
+	uint32_t n = ++sMeiBypassLogs;
+	if (n <= 4) {
+		IOLog("HP-FASTBOOT: bypassed 10s findMEDevice(%s) timeout (-ngreenmei to restore)\n",
+		      name ? name : "null");
+	}
+	return nullptr;
+}
+// HP-HDMI-AUXGUARD (R32-PCFIX44-HDMI): Short-circuit AppleIntelBaseController::GetStreamAccessAUX
+// on ConnectorHDMI ports so AGDP/AppleGraphicsDeviceControl never stalls the serialized controller
+// IOWorkLoop with 6.4 ms hardware DP AUX timeouts on TMDS/HDMI connectors.
+static mach_vm_address_t gOrgGetStreamAccessAUX = 0;
+static void *gHpPlatformInfoList = nullptr;
+static IOReturn hpGetStreamAccessAUX(void *that, void *in, void *out) {
+	if (in && out && gHpPlatformInfoList) {
+		uint32_t portIdx1 = *reinterpret_cast<const uint32_t *>(in);
+		if (portIdx1 >= 1 && portIdx1 <= 9) {
+			auto *pinfo = reinterpret_cast<PlatformInfo *>(gHpPlatformInfoList);
+			if (pinfo[1].connectors[portIdx1 - 1].type == ConnectorHDMI) {
+				*reinterpret_cast<uint16_t *>(reinterpret_cast<uint8_t *>(out) + 0x0e) = 2;
+				return 0xe00002bc;
+			}
+		}
+	}
+	return gOrgGetStreamAccessAUX ? FunctionCast(hpGetStreamAccessAUX, gOrgGetStreamAccessAUX)(that, in, out) : 0xe00002bc;
+}
+// HP-HDMI-HOTPLUG (R32-PCFIX46-HDMI):
+// 1) HP UEFI GOP only enables Pipe A (eDP) and leaves SHOTPLUG_CTL_DDI (0xC4030) bit 7 (DDI-B HPD_INPUT_ENABLE)
+//    cleared, so SDEISR (0xC4000) bit 17 reads 0 until 500 us after 0xC4030 bit 7 is enabled (SHPD_FILTER_CNT).
+//    AppleIntelBaseController::enableController() and prepareToExitSleep() enable 0xC4030 bit 7 and immediately
+//    call probePortState() microseconds later, latching fPortState (+0x554) = 0 (DISCONNECTED). Pre-enable
+//    0xC4030 bit 7 without W1C-clearing pulse status bits (~0x3333u) and wait 1500 us before start/wake.
+// 2) AGDP::BootData skips framebuffers not pre-lit by UEFI GOP (flags & 0x5 == 0), and AGDCEnableController is a
+//    no-op, so a boot-connected HDMI display never triggers CallBackAGDC after RegisterAGDCCallback (+0x1c00).
+//    Hook both AGDCEnableController and RegisterAGDCCallback to schedule out-of-lock delayed checks (+250 ms, +300 ms,
+//    +3 s, +12 s fallback, plus +2 s post-wake) that dispatch onto ctrl's IOWorkLoop (+0xe00 via OSDynamicCast),
+//    reset port +0xf8/+0x554 only when DDI-B HPD (0xC4000 bit 17) is asserted while both Pipe B (0x71008) and Pipe C
+//    (0x72008) are unlit, and call AppleIntelBaseController::invokeHotplugHandler(ctrl, /*ddi=*/1, /*mode=*/1).
+using t_get_port_by_ddi = void *(*)(uint32_t);
+using t_invoke_hotplug_handler = void (*)(void *, uint32_t, uint32_t);
+static t_get_port_by_ddi gHpGetPortByDDI = nullptr;
+static t_invoke_hotplug_handler gHpInvokeHotplugHandler = nullptr;
+static mach_vm_address_t gOrgAGDCEnableController = 0;
+static mach_vm_address_t gOrgRegisterAGDCCallback = 0;
+static mach_vm_address_t gOrgStreamGetEDID = 0;
+static mach_vm_address_t gOrgHwDoGMBusRequest = 0;
+static void *volatile gHpFbCtrl = nullptr;
+static volatile uint32_t gHpHdmiPreShotplug = 0, gHpHdmiPreSdeisr = 0;
+static volatile uint32_t gHpHdmiPostShotplug = 0, gHpHdmiPostSdeisr = 0;
+static volatile uint32_t gHpHdmiBootHpdInjected = 0;
+static volatile uint32_t gHpHdmiEdidReads = 0, gHpHdmiLastEdidRet = 0xFFFFFFFFu;
+static volatile uint32_t gHpHdmiRejectedWireModes = 0, gHpHdmiAcceptedRgb8Modes = 0;
+static volatile uint32_t gHpGmbusCalls = 0, gHpGmbusOk = 0, gHpGmbusCachedPin = 0, gHpGmbusLastSt = 0;
+static volatile bool gHpGmbusAltProbed = false;
+static thread_call_t gHpHdmiBootTcFast = nullptr;
+static thread_call_t gHpHdmiBootTcMid = nullptr;
+static thread_call_t gHpHdmiBootTcFallback = nullptr;
+static thread_call_t gHpHdmiWakeTc = nullptr;
+static IOService *volatile gHpIgpuService = nullptr;
+static volatile uint32_t gHpHdmiDpllTabPatched = 0;
+static volatile uint32_t gHpHdmiDpll1Cfgcr0 = 0;
+static volatile uint32_t gHpHdmiDpll1Cfgcr1 = 0;
+static volatile uint32_t gHpHdmiDpclkaCfgcr0 = 0;
+static volatile uint32_t gHpHdmiDpllWriteLogs = 0;
+static volatile uint32_t gHpHdmiDpllPubLogs = 0;
+static thread_call_t gHpHdmiTelemetryTc = nullptr;
+static mach_vm_address_t gOrgLightUpTMDS = 0;
+static volatile uint32_t gHpHdmiHighTmds = 0;
+static volatile uint64_t gHpHdmiLastPclk = 0;
+static volatile uint32_t gHpHdmiScdcWriteCalls = 0, gHpHdmiScdcWriteOk = 0;
+static volatile uint32_t gHpHdmiScdcSinkVer = 0, gHpHdmiScdcLastCfg = 0, gHpHdmiScdcLastStatus = 0, gHpHdmiScdcFlags0 = 0;
+static volatile uint32_t gHpHdmiTransDdiB = 0, gHpHdmiDdiBufB = 0, gHpHdmiCdclkCtl = 0;
+static volatile uint32_t gHpHdmiRangeLogs = 0, gHpHdmiModesetLogs = 0;
+
+static inline bool hpIsActiveHdmiDdiB(uint32_t val) {
+	return val != 0xFFFFFFFFu && (val & 0x87000000u) == 0x80000000u && ((val >> 27) & 0xFu) == 2u;
+}
+
+// HP-HDMI-GMBUS (R32-PCFIX47-HDMI):
+// AppleIntelBaseController::hwDoGMBusRequest in AppleIntelTGLGraphicsFramebuffer checks PCH_GMBUS2 (0xC5108)
+// only once (<1 us after writing 0xC5104) in all 4 wait loops and spins until deadline without re-reading
+// 0xC5108, and pulses bit 0 instead of bit 31 (GMBUS_SW_CLR_INT) on cleanup — guaranteeing 0xe00002ed on
+// every EDID transfer. Replace hwDoGMBusRequest with a clean Intel PCH GMBUS transfer state machine.
+static bool hpWaitGmbus2Mask(uint32_t mask, uint32_t timeoutUs, uint32_t *stOut) {
+	constexpr uint32_t kGMBUS2 = 0xC5108u;
+	constexpr uint32_t kGMBUS_SATOER = (1u << 10);
+	const uint32_t stepUs = 25u;
+	uint32_t elapsed = 0;
+	while (true) {
+		uint32_t st = NGreen::callback->readReg32(kGMBUS2);
+		if (stOut) {
+			*stOut = st;
+		}
+		if (st == 0xFFFFFFFFu || (st & kGMBUS_SATOER) != 0) {
+			return false;
+		}
+		if ((st & mask) != 0) {
+			return true;
+		}
+		if (elapsed >= timeoutUs) {
+			return false;
+		}
+		IODelay(stepUs);
+		elapsed += stepUs;
+	}
+}
+
+static bool hpWaitGmbus2Clear(uint32_t mask, uint32_t timeoutUs, uint32_t *stOut) {
+	constexpr uint32_t kGMBUS2 = 0xC5108u;
+	const uint32_t stepUs = 25u;
+	uint32_t elapsed = 0;
+	while (true) {
+		uint32_t st = NGreen::callback->readReg32(kGMBUS2);
+		if (stOut) {
+			*stOut = st;
+		}
+		if (st == 0xFFFFFFFFu) {
+			return false;
+		}
+		if ((st & mask) == 0) {
+			return true;
+		}
+		if (elapsed >= timeoutUs) {
+			return false;
+		}
+		IODelay(stepUs);
+		elapsed += stepUs;
+	}
+}
+
+static uint32_t hpPackGmbusDataWord(const uint8_t *buf, uint32_t offset, uint32_t totalBytes) {
+	uint32_t word = 0;
+	if (!buf || offset >= totalBytes) {
+		return 0;
+	}
+	uint32_t remain = totalBytes - offset;
+	uint32_t count = remain > 4u ? 4u : remain;
+	for (uint32_t i = 0; i < count; ++i) {
+		word |= static_cast<uint32_t>(buf[offset + i]) << (8u * i);
+	}
+	return word;
+}
+
+static IOReturn hpDoSingleGMBusPin(uint32_t pin, uint32_t rateBits, IOI2CRequest *req, uint32_t *outLastSt) {
+	constexpr uint32_t kGMBUS0 = 0xC5100u;
+	constexpr uint32_t kGMBUS1 = 0xC5104u;
+	constexpr uint32_t kGMBUS2 = 0xC5108u;
+	constexpr uint32_t kGMBUS3 = 0xC510Cu;
+	constexpr uint32_t kGMBUS4 = 0xC5110u;
+	constexpr uint32_t kGMBUS5 = 0xC5120u;
+
+	constexpr uint32_t kGMBUS_SW_CLR_INT  = (1u << 31);
+	constexpr uint32_t kGMBUS_SW_RDY      = (1u << 30);
+	constexpr uint32_t kGMBUS_CYCLE_STOP  = (1u << 27);
+	constexpr uint32_t kGMBUS_CYCLE_INDEX = (1u << 26);
+	constexpr uint32_t kGMBUS_CYCLE_WAIT  = (1u << 25);
+	constexpr uint32_t kGMBUS_INUSE       = (1u << 15);
+	constexpr uint32_t kGMBUS_HW_WAIT     = (1u << 14);
+	constexpr uint32_t kGMBUS_HW_RDY      = (1u << 11);
+	constexpr uint32_t kGMBUS_ACTIVE      = (1u << 9);
+
+	uint32_t st = 0;
+	auto abortGmbus = [&]() -> IOReturn {
+		st = NGreen::callback->readReg32(kGMBUS2);
+		if (outLastSt) {
+			*outLastSt = st;
+		}
+		NGreen::callback->writeReg32(kGMBUS1, kGMBUS_SW_CLR_INT);
+		IODelay(20);
+		NGreen::callback->writeReg32(kGMBUS1, 0);
+		NGreen::callback->writeReg32(kGMBUS1, kGMBUS_SW_RDY | kGMBUS_CYCLE_STOP);
+		hpWaitGmbus2Clear(kGMBUS_ACTIVE, 10000u, nullptr);
+		NGreen::callback->writeReg32(kGMBUS0, 0);
+		NGreen::callback->writeReg32(kGMBUS2, kGMBUS_INUSE);
+		req->result = kIOReturnNotResponding;
+		return kIOReturnNotResponding;
+	};
+
+	NGreen::callback->writeReg32(kGMBUS4, 0);
+	NGreen::callback->writeReg32(kGMBUS1, kGMBUS_SW_CLR_INT);
+	IODelay(10);
+	NGreen::callback->writeReg32(kGMBUS1, 0);
+	NGreen::callback->writeReg32(kGMBUS5, 0);
+
+	NGreen::callback->writeReg32(kGMBUS0, ((rateBits & 0x7u) << 8) | (pin & 0xFu));
+	(void)NGreen::callback->readReg32(kGMBUS0);
+	IODelay(10);
+
+	const bool hasSend = (req->sendTransactionType == kIOI2CSimpleTransactionType || req->sendTransactionType == 0xFu);
+	const bool hasReply = (req->replyTransactionType == kIOI2CSimpleTransactionType);
+
+	if (hasSend) {
+		const uint32_t totalSend = req->sendBytes;
+		const uint8_t *sbuf = reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(req->sendBuffer));
+		uint32_t sent = totalSend > 4u ? 4u : totalSend;
+		NGreen::callback->writeReg32(kGMBUS3, hpPackGmbusDataWord(sbuf, 0, totalSend));
+
+		uint32_t gmbus1 = kGMBUS_SW_RDY | kGMBUS_CYCLE_WAIT |
+		                  ((totalSend & 0x1FFu) << 16) |
+		                  (static_cast<uint32_t>(req->sendAddress) & 0xFEu);
+		// E-DDC segment write (sendTransactionType == 0xF to 0x60) carries the segment byte in sendBuffer;
+		// commFlags still carries kIOI2CUseSubAddressCommFlag for the reply phase, so only apply CYCLE_INDEX
+		// for normal simple send transactions.
+		if (req->sendTransactionType == kIOI2CSimpleTransactionType && (req->commFlags & kIOI2CUseSubAddressCommFlag)) {
+			gmbus1 |= kGMBUS_CYCLE_INDEX | (static_cast<uint32_t>(req->sendSubAddress) << 8);
+		}
+		NGreen::callback->writeReg32(kGMBUS1, gmbus1);
+
+		while (true) {
+			if (!hpWaitGmbus2Mask(kGMBUS_HW_RDY, 50000u, &st)) {
+				return abortGmbus();
+			}
+			if (sent >= totalSend) {
+				break;
+			}
+			uint32_t nextChunk = (totalSend - sent) > 4u ? 4u : (totalSend - sent);
+			NGreen::callback->writeReg32(kGMBUS3, hpPackGmbusDataWord(sbuf, sent, totalSend));
+			sent += nextChunk;
+		}
+		if (!hpWaitGmbus2Mask(kGMBUS_HW_WAIT, 50000u, &st)) {
+			return abortGmbus();
+		}
+		if (hasReply && req->minReplyDelay != 0) {
+			IODelay(50);
+		}
+	}
+
+	if (hasReply) {
+		uint32_t rem = req->replyBytes;
+		uint8_t *rbuf = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(req->replyBuffer));
+		uint32_t gmbus1 = kGMBUS_SW_RDY | kGMBUS_CYCLE_WAIT |
+		                  ((rem & 0x1FFu) << 16) |
+		                  ((static_cast<uint32_t>(req->replyAddress) & 0xFEu) | 1u);
+		if (req->commFlags & kIOI2CUseSubAddressCommFlag) {
+			gmbus1 |= kGMBUS_CYCLE_INDEX | (static_cast<uint32_t>(req->replySubAddress) << 8);
+		}
+		NGreen::callback->writeReg32(kGMBUS1, gmbus1);
+
+		while (rem > 0) {
+			uint32_t chunk = rem > 4u ? 4u : rem;
+			if (!hpWaitGmbus2Mask(kGMBUS_HW_RDY, 50000u, &st)) {
+				return abortGmbus();
+			}
+			uint32_t val = NGreen::callback->readReg32(kGMBUS3);
+			if (rbuf) {
+				for (uint32_t i = 0; i < chunk; ++i) {
+					rbuf[i] = static_cast<uint8_t>((val >> (8u * i)) & 0xFFu);
+				}
+				rbuf += chunk;
+			}
+			rem -= chunk;
+		}
+	}
+
+	if ((req->commFlags & 0x4u) == 0) {
+		NGreen::callback->writeReg32(kGMBUS1, kGMBUS_SW_RDY | kGMBUS_CYCLE_STOP);
+		hpWaitGmbus2Clear(kGMBUS_ACTIVE, 25000u, &st);
+	}
+	st = NGreen::callback->readReg32(kGMBUS2);
+	if (outLastSt) {
+		*outLastSt = st;
+	}
+	NGreen::callback->writeReg32(kGMBUS0, 0);
+	NGreen::callback->writeReg32(kGMBUS2, kGMBUS_INUSE);
+	req->result = kIOReturnSuccess;
+	return kIOReturnSuccess;
+}
+
+static IOReturn hpRunHdmi20ScdcRequest(IOI2CRequest &req) {
+	const uint32_t pin = (gHpGmbusCachedPin != 0u) ? gHpGmbusCachedPin : 2u;
+	uint32_t lastSt = 0;
+	IOReturn ret = hpDoSingleGMBusPin(pin, 0u, &req, &lastSt);
+	if (ret != kIOReturnSuccess) {
+		IODelay(200);
+		ret = hpDoSingleGMBusPin(pin, 1u, &req, &lastSt);
+	}
+	return ret;
+}
+
+static IOReturn hpWriteHdmi20ScdcByte(uint8_t subAddr, uint8_t val) {
+	IOI2CRequest req {};
+	bzero(&req, sizeof(req));
+	req.commFlags = kIOI2CUseSubAddressCommFlag;
+	req.sendTransactionType = kIOI2CSimpleTransactionType;
+	req.sendAddress = 0xA8u;
+	req.sendSubAddress = subAddr;
+	req.sendBuffer = reinterpret_cast<vm_address_t>(&val);
+	req.sendBytes = 1u;
+	return hpRunHdmi20ScdcRequest(req);
+}
+
+static IOReturn hpReadHdmi20ScdcByte(uint8_t subAddr, uint8_t *outVal) {
+	if (!outVal) {
+		return kIOReturnBadArgument;
+	}
+	*outVal = 0;
+	IOI2CRequest req {};
+	bzero(&req, sizeof(req));
+	req.commFlags = kIOI2CUseSubAddressCommFlag;
+	req.replyTransactionType = kIOI2CSimpleTransactionType;
+	req.replyAddress = 0xA9u;
+	req.replySubAddress = subAddr;
+	req.replyBuffer = reinterpret_cast<vm_address_t>(outVal);
+	req.replyBytes = 1u;
+	return hpRunHdmi20ScdcRequest(req);
+}
+
+static void hpConfigureHdmi20Scdc(bool highTmds) {
+	const uint32_t calls = __sync_add_and_fetch(&gHpHdmiScdcWriteCalls, 1u);
+	uint8_t sinkVer = 0;
+	if (hpReadHdmi20ScdcByte(0x01u, &sinkVer) == kIOReturnSuccess) {
+		gHpHdmiScdcSinkVer = sinkVer;
+	}
+	(void)hpWriteHdmi20ScdcByte(0x02u, 0x01u);
+	const uint8_t cfgVal = highTmds ? 0x03u : 0x00u;
+	uint32_t okCount = gHpHdmiScdcWriteOk;
+	if (hpWriteHdmi20ScdcByte(0x20u, cfgVal) == kIOReturnSuccess) {
+		okCount = __sync_add_and_fetch(&gHpHdmiScdcWriteOk, 1u);
+		gHpHdmiScdcLastCfg = cfgVal;
+	}
+	IODelay(1500);
+	if (calls <= 16u) {
+		IOLog("HP-HDMI-SCDC: highTmds=%u sinkVer=0x%02x cfg=0x%02x calls=%u ok=%u\n",
+		      highTmds ? 1u : 0u, static_cast<uint32_t>(gHpHdmiScdcSinkVer),
+		      static_cast<uint32_t>(cfgVal), calls, okCount);
+	}
+}
+
+static IOReturn hpScdcLightUpGateAction(OSObject *, void *arg0, void *, void *, void *) {
+	hpConfigureHdmi20Scdc(arg0 != nullptr);
+	return kIOReturnSuccess;
+}
+
+static uint64_t hpLightUpTMDS(void *that, void *fb, void *displayPath, const IODetailedTimingInformationV2 *timing) {
+	static_assert(offsetof(IODetailedTimingInformationV2, pixelClock) == 0x28, "IODetailedTimingInformationV2::pixelClock offset mismatch");
+	const bool hdmiFix = (NGreen::callback && NGreen::callback->getIsRealTGL() && !checkKernelArgument("-ngreennohdmi") &&
+	                      fb != nullptr && getMember<uint32_t>(fb, 0x1dc) == 1u);
+	if (hdmiFix && timing != nullptr) {
+		const uint64_t pclk = timing->pixelClock;
+		const bool highTmds = (pclk > 340000000ULL);
+		gHpHdmiHighTmds = highTmds ? 1u : 0u;
+		gHpHdmiLastPclk = pclk;
+		uint32_t preFn = 0;
+		uint32_t postFn = 0;
+		if (displayPath != nullptr) {
+			uint32_t &fn = getMember<uint32_t>(displayPath, 0x12c);
+			preFn = fn;
+			fn = (fn & ~0xD1u) | (highTmds ? 0x11u : 0u);
+			postFn = fn;
+		}
+		IOWorkLoop *wl = that ? OSDynamicCast(IOWorkLoop, *reinterpret_cast<OSObject **>(reinterpret_cast<uint8_t *>(that) + 0xe00)) : nullptr;
+		if (wl != nullptr) {
+			wl->runAction(hpScdcLightUpGateAction, reinterpret_cast<OSObject *>(that),
+			              highTmds ? reinterpret_cast<void *>(1) : nullptr, nullptr, nullptr, nullptr);
+		} else {
+			hpConfigureHdmi20Scdc(highTmds);
+		}
+		if (__sync_add_and_fetch(&gHpHdmiModesetLogs, 1u) <= 16u) {
+			IOLog("HP-HDMI-MODESET: LightUpTMDS pclk=%llu highTmds=%u fn=0x%08x->0x%08x\n",
+			      static_cast<unsigned long long>(pclk), highTmds ? 1u : 0u, preFn, postFn);
+		}
+	}
+	const uint64_t ret = gOrgLightUpTMDS ? FunctionCast(hpLightUpTMDS, gOrgLightUpTMDS)(that, fb, displayPath, timing) : 0ULL;
+	if (hdmiFix && gHpHdmiTelemetryTc != nullptr) {
+		uint64_t dl = 0;
+		clock_interval_to_deadline(150, kMillisecondScale, &dl);
+		thread_call_enter_delayed(gHpHdmiTelemetryTc, dl);
+	}
+	return ret;
+}
+
+static IOReturn hpHwDoGMBusRequest(void *that, uint32_t busId, uint32_t speed, IOI2CRequest *req) {
+	if (!NGreen::callback || !NGreen::callback->getIsRealTGL() || checkKernelArgument("-ngreennohdmi")) {
+		return gOrgHwDoGMBusRequest ? FunctionCast(hpHwDoGMBusRequest, gOrgHwDoGMBusRequest)(that, busId, speed, req) : kIOReturnUnsupported;
+	}
+	if (!req || busId < 1u || busId >= 15u || req->sendBytes > 511u || req->replyBytes > 511u ||
+	    (req->sendTransactionType != 0u && req->sendTransactionType != kIOI2CSimpleTransactionType && req->sendTransactionType != 0xFu) ||
+	    (req->replyTransactionType != 0u && req->replyTransactionType != kIOI2CSimpleTransactionType)) {
+		if (req) {
+			req->result = kIOReturnBadArgument;
+		}
+		return kIOReturnBadArgument;
+	}
+
+	uint32_t activePin = (busId == 2u && gHpGmbusCachedPin != 0u) ? gHpGmbusCachedPin : busId;
+	uint32_t lastSt = 0;
+	IOReturn ret = hpDoSingleGMBusPin(activePin, 0u, req, &lastSt);
+	if (ret != kIOReturnSuccess) {
+		IODelay(200);
+		ret = hpDoSingleGMBusPin(activePin, 1u, req, &lastSt);
+	}
+
+	if (ret != kIOReturnSuccess && busId == 2u && !gHpGmbusAltProbed &&
+	    (req->replyAddress & 0xFEu) == 0xA0u) {
+		gHpGmbusAltProbed = true;
+		static const uint32_t kAltPins[] = {1u, 3u, 4u};
+		for (uint32_t i = 0; i < arrsize(kAltPins); ++i) {
+			uint32_t altPin = kAltPins[i];
+			uint32_t altSt = 0;
+			IOReturn altRet = hpDoSingleGMBusPin(altPin, 0u, req, &altSt);
+			IOLog("HP-HDMI-GMBUS: alt-probe reqBus=%u altPin=%u -> ret=0x%x st=0x%08x\n",
+			      busId, altPin, static_cast<uint32_t>(altRet), altSt);
+			if (altRet == kIOReturnSuccess) {
+				gHpGmbusCachedPin = altPin;
+				activePin = altPin;
+				lastSt = altSt;
+				ret = altRet;
+				break;
+			}
+		}
+	}
+
+	uint32_t callNum = __sync_add_and_fetch(&gHpGmbusCalls, 1u);
+	uint32_t okCount = (ret == kIOReturnSuccess) ? __sync_add_and_fetch(&gHpGmbusOk, 1u) : gHpGmbusOk;
+	gHpGmbusLastSt = lastSt;
+	if (callNum <= 12u || ret != kIOReturnSuccess) {
+		if (callNum <= 16u) {
+			IOLog("HP-HDMI-GMBUS: #%u reqBus=%u pin=%u sType=%u sAddr=0x%x sBytes=%u rType=%u rAddr=0x%x rSub=0x%x rBytes=%u flags=0x%x -> ret=0x%x st=0x%08x\n",
+			      callNum, busId, activePin,
+			      static_cast<uint32_t>(req->sendTransactionType), req->sendAddress, req->sendBytes,
+			      static_cast<uint32_t>(req->replyTransactionType), req->replyAddress,
+			      static_cast<uint32_t>(req->replySubAddress), req->replyBytes,
+			      static_cast<uint32_t>(req->commFlags), static_cast<uint32_t>(ret), lastSt);
+		}
+	}
+	if (that) {
+		auto *reg = reinterpret_cast<IORegistryEntry *>(that);
+		reg->setProperty("ngreen-hdmi-gmbus-calls", callNum, 32);
+		reg->setProperty("ngreen-hdmi-gmbus-ok", okCount, 32);
+		reg->setProperty("ngreen-hdmi-gmbus-pin", activePin, 32);
+		reg->setProperty("ngreen-hdmi-gmbus-last-st", lastSt, 32);
+	}
+	return ret;
+}
+
+static void hpEnableSouthDdiBHpdAndSettle(const char *tag) {
+	if (!NGreen::callback || !NGreen::callback->getIsRealTGL() || checkKernelArgument("-ngreennohdmi")) {
+		return;
+	}
+	uint32_t shotplugPre = NGreen::callback->readReg32(0xC4030);
+	uint32_t sdeisrPre = NGreen::callback->readReg32(0xC4000);
+	if ((shotplugPre & 0x80u) == 0 && shotplugPre != 0xFFFFFFFFu) {
+		uint32_t nextVal = (shotplugPre & ~0x3333u) | 0x80u;
+		NGreen::callback->writeReg32(0xC4030, nextVal);
+		IODelay(1500);
+	}
+	uint32_t shotplugPost = NGreen::callback->readReg32(0xC4030);
+	uint32_t sdeisrPost = NGreen::callback->readReg32(0xC4000);
+	gHpHdmiPreShotplug = shotplugPre;
+	gHpHdmiPreSdeisr = sdeisrPre;
+	gHpHdmiPostShotplug = shotplugPost;
+	gHpHdmiPostSdeisr = sdeisrPost;
+	IOLog("HP-HDMI-HPD (%s): 0xC4030 0x%08x->0x%08x 0xC4000 0x%08x->0x%08x (ddiB_hpd=%u)\n",
+	      tag ? tag : "init", shotplugPre, shotplugPost, sdeisrPre, sdeisrPost,
+	      (sdeisrPost >> 17) & 1u);
+}
+
+static IOReturn hpStreamGetEDID(void *that, void *in, void *out) {
+	IOReturn ret = gOrgStreamGetEDID ? FunctionCast(hpStreamGetEDID, gOrgStreamGetEDID)(that, in, out) : 0xe00002bc;
+	uint32_t n = __sync_add_and_fetch(&gHpHdmiEdidReads, 1);
+	gHpHdmiLastEdidRet = static_cast<uint32_t>(ret);
+	if (n <= 8) {
+		IOLog("HP-HDMI-EDID: StreamGetEDID #%u ret=0x%x\n", n, static_cast<uint32_t>(ret));
+	}
+	if (that) {
+		auto *reg = reinterpret_cast<IORegistryEntry *>(that);
+		reg->setProperty("ngreen-hdmi-edid-reads", n, 32);
+		reg->setProperty("ngreen-hdmi-edid-last-ret", static_cast<uint32_t>(ret), 32);
+	}
+	return ret;
+}
+
+static IOReturn hpBootHdmiHotplugGateAction(OSObject *, void *arg0, void *arg1, void *, void *) {
+	auto *ctrl = reinterpret_cast<uint8_t *>(arg0);
+	const char *phase = reinterpret_cast<const char *>(arg1);
+	if (!ctrl || !NGreen::callback || !gHpGetPortByDDI || !gHpInvokeHotplugHandler) {
+		return kIOReturnSuccess;
+	}
+	uint32_t sdeisr = NGreen::callback->readReg32(0xC4000);
+	uint32_t pipeB = NGreen::callback->readReg32(0x71008);
+	uint32_t pipeC = NGreen::callback->readReg32(0x72008);
+	uint64_t agdcCb = *reinterpret_cast<uint64_t *>(ctrl + 0x1c00);
+	if ((sdeisr & (1u << 17)) == 0 || sdeisr == 0xFFFFFFFFu) {
+		return kIOReturnSuccess;
+	}
+	if (((pipeB & 0x80000000u) != 0 && pipeB != 0xFFFFFFFFu) ||
+	    ((pipeC & 0x80000000u) != 0 && pipeC != 0xFFFFFFFFu) ||
+	    agdcCb == 0) {
+		IOLog("HP-HDMI-BOOTHPD (%s): skip (0xC4000=0x%08x 0x71008=0x%08x 0x72008=0x%08x cb=0x%llx)\n",
+		      phase ? phase : "check", sdeisr, pipeB, pipeC, static_cast<unsigned long long>(agdcCb));
+		return kIOReturnSuccess;
+	}
+	void *port = gHpGetPortByDDI(1u);
+	if (!port) {
+		return kIOReturnSuccess;
+	}
+	auto *portBytes = reinterpret_cast<uint8_t *>(port);
+	uint32_t prevState = *reinterpret_cast<uint32_t *>(portBytes + 0x554);
+	*reinterpret_cast<uint8_t *>(portBytes + 0xf8) = 0;
+	*reinterpret_cast<uint32_t *>(portBytes + 0x554) = 0;
+	uint32_t inj = __sync_add_and_fetch(&gHpHdmiBootHpdInjected, 1);
+	reinterpret_cast<IORegistryEntry *>(ctrl)->setProperty("ngreen-hdmi-boot-hpd-injected", inj, 32);
+	IOLog("HP-HDMI-BOOTHPD (%s): injecting DDI-B HDMI hotplug #%u (prevPortState=%u 0xC4000=0x%08x)\n",
+	      phase ? phase : "check", inj, prevState, sdeisr);
+	gHpInvokeHotplugHandler(ctrl, 1u, 1u);
+	return kIOReturnSuccess;
+}
+
+static void hpRunBootHdmiCheck(thread_call_param_t param0, thread_call_param_t) {
+	const char *phase = reinterpret_cast<const char *>(param0);
+	void *ctrl = gHpFbCtrl;
+	if (!ctrl || !NGreen::callback || !NGreen::callback->getIsRealTGL() || checkKernelArgument("-ngreennohdmi")) {
+		return;
+	}
+	hpEnableSouthDdiBHpdAndSettle(phase ? phase : "delayed");
+	uint32_t sdeisr = NGreen::callback->readReg32(0xC4000);
+	uint32_t pipeB = NGreen::callback->readReg32(0x71008);
+	uint32_t pipeC = NGreen::callback->readReg32(0x72008);
+	uint64_t agdcCb = *reinterpret_cast<uint64_t *>(reinterpret_cast<uint8_t *>(ctrl) + 0x1c00);
+	if ((sdeisr & (1u << 17)) == 0 || sdeisr == 0xFFFFFFFFu || agdcCb == 0) {
+		return;
+	}
+	if (((pipeB & 0x80000000u) != 0 && pipeB != 0xFFFFFFFFu) ||
+	    ((pipeC & 0x80000000u) != 0 && pipeC != 0xFFFFFFFFu)) {
+		IOLog("HP-HDMI-BOOTHPD (%s): external pipe already online (0x71008=0x%08x 0x72008=0x%08x)\n",
+		      phase ? phase : "delayed", pipeB, pipeC);
+		return;
+	}
+	IOWorkLoop *wl = OSDynamicCast(IOWorkLoop, *reinterpret_cast<OSObject **>(reinterpret_cast<uint8_t *>(ctrl) + 0xe00));
+	if (wl) {
+		wl->runAction(hpBootHdmiHotplugGateAction, reinterpret_cast<OSObject *>(ctrl), ctrl, const_cast<char *>(phase ? phase : "delayed"), nullptr, nullptr);
+	}
+}
+
+static IOReturn hpScdcTelemetryGateAction(OSObject *, void *, void *, void *, void *) {
+	if (!NGreen::callback || !NGreen::callback->getIsRealTGL() || checkKernelArgument("-ngreennohdmi")) {
+		return kIOReturnSuccess;
+	}
+	const uint32_t sdeisr = NGreen::callback->readReg32(0xC4000u);
+	if ((sdeisr & (1u << 17)) == 0u || sdeisr == 0xFFFFFFFFu) {
+		return kIOReturnSuccess;
+	}
+	const uint32_t tB = NGreen::callback->readReg32(0x61400u);
+	const uint32_t tC = NGreen::callback->readReg32(0x62400u);
+	const uint32_t tD = NGreen::callback->readReg32(0x63400u);
+	if (!hpIsActiveHdmiDdiB(tB) && !hpIsActiveHdmiDdiB(tC) && !hpIsActiveHdmiDdiB(tD)) {
+		return kIOReturnSuccess;
+	}
+	uint8_t sinkVer = 0, cfg = 0, status = 0, flags0 = 0;
+	if (hpReadHdmi20ScdcByte(0x01u, &sinkVer) == kIOReturnSuccess) {
+		gHpHdmiScdcSinkVer = sinkVer;
+	}
+	const bool cfgOk = (hpReadHdmi20ScdcByte(0x20u, &cfg) == kIOReturnSuccess);
+	const bool statusOk = (hpReadHdmi20ScdcByte(0x21u, &status) == kIOReturnSuccess);
+	const bool flagsOk = (hpReadHdmi20ScdcByte(0x40u, &flags0) == kIOReturnSuccess);
+	if (gHpHdmiHighTmds != 0u && cfgOk && ((cfg & 0x03u) != 0x03u || (statusOk && (status & 0x01u) == 0u))) {
+		hpConfigureHdmi20Scdc(true);
+		IODelay(5000);
+		if (hpReadHdmi20ScdcByte(0x20u, &cfg) == kIOReturnSuccess) {
+			gHpHdmiScdcLastCfg = cfg;
+		}
+		if (hpReadHdmi20ScdcByte(0x21u, &status) == kIOReturnSuccess) {
+			gHpHdmiScdcLastStatus = status;
+		}
+		if (hpReadHdmi20ScdcByte(0x40u, &flags0) == kIOReturnSuccess) {
+			gHpHdmiScdcFlags0 = flags0;
+		}
+	} else if (gHpHdmiHighTmds == 0u && cfgOk && (cfg & 0x03u) != 0u) {
+		hpConfigureHdmi20Scdc(false);
+		IODelay(2000);
+		if (hpReadHdmi20ScdcByte(0x20u, &cfg) == kIOReturnSuccess) {
+			gHpHdmiScdcLastCfg = cfg;
+		}
+		if (hpReadHdmi20ScdcByte(0x21u, &status) == kIOReturnSuccess) {
+			gHpHdmiScdcLastStatus = status;
+		}
+		if (hpReadHdmi20ScdcByte(0x40u, &flags0) == kIOReturnSuccess) {
+			gHpHdmiScdcFlags0 = flags0;
+		}
+	} else {
+		if (cfgOk) gHpHdmiScdcLastCfg = cfg;
+		if (statusOk) gHpHdmiScdcLastStatus = status;
+		if (flagsOk) gHpHdmiScdcFlags0 = flags0;
+	}
+	return kIOReturnSuccess;
+}
+
+static void hpPublishHdmiTelemetry(thread_call_param_t, thread_call_param_t) {
+	if (!NGreen::callback || !NGreen::callback->getIsRealTGL() || checkKernelArgument("-ngreennohdmi")) {
+		return;
+	}
+	if (void *ctrl = gHpFbCtrl) {
+		IOWorkLoop *wl = OSDynamicCast(IOWorkLoop, *reinterpret_cast<OSObject **>(reinterpret_cast<uint8_t *>(ctrl) + 0xe00));
+		if (wl != nullptr) {
+			wl->runAction(hpScdcTelemetryGateAction, reinterpret_cast<OSObject *>(ctrl), nullptr, nullptr, nullptr, nullptr);
+		}
+	}
+	const uint32_t hwCfgcr0 = NGreen::callback->readReg32(0x16428Cu);
+	const uint32_t hwCfgcr1 = NGreen::callback->readReg32(0x164290u);
+	const uint32_t hwDpclka = NGreen::callback->readReg32(0x164280u);
+	const uint32_t hwDpll1En = NGreen::callback->readReg32(0x46014u);
+	const uint32_t hwTransB = NGreen::callback->readReg32(0x61400u);
+	const uint32_t hwTransC = NGreen::callback->readReg32(0x62400u);
+	const uint32_t hwTransD = NGreen::callback->readReg32(0x63400u);
+	uint32_t hwTransDdiB = hwTransB;
+	if (!hpIsActiveHdmiDdiB(hwTransB)) {
+		if (hpIsActiveHdmiDdiB(hwTransC)) {
+			hwTransDdiB = hwTransC;
+		} else if (hpIsActiveHdmiDdiB(hwTransD)) {
+			hwTransDdiB = hwTransD;
+		}
+	}
+	const uint32_t hwDdiBufB = NGreen::callback->readReg32(0x64100u);
+	const uint32_t hwCdclkCtl = NGreen::callback->readReg32(0x46000u);
+	gHpHdmiTransDdiB = hwTransDdiB;
+	gHpHdmiDdiBufB = hwDdiBufB;
+	gHpHdmiCdclkCtl = hwCdclkCtl;
+
+	const uint32_t rej = gHpHdmiRejectedWireModes;
+	const uint32_t acc = gHpHdmiAcceptedRgb8Modes;
+	const uint32_t highTmds = gHpHdmiHighTmds;
+	const uint64_t pclk = gHpHdmiLastPclk;
+	const uint32_t scdcWrites = gHpHdmiScdcWriteCalls;
+	const uint32_t scdcOk = gHpHdmiScdcWriteOk;
+	const uint32_t scdcSinkVer = gHpHdmiScdcSinkVer;
+	const uint32_t scdcCfg = gHpHdmiScdcLastCfg;
+	const uint32_t scdcStatus = gHpHdmiScdcLastStatus;
+	const uint32_t scdcFlags0 = gHpHdmiScdcFlags0;
+
+	auto publishProps = [&](IORegistryEntry *reg) {
+		reg->setProperty("ngreen-hdmi-dpll1-cfgcr0", hwCfgcr0, 32);
+		reg->setProperty("ngreen-hdmi-dpll1-cfgcr1", hwCfgcr1, 32);
+		reg->setProperty("ngreen-hdmi-dpclka-cfgcr0", hwDpclka, 32);
+		reg->setProperty("ngreen-hdmi-dpll1-enable", hwDpll1En, 32);
+		reg->setProperty("ngreen-hdmi-rejected-wire-modes", rej, 32);
+		reg->setProperty("ngreen-hdmi-accepted-rgb8-modes", acc, 32);
+		reg->setProperty("ngreen-hdmi-high-tmds", highTmds, 32);
+		reg->setProperty("ngreen-hdmi-pclk", static_cast<unsigned long long>(pclk), 64);
+		reg->setProperty("ngreen-hdmi-scdc-writes", scdcWrites, 32);
+		reg->setProperty("ngreen-hdmi-scdc-write-ok", scdcOk, 32);
+		reg->setProperty("ngreen-hdmi-scdc-sink-ver", scdcSinkVer, 32);
+		reg->setProperty("ngreen-hdmi-scdc-cfg", scdcCfg, 32);
+		reg->setProperty("ngreen-hdmi-scdc-status", scdcStatus, 32);
+		reg->setProperty("ngreen-hdmi-scdc-flags0", scdcFlags0, 32);
+		reg->setProperty("ngreen-hdmi-trans-ddi-b", hwTransDdiB, 32);
+		reg->setProperty("ngreen-hdmi-ddi-buf-b", hwDdiBufB, 32);
+		reg->setProperty("ngreen-hdmi-cdclk-ctl", hwCdclkCtl, 32);
+	};
+	if (IOService *igpu = gHpIgpuService) {
+		publishProps(igpu);
+	}
+	if (void *ctrl = gHpFbCtrl) {
+		publishProps(reinterpret_cast<IORegistryEntry *>(ctrl));
+	}
+	if (__sync_add_and_fetch(&gHpHdmiDpllPubLogs, 1u) <= 8u) {
+		IOLog("HP-HDMI-DPLL: hw 0x16428C=0x%08x 0x164290=0x%08x 0x164280=0x%08x 0x46014=0x%08x transB=0x%08x ddiBufB=0x%08x cdclk=0x%08x scdc=%u/%u ver=0x%02x cfg=0x%02x st=0x%02x f0=0x%02x (rej=%u acc=%u)\n",
+		      hwCfgcr0, hwCfgcr1, hwDpclka, hwDpll1En, hwTransDdiB, hwDdiBufB, hwCdclkCtl,
+		      scdcOk, scdcWrites, scdcSinkVer, scdcCfg, scdcStatus, scdcFlags0, rej, acc);
+	}
+}
+
+static IOReturn hpAGDCEnableController(void *that, uint32_t *in) {
+	IOReturn ret = gOrgAGDCEnableController ? FunctionCast(hpAGDCEnableController, gOrgAGDCEnableController)(that, in) : kIOReturnSuccess;
+	if (that && in && (*in != 0) && NGreen::callback && NGreen::callback->getIsRealTGL() && !checkKernelArgument("-ngreennohdmi")) {
+		gHpFbCtrl = that;
+		if (!gHpHdmiBootTcFast) {
+			gHpHdmiBootTcFast = thread_call_allocate(hpRunBootHdmiCheck, const_cast<char *>("agdc+300ms"));
+		}
+		if (!gHpHdmiBootTcFallback) {
+			gHpHdmiBootTcFallback = thread_call_allocate(hpRunBootHdmiCheck, const_cast<char *>("agdc+12s"));
+		}
+		uint64_t dFast = 0, dFallback = 0;
+		clock_interval_to_deadline(300, kMillisecondScale, &dFast);
+		clock_interval_to_deadline(12, kSecondScale, &dFallback);
+		if (gHpHdmiBootTcFast) thread_call_enter_delayed(gHpHdmiBootTcFast, dFast);
+		if (gHpHdmiBootTcFallback) thread_call_enter_delayed(gHpHdmiBootTcFallback, dFallback);
+		IOLog("HP-HDMI-BOOTHPD: AGDCEnableController(*in=%u) armed +300ms/+12s HDMI checks\n", *in);
+	}
+	return ret;
+}
+
+static IOReturn hpRegisterAGDCCallback(void *that, void *regInfo) {
+	IOReturn ret = gOrgRegisterAGDCCallback ? FunctionCast(hpRegisterAGDCCallback, gOrgRegisterAGDCCallback)(that, regInfo) : kIOReturnSuccess;
+	if (that && NGreen::callback && NGreen::callback->getIsRealTGL() && !checkKernelArgument("-ngreennohdmi")) {
+		gHpFbCtrl = that;
+		if (!gHpHdmiBootTcFast) {
+			gHpHdmiBootTcFast = thread_call_allocate(hpRunBootHdmiCheck, const_cast<char *>("regagdc+250ms"));
+		}
+		if (!gHpHdmiBootTcMid) {
+			gHpHdmiBootTcMid = thread_call_allocate(hpRunBootHdmiCheck, const_cast<char *>("regagdc+3s"));
+		}
+		uint64_t dFast = 0, dMid = 0;
+		clock_interval_to_deadline(250, kMillisecondScale, &dFast);
+		clock_interval_to_deadline(3, kSecondScale, &dMid);
+		if (gHpHdmiBootTcFast) thread_call_enter_delayed(gHpHdmiBootTcFast, dFast);
+		if (gHpHdmiBootTcMid) thread_call_enter_delayed(gHpHdmiBootTcMid, dMid);
+		IOLog("HP-HDMI-BOOTHPD: RegisterAGDCCallback(ret=%d) armed +250ms/+3s HDMI checks\n", ret);
+	}
+	return ret;
+}
 static mach_vm_address_t gOrgWaitForDRMSessionRestore = 0;
 static void hpWaitForDRMSessionRestore(void *that) {
 	if (that) {
@@ -1667,7 +2449,11 @@ static void hpSanitizeComputeEncoder(uint32_t *enc, uint32_t endOffDw, uint32_t 
     if (touched) {
         __asm__ volatile("mfence" ::: "memory");
         uint32_t n = __sync_fetch_and_add(&gHpPcFixEncoders, 1) + 1;
-        if (n <= 8 || (n & 255) == 0) {
+        static int sPcFixLog = -1;
+        if (sPcFixLog < 0) {
+            sPcFixLog = (checkKernelArgument("-ngreenpcfixlog") || checkKernelArgument("-ngreenevlog")) ? 1 : 0;
+        }
+        if (n <= 8 || (sPcFixLog == 1 && (n & 255) == 0)) {
             IOLog("HP-PCFIX: ver=PCFIX27 enc#%u endOffDw=%u totalDw=%u sigCnt=%u pre=%u pf=%u rf=%u prblk=%u def=%u wsk=%u\n",
                   n, endOffDw, totalDw, sigCnt, gHpPcFixPreamble, gHpPcFixPipeFlush, gHpPcFixReadFlush,
                   gRcsPreemptBlockedN, gRcsDeferActiveN, gRcsWaitSkipPort1N);
@@ -2402,6 +3188,91 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 				SYSLOG("ngreen", "HP-S0IX: prepareToExitSleep=0x%llx IOFramebuffer::handleEvent=0x%llx",
 				       static_cast<uint64_t>(prepExitSleep), reinterpret_cast<uint64_t>(gHpIOFBHandleEvent));
 			}
+
+			RouteRequestPlus camelliaGuards[] = {
+				{"__ZN12CamelliaBase16ReadDpbResidencyE10kDpbType_t", hpCamelliaReadDpbResidency, gOrgCamelliaReadDpbResidency},
+				{"__ZN12CamelliaBase18UpdateDpbResidencyEv", hpCamelliaUpdateDpbResidency, gOrgCamelliaUpdateDpbResidency},
+				{"__ZN12CamelliaBase17SaveActivityEventE9kExitOp_t", hpCamelliaSaveActivityEvent, gOrgCamelliaSaveActivityEvent},
+				{"__ZN12CamelliaBase10ControlDPBE13kDPBCommand_tb", hpCamelliaControlDPB, gOrgCamelliaControlDPB},
+				{"__ZN12CamelliaBase5IsSetEj", hpCamelliaIsSet, gOrgCamelliaIsSet},
+				{"__ZN12CamelliaBase16SetDPCDBacklightEj", hpCamelliaSetDPCDBacklight, gOrgCamelliaSetDPCDBacklight},
+				{"__ZN12CamelliaBase10ResetCacheEv", hpCamelliaResetCache, gOrgCamelliaResetCache},
+				{"__ZN12CamelliaBase15ReadCamelliaRegEjhPv", hpCamelliaReadReg, gOrgCamelliaReadReg},
+				{"__ZN12CamelliaBase16WriteCamelliaRegEjhj", hpCamelliaWriteReg, gOrgCamelliaWriteReg},
+			};
+			uint32_t camRouted = 0;
+			for (size_t ci = 0; ci < arrsize(camelliaGuards); ++ci) {
+				if (camelliaGuards[ci].route(patcher, index, address, size)) {
+					++camRouted;
+				} else {
+					patcher.clearError();
+				}
+			}
+			gHpCamelliaGuardsRouted = camRouted;
+			IOLog("HP-CAMELLIA-NULLGUARD: routed %u/%u CamelliaBase null-guards\n",
+			      camRouted, static_cast<uint32_t>(arrsize(camelliaGuards)));
+
+			RouteRequestPlus meiFastBoot{"__ZN24AppleIntelBaseController12findMEDeviceEPKc", hpFindMEDevice, gOrgFindMEDevice};
+			bool meiRouted = meiFastBoot.route(patcher, index, address, size);
+			if (!meiRouted) {
+				patcher.clearError();
+			}
+			IOLog("HP-FASTBOOT: findMEDevice 10s-timeout bypass %s\n", meiRouted ? "routed" : "not routed");
+			if (!checkKernelArgument("-ngreennohdmi")) {
+				gHpPlatformInfoList = reinterpret_cast<void *>(this->gPlatformInformationList);
+				RouteRequestPlus hdmiAuxGuard{"__ZN24AppleIntelBaseController18GetStreamAccessAUXEP21AGDCStreamAccessAUX_tS1_", hpGetStreamAccessAUX, gOrgGetStreamAccessAUX};
+				bool auxGuardRouted = hdmiAuxGuard.route(patcher, index, address, size);
+				if (!auxGuardRouted) {
+					patcher.clearError();
+				}
+				IOLog("HP-HDMI-AUXGUARD: GetStreamAccessAUX HDMI short-circuit %s\n", auxGuardRouted ? "routed" : "not routed");
+
+				mach_vm_address_t symGetPortByDDI = patcher.solveSymbol(index, "__ZN14AppleIntelPort12getPortByDDIEj", address, size);
+				if (!symGetPortByDDI) {
+					patcher.clearError();
+				} else {
+					gHpGetPortByDDI = reinterpret_cast<t_get_port_by_ddi>(symGetPortByDDI);
+				}
+				mach_vm_address_t symInvokeHotplug = patcher.solveSymbol(index, "__ZN24AppleIntelBaseController20invokeHotplugHandlerEjN14AppleIntelPort8PortModeE", address, size);
+				if (!symInvokeHotplug) {
+					patcher.clearError();
+				} else {
+					gHpInvokeHotplugHandler = reinterpret_cast<t_invoke_hotplug_handler>(symInvokeHotplug);
+				}
+				RouteRequestPlus hdmiAgdcEnable{"__ZN24AppleIntelBaseController20AGDCEnableControllerEP28AGDCVendorControllerEnable_t", hpAGDCEnableController, gOrgAGDCEnableController};
+				bool agdcEnableRouted = hdmiAgdcEnable.route(patcher, index, address, size);
+				if (!agdcEnableRouted) {
+					patcher.clearError();
+				}
+				RouteRequestPlus hdmiRegAgdc{"__ZN24AppleIntelBaseController20RegisterAGDCCallbackEP25AGDCRegisterLinkControl_t", hpRegisterAGDCCallback, gOrgRegisterAGDCCallback};
+				bool regAgdcRouted = hdmiRegAgdc.route(patcher, index, address, size);
+				if (!regAgdcRouted) {
+					patcher.clearError();
+				}
+				RouteRequestPlus hdmiStreamEdid{"__ZN24AppleIntelBaseController13StreamGetEDIDEP19AGDCStreamGetEDID_tS1_", hpStreamGetEDID, gOrgStreamGetEDID};
+				bool streamEdidRouted = hdmiStreamEdid.route(patcher, index, address, size);
+				if (!streamEdidRouted) {
+					patcher.clearError();
+				}
+				RouteRequestPlus hdmiGmbus{"__ZN24AppleIntelBaseController16hwDoGMBusRequestEjjP12IOI2CRequest", hpHwDoGMBusRequest, gOrgHwDoGMBusRequest};
+				bool gmbusRouted = hdmiGmbus.route(patcher, index, address, size);
+				if (!gmbusRouted) {
+					patcher.clearError();
+				}
+				RouteRequestPlus hdmiLightUpTmds{"__ZN24AppleIntelBaseController11LightUpTMDSEP21AppleIntelFramebufferP21AppleIntelDisplayPathPK29IODetailedTimingInformationV2", hpLightUpTMDS, gOrgLightUpTMDS};
+				bool lightUpTmdsRouted = hdmiLightUpTmds.route(patcher, index, address, size);
+				if (!lightUpTmdsRouted) {
+					patcher.clearError();
+				}
+				IOLog("HP-HDMI-HOTPLUG: getPortByDDI=0x%llx invokeHotplugHandler=0x%llx agdcEnable=%s regAgdc=%s streamEdid=%s gmbus=%s lightUpTmds=%s\n",
+				      static_cast<unsigned long long>(symGetPortByDDI),
+				      static_cast<unsigned long long>(symInvokeHotplug),
+				      agdcEnableRouted ? "routed" : "not routed",
+				      regAgdcRouted ? "routed" : "not routed",
+				      streamEdidRouted ? "routed" : "not routed",
+				      gmbusRouted ? "routed" : "not routed",
+				      lightUpTmdsRouted ? "routed" : "not routed");
+			}
 		}
 
 		RouteRequestPlus requests[] = {
@@ -2511,8 +3382,8 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 			// Keep native SST timing setup; forcing custom clocks can break CoreDisplay validation.
 			//{"__ZN24AppleIntelBaseController17SetupDPSSTTimingsEP21AppleIntelFramebufferP21AppleIntelDisplayPathP10CRTCParams", SetupDPSSTTimings, this->oSetupDPSSTTimings},
 			//{"__ZN24AppleIntelBaseController12SetupTimingsEP21AppleIntelFramebufferP21AppleIntelDisplayPathPK29IODetailedTimingInformationV2P10CRTCParams", SetupTimings, this->oSetupTimings},
-			// Keep native detailed timing validation; avoid overriding pixel clock fields.
-			//{"__ZN21AppleIntelFramebuffer22validateDetailedTimingEPvy", validateDetailedTiming, this->ovalidateDetailedTiming},
+			// R32-PCFIX48-HDMI: enforce RGB444 8bpc SDR <=340MHz wire policy on external HDMI (FB1).
+			{"__ZN21AppleIntelFramebuffer22validateDetailedTimingEPvy", validateDetailedTiming, this->ovalidateDetailedTiming},
 			{"__ZN21AppleIntelFramebuffer19validateDisplayModeEiPPKNS_15ModeDescriptionEPPK29IODetailedTimingInformationV2", validateDisplayMode, this->ovalidateDisplayMode},
 			{"__ZN21AppleIntelFramebuffer21getCurrentDisplayModeEPiS0_", getCurrentDisplayMode, this->ogetCurrentDisplayMode},
 	   		//{"__ZN21AppleIntelFramebuffer18setupDisplayTimingEPK29IODetailedTimingInformationV2PS0_", setupDisplayTiming, this->osetupDisplayTiming},
@@ -2767,6 +3638,7 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 		static const uint8_t f_tcon_banksia[] = {0x3d, 0x12, 0x14, 0xc4, 0x41};
 		static const uint8_t r_tcon_banksia[] = {0x3d, 0x14, 0x1e, 0xc4, 0xc1};
 		const bool enableTcon = checkKernelArgument("-ngreentglwithgfx");
+		const bool hdmiFix = NGreen::callback && NGreen::callback->isRealTGL && !checkKernelArgument("-ngreennohdmi");
 
 		if (isprod){
 			LookupPatchPlus const patchesp[] = {// tgl production kext
@@ -2796,7 +3668,6 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 				{activeKext, f6nb, r6nb, arrsize(f6nb),	1},
 				{activeKext, f13p, r13p, arrsize(f13p),	1},
 				{activeKext, f13pb, r13pb, arrsize(f13pb),	1},
-				{activeKext, f19, r19, arrsize(f19),	1},
 				{activeKext, f20p, r20p, arrsize(f20p),	1},
 				{activeKext, f24bp, r24bp, arrsize(f24bp),	14},
 				{activeKext, f24cp, r24cp, arrsize(f24cp),	1},
@@ -2805,6 +3676,10 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 			};
 
 			PANIC_COND(!LookupPatchPlus::applyAll(patcher, patchesp , address, size), "ngreen", "kextG11FBT Failed to apply production patches!");
+			if (!hdmiFix) {
+				LookupPatchPlus const spoofHpdProd[] = {{activeKext, f19, r19, arrsize(f19), 1}};
+				PANIC_COND(!LookupPatchPlus::applyAll(patcher, spoofHpdProd, address, size), "ngreen", "kextG11FBT Failed to apply f19 prod!");
+			}
 			applyFixBootMode(patcher, activeKext, address, size);
 			if (enableTcon) {
 				LookupPatchPlus const tconPatches[] = {
@@ -2833,34 +3708,89 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 				//{activeKext, f4c, r4c, arrsize(f4c),	2},
 		//		{activeKext, f6a, r6a, arrsize(f6a),	1},
 		//		{activeKext, f7, r7, arrsize(f7),	1},
-				// f10 ("hwreg" CALL+JZ→JMP bypass) commented out — NOT in NootedBlue.
-				{activeKext, f10, r10, arrsize(f10),	1},
-				// f13: mandatory. Without this port-probe bypass the spoofed TGL path freezes during boot.
-				{activeKext, f13, r13, arrsize(f13),	1},
-				// f13b: mandatory. Without this bypass AppleIntelPort::probePortStateEv hits
-				// a pure-virtual call and panics in WindowServer during enableController.
-		//		{activeKext, f13b, r13b, arrsize(f13b),	1},
+				// f13 + f13b: mandatory. f13 (0x87c7d) bypasses probePortMode in enableController;
+				// f13b (0x2eb0b, R32-PCFIX43-HDMI) replaces vtable+0x190 probePortMode() in
+				// AppleIntelPort::probePortState() with PortMode=1 (Combo PHY native) instead of
+				// hitting ___cxa_pure_virtual when an external HDMI sink asserts HPD (isHPDLow()==0).
+				{activeKext, f13,  r13,  arrsize(f13),	1},
+				{activeKext, f13b, r13b, arrsize(f13b),	1},
 				// f15: suppress getPathByPipe log flood at IGLogLevel=8.
-				// On platform 0x9a490000 all paths are on pipe 0; every scan cycle logs
-				// "pipe = 0" many times per second, flooding the log unreadably.
-				// The je→jmp makes the branch unconditionally skip the IGFB log emit.
-				// Purely cosmetic: no behavioral change, no display-pipe impact.
 				{activeKext, f15, r15, arrsize(f15),	1},
-				//{activeKext, f16, r16, arrsize(f16),	1},
-				{activeKext, f19, r19, arrsize(f19),	1},
-		//		{activeKext, f20, r20, arrsize(f20),	1},
-				//{activeKext, f21, r21, arrsize(f21),	1},
-				//{activeKext, f22, r22, arrsize(f22),    1},
-		//		{activeKext, f6nb, r6nb, arrsize(f6nb),	1},
-		//		{activeKext, f19, r19, arrsize(f19),	1},
-		//		{activeKext, f20, r20, arrsize(f20),	1},
 				{activeKext, f24b, r24b, arrsize(f24b),	11},
-		//		{activeKext, f24c, r24c, arrsize(f24c),	1},
-		//		{activeKext, f24d, r24d, arrsize(f24d),	6},
-		//		{activeKext, f25,  r25,  arrsize(f25),	6},
 				};
 
 			PANIC_COND(!LookupPatchPlus::applyAll(patcher, patches , address, size), "ngreen", "kextG11FBT Failed to apply dbg patches!");
+			if (!hdmiFix) {
+				LookupPatchPlus const spoofDbgPatches[] = {
+					{activeKext, f10, r10, arrsize(f10), 1},
+					{activeKext, f19, r19, arrsize(f19), 1},
+				};
+				PANIC_COND(!LookupPatchPlus::applyAll(patcher, spoofDbgPatches, address, size), "ngreen", "kextG11FBT Failed to apply spoof dbg patches!");
+			} else {
+				// HP-HDMI (R32-PCFIX43-HDMI): Fix two bugs in AppleIntelBaseController::hwDoGMBusRequest:
+				//  1) 0x7b556: relax busId < 8 check to busId < 15 for ICP/TGP GMBUS pins;
+				//  2) 0x7b837: Apple passed the PCH_GMBUS0 bitfield in %esi (reg) and busId in %edx (val)
+				//     to WriteRegister32(this, reg, val), writing busId to MMIO 0x2 instead of writing
+				//     the GMBUS0 config word to PCH_GMBUS0 (0xC5100). Swap into %edx=val, %esi=0xC5100.
+				static const uint8_t f_gmbus_busmax[] = {
+					0x48, 0xff, 0x05, 0xdb, 0xd7, 0x0d, 0x00, 0x83, 0x7d, 0xcc, 0x08, 0x72, 0x72
+				};
+				static const uint8_t r_gmbus_busmax[] = {
+					0x48, 0xff, 0x05, 0xdb, 0xd7, 0x0d, 0x00, 0x83, 0x7d, 0xcc, 0x0f, 0x72, 0x72
+				};
+				static const uint8_t f_gmbus_regval[] = {
+					0x48, 0x8b, 0x85, 0x68, 0xff, 0xff, 0xff,
+					0x48, 0x01, 0x05, 0xb3, 0xd5, 0x0d, 0x00,
+					0xc1, 0xe6, 0x07,
+					0x0b, 0xb5, 0x74, 0xff, 0xff, 0xff,
+					0x49, 0x8b, 0x7d, 0x00,
+					0x48, 0x8b, 0x07,
+					0x8b, 0x55, 0xcc
+				};
+				static const uint8_t r_gmbus_regval[] = {
+					0xc1, 0xe6, 0x07,
+					0x0b, 0xb5, 0x74, 0xff, 0xff, 0xff,
+					0x89, 0xf2,
+					0xbe, 0x00, 0x51, 0x0c, 0x00,
+					0x49, 0x8b, 0x7d, 0x00,
+					0x48, 0x8b, 0x07,
+					0x0f, 0x1f, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+					0x66, 0x90
+				};
+				LookupPatchPlus const pGmbusMax[] = {{activeKext, f_gmbus_busmax, r_gmbus_busmax, arrsize(f_gmbus_busmax), 1}};
+				LookupPatchPlus const pGmbusReg[] = {{activeKext, f_gmbus_regval, r_gmbus_regval, arrsize(f_gmbus_regval), 1}};
+				bool gmbusMaxOk = LookupPatchPlus::applyAll(patcher, pGmbusMax, address, size);
+				bool gmbusRegOk = LookupPatchPlus::applyAll(patcher, pGmbusReg, address, size);
+				SYSLOG("ngreen", "HP-HDMI: GMBUS0 reg/val swap=%d busId<15=%d native hwSetMode/HPD active", gmbusRegOk, gmbusMaxOk);
+				if (!checkKernelArgument("-ngreenicldpll")) {
+					// HP-HDMI-DPLL (R32-PCFIX49-HDMI): AppleIntelTGLGraphicsFramebuffer::enableClocks
+					// indexes a 48-byte uint64_t[6] table at __TEXT,__const (0x0f3518..0x0f3547) with ICL
+					// DPLL{0,1,4}_CFGCR{0,1} MMIO offsets instead of TGL ComboPHY DPLL{0,1,4}_CFGCR{0,1}.
+					static const uint8_t f_tgl_dpll_regs[48] = {
+						0x00, 0x40, 0x16, 0x00, 0x00, 0x00, 0x00, 0x00,
+						0x80, 0x40, 0x16, 0x00, 0x00, 0x00, 0x00, 0x00,
+						0x00, 0x42, 0x16, 0x00, 0x00, 0x00, 0x00, 0x00,
+						0x04, 0x40, 0x16, 0x00, 0x00, 0x00, 0x00, 0x00,
+						0x84, 0x40, 0x16, 0x00, 0x00, 0x00, 0x00, 0x00,
+						0x04, 0x42, 0x16, 0x00, 0x00, 0x00, 0x00, 0x00,
+					};
+					static const uint8_t r_tgl_dpll_regs[48] = {
+						0x84, 0x42, 0x16, 0x00, 0x00, 0x00, 0x00, 0x00,
+						0x8c, 0x42, 0x16, 0x00, 0x00, 0x00, 0x00, 0x00,
+						0x94, 0x42, 0x16, 0x00, 0x00, 0x00, 0x00, 0x00,
+						0x88, 0x42, 0x16, 0x00, 0x00, 0x00, 0x00, 0x00,
+						0x90, 0x42, 0x16, 0x00, 0x00, 0x00, 0x00, 0x00,
+						0x98, 0x42, 0x16, 0x00, 0x00, 0x00, 0x00, 0x00,
+					};
+					LookupPatchPlus const pTglDpllRegs[] = {{activeKext, f_tgl_dpll_regs, r_tgl_dpll_regs, arrsize(f_tgl_dpll_regs), 1}};
+					bool dpllRegsOk = LookupPatchPlus::applyAll(patcher, pTglDpllRegs, address, size);
+					if (!dpllRegsOk) {
+						patcher.clearError();
+					}
+					gHpHdmiDpllTabPatched = dpllRegsOk ? 1u : 0u;
+					IOLog("HP-HDMI-DPLL: patched TGL ComboPHY DPLL_CFGCR0/1 table=%d\n", dpllRegsOk ? 1 : 0);
+				}
+			}
 			applyFixBootMode(patcher, activeKext, address, size);
 			if (enableTcon) {
 				LookupPatchPlus const tconPatches[] = {
@@ -4475,6 +5405,14 @@ void Gen11::setupParams(AppleIntel::AppleIntelBaseController *that,
 {
 	FunctionCast(setupParams, callback->osetupParams)(that, fb, path, params, timing);
 
+	if (NGreen::callback != nullptr && NGreen::callback->isRealTGL && !checkKernelArgument("-ngreennohdmi") &&
+	    fb != nullptr && params != nullptr && timing != nullptr && getMember<uint32_t>(fb, 0x1dc) == 1u) {
+		const bool highTmds = (timing->pixelClock > 340000000ULL);
+		gHpHdmiHighTmds = highTmds ? 1u : 0u;
+		gHpHdmiLastPclk = timing->pixelClock;
+		params->TRANS_DDI_FUNC_CTL = (params->TRANS_DDI_FUNC_CTL & ~0xD1u) | (highTmds ? 0x11u : 0u);
+	}
+
 	if (NGreen::callback == nullptr || NGreen::callback->isRealTGL || params == nullptr) return;
 
 	// V403-zero: causation test. Wipe seam-join CRTCParams fields BEFORE any
@@ -4844,6 +5782,14 @@ void Gen11::enableDisplayEngine(AppleIntel::AppleIntelBaseController *that)
 void Gen11::computeLaneCount(AppleIntel::AppleIntelBaseController *that, const IODetailedTimingInformationV2 *timing, unsigned int linkRate, unsigned int bpp, unsigned int *laneCount) {
 	if (!laneCount) return;
 
+	if (NGreen::callback && NGreen::callback->isRealTGL && !checkKernelArgument("-ngreennohdmi") &&
+	    that != nullptr && linkRate < 0x14u) {
+		void *cinfo = getMember<void *>(that, 0x548);
+		if (cinfo != nullptr && getMember<uint32_t>(cinfo, 0x08) == 2u) {
+			linkRate = 0x14u;
+		}
+	}
+
 	// Call original first — handles all standard DP rates on both real TGL and spoofed paths.
 	FunctionCast(computeLaneCount, callback->ocomputeLaneCount)(that, timing, linkRate, bpp, laneCount);
 
@@ -5056,6 +6002,30 @@ void Gen11::getOnlineInfo(AppleIntel::AppleIntelFramebuffer *that, AppleIntel::A
 	// we'll know V96 was masking a real status bug, not just being redundant.
 	FunctionCast(getOnlineInfo, callback->ogetOnlineInfo)(that, displayPath, online, changed);
 	uint32_t fbId = getMember<uint32_t>(that, 0x1DC);
+	if (NGreen::callback && NGreen::callback->isRealTGL && !checkKernelArgument("-ngreennohdmi") &&
+	    that != nullptr && fbId == 1u && online != nullptr && *online != 0) {
+		const uint64_t maxHdmiClk = checkKernelArgument("-ngreenhdmi340") ? 340000000ULL : 600000000ULL;
+		uint64_t &drvMaxClk = getMember<uint64_t>(that, 0x4368);
+		uint64_t &rangeMaxClk = getMember<uint64_t>(that, 0x4398);
+		uint64_t prevClk = drvMaxClk;
+		bool bumped = false;
+		if (drvMaxClk < maxHdmiClk) {
+			drvMaxClk = maxHdmiClk;
+			bumped = true;
+		}
+		if (rangeMaxClk < maxHdmiClk) {
+			if (!bumped) {
+				prevClk = rangeMaxClk;
+			}
+			rangeMaxClk = maxHdmiClk;
+			bumped = true;
+		}
+		if (bumped && __sync_add_and_fetch(&gHpHdmiRangeLogs, 1u) <= 8u) {
+			IOLog("HP-HDMI-RANGE: FB1 online=1 maxPixelClock %llu -> %llu\n",
+			      static_cast<unsigned long long>(prevClk),
+			      static_cast<unsigned long long>(maxHdmiClk));
+		}
+	}
 	unsigned char origOnline = online ? *online : 0xFF;
 	static int v96PassLogs = 0;
 	if (v96PassLogs < 12) {
@@ -5577,10 +6547,14 @@ void Gen11::FastWriteRegister32(AppleIntel::AppleIntelBaseController *that, unsi
 	param_2 = xeFixFilterWrite(param_1, param_2, NGreen::callback && NGreen::callback->isRealTGL);
 	if ((param_1 & 0xFFFFF) == 0x7019C) xeFixEnsure();
 	// V99D: Diagnose — log all FastWrite calls near display engine range on first boot
-	// to understand what addresses/values flow through this path.
+	// to understand what addresses/values flow through this path (opt-in via -ngreenevlog).
 	{
+		static int sV99DEvLog = -1;
+		if (sV99DEvLog < 0) {
+			sV99DEvLog = checkKernelArgument("-ngreenevlog") ? 1 : 0;
+		}
 		static int v99DCount = 0;
-		if (v99DCount < 30) {
+		if (sV99DEvLog == 1 && v99DCount < 30) {
 			v99DCount++;
 			SYSLOG("ngreen", "V99D[%d]: FastWrite addr=0x%lx val=0x%x",
 				   v99DCount, param_1, param_2);
@@ -5677,6 +6651,42 @@ void Gen11::raWriteRegister32(void *that,unsigned long param_1, UInt32 param_2)
 {
 	if (xeInertDrop(param_1)) return;
 	param_2 = xeFixFilterWrite(param_1, param_2, NGreen::callback && NGreen::callback->isRealTGL);
+	if (NGreen::callback && NGreen::callback->isRealTGL && !checkKernelArgument("-ngreennohdmi")) {
+		const uint32_t dpllReg = static_cast<uint32_t>(param_1 & 0xFFFFFFu);
+		if (dpllReg == 0x61400u || dpllReg == 0x62400u || dpllReg == 0x63400u) {
+			if (hpIsActiveHdmiDdiB(param_2)) {
+				param_2 = (param_2 & ~0xD1u) | (gHpHdmiHighTmds ? 0x11u : 0u);
+				gHpHdmiTransDdiB = param_2;
+			}
+		} else if (!checkKernelArgument("-ngreenicldpll")) {
+			if (dpllReg == 0x16428Cu || dpllReg == 0x164294u) {
+				uint32_t orig = param_2;
+				param_2 &= 0x1FFFFFFFu;
+				if (dpllReg == 0x16428Cu) {
+					gHpHdmiDpll1Cfgcr0 = param_2;
+					if (__sync_add_and_fetch(&gHpHdmiDpllWriteLogs, 1u) <= 12u) {
+						IOLog("HP-HDMI-DPLL: write 0x%x 0x%08x -> 0x%08x\n", dpllReg, orig, param_2);
+					}
+				}
+			} else if (dpllReg == 0x164288u || dpllReg == 0x164290u || dpllReg == 0x164298u) {
+				uint32_t orig = param_2;
+				param_2 &= 0x0003FFFCu;
+				if (dpllReg == 0x164290u) {
+					gHpHdmiDpll1Cfgcr1 = param_2;
+					if (__sync_add_and_fetch(&gHpHdmiDpllWriteLogs, 1u) <= 12u) {
+						IOLog("HP-HDMI-DPLL: write 0x%x 0x%08x -> 0x%08x\n", dpllReg, orig, param_2);
+					}
+				}
+			} else if (dpllReg == 0x164280u) {
+				gHpHdmiDpclkaCfgcr0 = param_2;
+				if (gHpHdmiTelemetryTc) {
+					uint64_t dl = 0;
+					clock_interval_to_deadline(50, kMillisecondScale, &dl);
+					thread_call_enter_delayed(gHpHdmiTelemetryTc, dl);
+				}
+			}
+		}
+	}
 	if ((param_1 & 0xFFFFF) == 0x7019C) xeFixEnsure();
 	// V93: optional plane SURF zero-write guard.
 	// Disabled by default due black-screen regressions; enable only with -ngreenv93.
@@ -6015,13 +7025,16 @@ void Gen11::raWriteRegister32(void *that,unsigned long param_1, UInt32 param_2)
 					remapped++;
 				}
 				NGreen::callback->writeReg32(0x101008, 0x1); // flush GGTT TLB
-				if (++v99GCount <= 8 || (v99GCount & 0x3F) == 0)
+				static int sV99EvLog = -1;
+				if (sV99EvLog < 0) sV99EvLog = checkKernelArgument("-ngreenevlog") ? 1 : 0;
+				++v99GCount;
+				if (v99GCount <= 8 || (sV99EvLog == 1 && (v99GCount & 0x3F) == 0))
 					SYSLOG("ngreen", "V99G[%d]: GGTT[%d..%d] <- srcPage=0x%x slot=%d remapped=%d skip=%d",
 						   v99GCount, base, base + 3999, srcPage, slot, remapped, remapSkipped);
-					// xe/diag: IOLog reaches the kernel log (SYSLOG does not reach the unified log).
-					if (v99GCount <= 16 || (v99GCount & 0x3F) == 0)
-						IOLog("XeNG V99G[%d] slot=%d srcPage=0x%x remapped=%d skip=%d firstSkip=%d lastSkip=%d\n",
-							  v99GCount, slot, srcPage, remapped, remapSkipped, firstSkip, lastSkip);
+				// xe/diag: IOLog reaches the kernel log (SYSLOG does not reach the unified log).
+				if (v99GCount <= 16 || (sV99EvLog == 1 && (v99GCount & 0x3F) == 0))
+					IOLog("XeNG V99G[%d] slot=%d srcPage=0x%x remapped=%d skip=%d firstSkip=%d lastSkip=%d\n",
+						  v99GCount, slot, srcPage, remapped, remapSkipped, firstSkip, lastSkip);
 			}
 
 			// Redirect SURF to the aperture address of the assigned slot.
@@ -6141,33 +7154,65 @@ uint64_t Gen11::getOSInformation(AppleIntel::AppleIntelBaseController *that)
 		// (enableController +0x1356, getFreeJoinablePathCount +0xa7, etc).
 		// Best known config: 3/3/3 + -ngreendp0 → reaches login with banded display.
 		pinfo[1].fPipeCount            = 3;
-		pinfo[1].fInfoPortCount        = 3;
 		pinfo[1].fInfoFramebufferCount = 3;
 		pinfo[1].fSliceCount  = 1;
 		pinfo[1].fmaxEuCount  = 8;
 		pinfo[1].fsubslices   = 10;
 
-		// Connector 0: built-in eDP (LVDS), DDI-A, pipe 0
-		pinfo[1].connectors[0].index = 0;
-		pinfo[1].connectors[0].busId = 0;
-		pinfo[1].connectors[0].pipe  = 0;
-		pinfo[1].connectors[0].pad   = 0;
-		pinfo[1].connectors[0].type  = ConnectorLVDS;
-		pinfo[1].connectors[0].flags = 0x8 | 0x10;
+		if (NGreen::callback && NGreen::callback->isRealTGL && !checkKernelArgument("-ngreennohdmi")) {
+			const bool enableTcDp = checkKernelArgument("-ngreentcdp");
+			pinfo[1].fInfoPortCount = enableTcDp ? 6 : 3;
+			// Connector 0: built-in eDP (LVDS), DDI-A, Combo PHY 0
+			pinfo[1].connectors[0] = { 0, 0, 0, 0, ConnectorLVDS, 0x8 | 0x10 };
+			// Connector 1: built-in HDMI 2.0b, DDI-B (index=1), ICP GMBUS pin 2 (busId=2), TMDS portType=2, Combo PHY 0,
+			// flags=0x2 (AGDCGPUCapability_t.hdmiMap bit; mstMap=0x1 and dpMap=0x9 MUST be 0 on HDMI so AGDP uses GMBUS DDC + TMDS)
+			pinfo[1].connectors[1] = { 1, 2, 2, 0, ConnectorHDMI, 0x2 };
+			if (enableTcDp) {
+				// Optional -ngreentcdp: external USB-C / Thunderbolt 4 DP (TC1..TC4, DDI index 3..6, GMBUS 9..12, DP portType=1, TC PHY 1)
+				pinfo[1].connectors[2] = { 3, 9,  1, 1, ConnectorDP, 0x201 };
+				pinfo[1].connectors[3] = { 4, 10, 1, 1, ConnectorDP, 0x201 };
+				pinfo[1].connectors[4] = { 5, 11, 1, 1, ConnectorDP, 0x201 };
+				pinfo[1].connectors[5] = { 6, 12, 1, 1, ConnectorDP, 0x201 };
+				pinfo[1].connectors[6] = { 0, 0, 0, 0, ConnectorDummy, 0 };
+				pinfo[1].connectors[7] = { 0, 0, 0, 0, ConnectorDummy, 0 };
+				pinfo[1].connectors[8] = { 0, 0, 0, 0, ConnectorDummy, 0 };
+				SYSLOG("ngreen", "getOSInformation: patched pinfo[1] for Real TGL (eDP DDI-A + HDMI DDI-B busId=2 flags=0x2 + TC1..TC4 DP, 6 ports)");
+			} else {
+				// Default 3/3/3 invariant: eDP DDI-A + built-in HDMI 2.0b DDI-B + Dummy (DDI index 3,4 to avoid TGL Unsupported DDI on ddi=2)
+				pinfo[1].connectors[2] = { 3, 9,  1, 1, ConnectorDummy, 0 };
+				pinfo[1].connectors[3] = { 4, 10, 1, 1, ConnectorDummy, 0 };
+				pinfo[1].connectors[4] = { 0, 0, 0, 0, ConnectorDummy, 0 };
+				pinfo[1].connectors[5] = { 0, 0, 0, 0, ConnectorDummy, 0 };
+				pinfo[1].connectors[6] = { 0, 0, 0, 0, ConnectorDummy, 0 };
+				pinfo[1].connectors[7] = { 0, 0, 0, 0, ConnectorDummy, 0 };
+				pinfo[1].connectors[8] = { 0, 0, 0, 0, ConnectorDummy, 0 };
+				SYSLOG("ngreen", "getOSInformation: patched pinfo[1] for Real TGL (eDP DDI-A + HDMI DDI-B busId=2 flags=0x2, 3/3/3)");
+			}
+		} else {
+			pinfo[1].fInfoPortCount = 3;
 
-		// Connector 1: external USB-C/Thunderbolt DP (TC1/DDI-D), pipe 2
-		pinfo[1].connectors[1].index = 1;
-		pinfo[1].connectors[1].busId = 1;
-		pinfo[1].connectors[1].pipe  = 2;
-		pinfo[1].connectors[1].pad   = 0;
-		pinfo[1].connectors[1].type  = ConnectorDP;
-		pinfo[1].connectors[1].flags = 0x1 | 0x400;
+			// Connector 0: built-in eDP (LVDS), DDI-A, pipe 0
+			pinfo[1].connectors[0].index = 0;
+			pinfo[1].connectors[0].busId = 0;
+			pinfo[1].connectors[0].pipe  = 0;
+			pinfo[1].connectors[0].pad   = 0;
+			pinfo[1].connectors[0].type  = ConnectorLVDS;
+			pinfo[1].connectors[0].flags = 0x8 | 0x10;
 
-		// Connectors 2-3: Dummy
-		pinfo[1].connectors[2] = { 2, 2, 2, 0, ConnectorDummy, 0 };
-		pinfo[1].connectors[3] = { 3, 3, 3, 0, ConnectorDummy, 0 };
+			// Connector 1: external USB-C/Thunderbolt DP (TC1/DDI-D), pipe 2
+			pinfo[1].connectors[1].index = 1;
+			pinfo[1].connectors[1].busId = 1;
+			pinfo[1].connectors[1].pipe  = 2;
+			pinfo[1].connectors[1].pad   = 0;
+			pinfo[1].connectors[1].type  = ConnectorDP;
+			pinfo[1].connectors[1].flags = 0x1 | 0x400;
 
-		SYSLOG("ngreen", "getOSInformation: patched pinfo[1] for ADL-P (LVDS+HDMI, mobile)");
+			// Connectors 2-3: Dummy
+			pinfo[1].connectors[2] = { 2, 2, 2, 0, ConnectorDummy, 0 };
+			pinfo[1].connectors[3] = { 3, 3, 3, 0, ConnectorDummy, 0 };
+
+			SYSLOG("ngreen", "getOSInformation: patched pinfo[1] for ADL-P (LVDS+HDMI, mobile)");
+		}
 	}
 	return FunctionCast(getOSInformation, callback->ogetOSInformation)(that);
 }
@@ -6605,9 +7650,11 @@ static void logFBCtrlState(const char *tag, AppleIntel::AppleIntelFramebuffer *t
 void Gen11::prepareToEnterWake(AppleIntel::AppleIntelFramebuffer *that)
 {
 	logFBCtrlState("prepareToEnterWake>>", that);
-	bool panelOn = isPanelPowerOn(getMember<void *>(that, 0x1d0));
-	if (panelOn) {
-		reinterpret_cast<IORegistryEntry *>(that)->setProperty("AAPL,LCD-PowerState-ON", true);
+	if (getMember<uint32_t>(that, 0x1dc) == 0) {
+		bool panelOn = isPanelPowerOn(getMember<void *>(that, 0x1d0));
+		if (panelOn) {
+			reinterpret_cast<IORegistryEntry *>(that)->setProperty("AAPL,LCD-PowerState-ON", true);
+		}
 	}
 	FunctionCast(prepareToEnterWake, callback->oprepareToEnterWake)(that);
 	uint32_t state_after = getMember<uint32_t>(that, 0x49e0);
@@ -6623,7 +7670,9 @@ void Gen11::prepareToEnterWake(AppleIntel::AppleIntelFramebuffer *that)
 void Gen11::prepareToExitWake(AppleIntel::AppleIntelFramebuffer *that)
 {
 	logFBCtrlState("prepareToExitWake>>", that);
-	reinterpret_cast<IORegistryEntry *>(that)->setProperty("AAPL,LCD-PowerState-ON", false);
+	if (getMember<uint32_t>(that, 0x1dc) == 0) {
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("AAPL,LCD-PowerState-ON", false);
+	}
 	FunctionCast(prepareToExitWake, callback->oprepareToExitWake)(that);
 	uint32_t state_after = getMember<uint32_t>(that, 0x49e0);
 	if (state_after != 4) {
@@ -6638,7 +7687,9 @@ void Gen11::prepareToExitWake(AppleIntel::AppleIntelFramebuffer *that)
 void Gen11::prepareToEnterSleep(AppleIntel::AppleIntelFramebuffer *that)
 {
 	logFBCtrlState("prepareToEnterSleep>>", that);
-	reinterpret_cast<IORegistryEntry *>(that)->setProperty("AAPL,LCD-PowerState-ON", false);
+	if (getMember<uint32_t>(that, 0x1dc) == 0) {
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("AAPL,LCD-PowerState-ON", false);
+	}
 	FunctionCast(prepareToEnterSleep, callback->oprepareToEnterSleep)(that);
 	uint32_t state_after = getMember<uint32_t>(that, 0x49e0);
 	if (state_after != 4) {
@@ -6654,13 +7705,26 @@ void Gen11::prepareToEnterSleep(AppleIntel::AppleIntelFramebuffer *that)
 void Gen11::prepareToExitSleep(AppleIntel::AppleIntelFramebuffer *that)
 {
 	logFBCtrlState("prepareToExitSleep>>", that);
+	hpEnableSouthDdiBHpdAndSettle("wake");
 	FunctionCast(prepareToExitSleep, callback->oprepareToExitSleep)(that);
 	uint32_t state_after = getMember<uint32_t>(that, 0x49e0);
 	if (state_after != 4) {
 		SYSLOG("ngreen", "prepareToExitSleep: state=0x%x (expected 4), forcing", state_after);
 		getMember<uint32_t>(that, 0x49e0) = 4;
 	}
-	reinterpret_cast<IORegistryEntry *>(that)->setProperty("AAPL,LCD-PowerState-ON", true);
+	if (getMember<uint32_t>(that, 0x1dc) == 0) {
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("AAPL,LCD-PowerState-ON", true);
+		if (gHpFbCtrl && NGreen::callback && NGreen::callback->isRealTGL && !checkKernelArgument("-ngreennohdmi")) {
+			if (!gHpHdmiWakeTc) {
+				gHpHdmiWakeTc = thread_call_allocate(hpRunBootHdmiCheck, const_cast<char *>("wake+2s"));
+			}
+			uint64_t dWake = 0;
+			clock_interval_to_deadline(2, kSecondScale, &dWake);
+			if (gHpHdmiWakeTc) {
+				thread_call_enter_delayed(gHpHdmiWakeTc, dWake);
+			}
+		}
+	}
 	logFBCtrlState("prepareToExitSleep<<", that);
 }
 
@@ -6695,14 +7759,50 @@ bool Gen11::AppleIntelBaseControllerstart(AppleIntel::AppleIntelBaseController *
 	
 	SYSLOG("ngreen", "AppleIntelBaseControllerstart: display workarounds applied");
 
+	if (param_1) {
+		gHpIgpuService = param_1;
+	}
+	if (that) {
+		gHpFbCtrl = that;
+	}
+	if (!gHpHdmiTelemetryTc) {
+		gHpHdmiTelemetryTc = thread_call_allocate(hpPublishHdmiTelemetry, nullptr);
+	}
+	hpEnableSouthDdiBHpdAndSettle("boot");
+
 	SYSLOG("ngreen", "FBController::start() entering...");
+	const bool hdmiDpllFixProp = (!checkKernelArgument("-ngreennohdmi") && !checkKernelArgument("-ngreenicldpll") && gHpHdmiDpllTabPatched != 0);
 	if (param_1) {
 		param_1->setProperty("ngreen-wake-color-fix", kOSBooleanTrue);
 		param_1->setProperty("ngreen-wake-xrgb10-preserved", kOSBooleanTrue);
+		param_1->setProperty("ngreen-camellia-nullguard", kOSBooleanTrue);
+		param_1->setProperty("ngreen-orphan-pool-512mb", checkKernelArgument("-ngreennoorphan") ? kOSBooleanFalse : kOSBooleanTrue);
+		param_1->setProperty("ngreen-quiet-hotpath", kOSBooleanTrue);
+		param_1->setProperty("ngreen-fastboot", checkKernelArgument("-ngreenmei") ? kOSBooleanFalse : kOSBooleanTrue);
+		param_1->setProperty("ngreen-hdmi-gmbus-fix", checkKernelArgument("-ngreennohdmi") ? kOSBooleanFalse : kOSBooleanTrue);
+		param_1->setProperty("ngreen-hdmi-rgb8-fix", (!checkKernelArgument("-ngreennohdmi") && !checkKernelArgument("-ngreenhdmi10bpc")) ? kOSBooleanTrue : kOSBooleanFalse);
+		param_1->setProperty("ngreen-hdmi-dpll-fix", hdmiDpllFixProp ? kOSBooleanTrue : kOSBooleanFalse);
+		param_1->setProperty("ngreen-hdmi-600mhz-fix", (!checkKernelArgument("-ngreennohdmi") && !checkKernelArgument("-ngreenhdmi340")) ? kOSBooleanTrue : kOSBooleanFalse);
+		param_1->setProperty("ngreen-hdmi-fix", "R32-PCFIX50-HDMI");
+		param_1->setProperty("ngreen-hdmi-shotplug-pre", gHpHdmiPreShotplug, 32);
+		param_1->setProperty("ngreen-hdmi-shotplug-post", gHpHdmiPostShotplug, 32);
+		param_1->setProperty("ngreen-hdmi-sdeisr-post", gHpHdmiPostSdeisr, 32);
 	}
 	if (that) {
 		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-color-fix", kOSBooleanTrue);
 		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-xrgb10-preserved", kOSBooleanTrue);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-camellia-nullguard", kOSBooleanTrue);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-orphan-pool-512mb", checkKernelArgument("-ngreennoorphan") ? kOSBooleanFalse : kOSBooleanTrue);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-quiet-hotpath", kOSBooleanTrue);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-fastboot", checkKernelArgument("-ngreenmei") ? kOSBooleanFalse : kOSBooleanTrue);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-gmbus-fix", checkKernelArgument("-ngreennohdmi") ? kOSBooleanFalse : kOSBooleanTrue);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-rgb8-fix", (!checkKernelArgument("-ngreennohdmi") && !checkKernelArgument("-ngreenhdmi10bpc")) ? kOSBooleanTrue : kOSBooleanFalse);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-dpll-fix", hdmiDpllFixProp ? kOSBooleanTrue : kOSBooleanFalse);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-600mhz-fix", (!checkKernelArgument("-ngreennohdmi") && !checkKernelArgument("-ngreenhdmi340")) ? kOSBooleanTrue : kOSBooleanFalse);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-fix", "R32-PCFIX50-HDMI");
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-shotplug-pre", gHpHdmiPreShotplug, 32);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-shotplug-post", gHpHdmiPostShotplug, 32);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-sdeisr-post", gHpHdmiPostSdeisr, 32);
 	}
 	xeBootHoldInit();
 	xeBlDiagStart();
@@ -6719,6 +7819,11 @@ bool Gen11::AppleIntelBaseControllerstart(AppleIntel::AppleIntelBaseController *
 			if (tc10) thread_call_enter_delayed(tc10, d10);
 			if (tc40) thread_call_enter_delayed(tc40, d40);
 		}
+	}
+	if (gHpHdmiTelemetryTc) {
+		uint64_t dTelem = 0;
+		clock_interval_to_deadline(2, kSecondScale, &dTelem);
+		thread_call_enter_delayed(gHpHdmiTelemetryTc, dTelem);
 	}
 	
 	if (ret) {
@@ -6922,12 +8027,21 @@ uint8_t Gen11::hwRegsNeedUpdate
 
 	static int CCount = 0;
 	CCount++;
-	SYSLOG("ngreen", "V97C[%d]: hwRegsNeedUpdate called", CCount);
-	// Return the original result so that register reprogramming proceeds normally.
-	// The lane count mismatch (4→2) that previously broke the display is now fixed
-	// by the computeLaneCount hook forcing 4 lanes.  Without register updates, the
-	// plane surface address and stride never get written, leaving the stale BIOS
-	// framebuffer on screen (grey/black vertical bars with only cursor visible).
+	const uint32_t pipeIdx = param_1 ? getMember<uint32_t>(param_1, 0x1dc) : 0;
+	if (NGreen::callback && NGreen::callback->isRealTGL && !checkKernelArgument("-ngreennohdmi")) {
+		if (pipeIdx == 0 && !checkKernelArgument("-ngreenedpmodeset") &&
+		    (NGreen::callback->readReg32(0x70008) & 0x80000000u) != 0) {
+			if (CCount <= 16 || checkKernelArgument("-ngreenevlog"))
+				SYSLOG("ngreen", "V97C[%d]: hwRegsNeedUpdate pipe=0 eDP GOP fastpath -> 0", CCount);
+			return 0;
+		}
+		uint8_t ret = FunctionCast(hwRegsNeedUpdate, callback->ohwRegsNeedUpdate)(that, param_1, param_2, param_3, param_4, param_5);
+		if (CCount <= 16 || checkKernelArgument("-ngreenevlog"))
+			SYSLOG("ngreen", "V97C[%d]: hwRegsNeedUpdate pipe=%u external -> %u", CCount, pipeIdx, ret);
+		return ret;
+	}
+	if (CCount <= 16 || checkKernelArgument("-ngreenevlog"))
+		SYSLOG("ngreen", "V97C[%d]: hwRegsNeedUpdate called", CCount);
 	return FunctionCast(hwRegsNeedUpdate, callback->ohwRegsNeedUpdate)(that, param_1, param_2, param_3, param_4, param_5);
 }
 
@@ -8609,20 +9723,44 @@ IOReturn Gen11::wrapSetFramebufferPowerState(void *that, unsigned int state)
 		uint32_t cur = *reinterpret_cast<uint32_t *>(fb + 0x4284);
 		if (state > 2) state = 2;
 		if (pipe != 0) {
-			if (cur > 0 && state == 0) {
+			IOReturn ret = kIOReturnSuccess;
+			if (state == 2) {
+				if (cur == 0) {
+					*reinterpret_cast<uint32_t *>(fb + 0x4284) = 1;
+					*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+					if (gHpIOFBHandleEvent) gHpIOFBHandleEvent(fb, 4, reinterpret_cast<void *>(1));
+				}
+				ret = FunctionCast(wrapSetFramebufferPowerState, callback->oSetFramebufferPowerState)(that, 2);
+				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+				xeNormalizePlane1AColor();
+				return ret;
+			}
+			if (state == 1) {
+				if (cur == 2) {
+					ret = FunctionCast(wrapSetFramebufferPowerState, callback->oSetFramebufferPowerState)(that, 1);
+					*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+					xeNormalizePlane1AColor();
+					return ret;
+				}
+				if (cur == 0) {
+					*reinterpret_cast<uint32_t *>(fb + 0x4284) = 1;
+					*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+					if (gHpIOFBHandleEvent) gHpIOFBHandleEvent(fb, 4, reinterpret_cast<void *>(1));
+				} else {
+					*reinterpret_cast<uint32_t *>(fb + 0x4284) = 1;
+				}
+				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+				return kIOReturnSuccess;
+			}
+			if (cur == 2) {
+				FunctionCast(wrapSetFramebufferPowerState, callback->oSetFramebufferPowerState)(that, 1);
+			}
+			if (cur > 0) {
 				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
 				if (gHpIOFBHandleEvent) gHpIOFBHandleEvent(fb, 3, reinterpret_cast<void *>(1));
-				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
-				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
-			} else if (cur == 0 && state > 0) {
-				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
-				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
-				if (gHpIOFBHandleEvent) gHpIOFBHandleEvent(fb, 4, reinterpret_cast<void *>(1));
-				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
-			} else {
-				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
-				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
 			}
+			*reinterpret_cast<uint32_t *>(fb + 0x4284) = 0;
+			*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
 			return kIOReturnSuccess;
 		}
 		if (cur == 2 && state < 2) {
@@ -9663,10 +10801,16 @@ void  Gen11::initBlitUsage(void *that)
 	FunctionCast(initBlitUsage, callback->oinitBlitUsage)(that);
 }
 
-// xe/blitdiag (19/10): cada saída do submitBlit registra a linha de origem, a rota (routeSel) e o retorno (IOLog;
-// o SYSLOG não aparece no Tahoe).
+// xe/blitdiag (19/10) + HP-QUIET-BLIT (R32-PCFIX39): log only the first 8 boot blits unless -ngreenblitlog
+// is passed, avoiding synchronous serial/msgbuf IOLog spinlock stalls on every 64th WindowServer/video blit.
 static unsigned long xeBlitRet(uint32_t k, uint32_t rs, void *task, int linha, unsigned long r) {
-	if (k <= 48 || !(k & 63)) IOLog("XeNG BLIT #%u routeSel=%u task=%p saida=L%d ret=0x%lx\n", k, rs, task, linha, r);
+	static int sBlitVerbose = -1;
+	if (sBlitVerbose < 0) {
+		sBlitVerbose = checkKernelArgument("-ngreenblitlog") ? 1 : 0;
+	}
+	if (k <= 8 || (sBlitVerbose && !(k & 63))) {
+		IOLog("XeNG BLIT #%u routeSel=%u task=%p saida=L%d ret=0x%lx\n", k, rs, task, linha, r);
+	}
 	return r;
 }
 unsigned long Gen11::submitBlit(void *that, void *param_1, void *param_2, void *param_3, bool param_4) {
@@ -10035,8 +11179,10 @@ uint8_t Gen11::barrierSubmission(void *queue, void *accelerator, void *cmdDesc,
 		if (isInitPhase) v130CallInitPhase++;
 		else v130CallRenderPhase++;
 		
+		static int sV130EvLog = -1;
+		if (sV130EvLog < 0) sV130EvLog = checkKernelArgument("-ngreenevlog") ? 1 : 0;
 		if (v130CallCount <= 24 || (v130CallCount > 100 && v130CallCount <= 124) ||
-			(v130CallCount > 1000 && v130CallCount % 100 == 0)) {
+			(sV130EvLog == 1 && v130CallCount > 1000 && v130CallCount % 100 == 0)) {
 			SYSLOG("ngreen", "V130[%d|init=%d|render=%d]: phase=%s q=%p acc=%p cmd=%p evt=%p count=%u mode=%d",
 				   v130CallCount, v130CallInitPhase, v130CallRenderPhase,
 				   isInitPhase ? "INIT" : "RENDER", queue, accelerator, cmdDesc, event,
@@ -12090,15 +13236,31 @@ static void xeFwIdleWorker(thread_call_param_t, thread_call_param_t) {
 			}
 			quietMs = 0;
 		}
-		if (++pubTick >= 10) {  // 1 s: publish diagnostics (thread context, outside any lock)
+		if (++pubTick >= 10) {  // 1 s: publish diagnostics only when changed (thread context, outside any lock)
 			pubTick = 0;
-			auto *svc = static_cast<IOService *>(acc);
-			svc->setProperty("xe-fw-leakdrops", gFwLeakDrops, 32);
-			svc->setProperty("xe-fw-leakdom", gFwLeakDom, 32);
-			svc->setProperty("xe-fw-leakcaller", (unsigned long long)gFwLeakCaller, 64);
-			svc->setProperty("xe-fw-underflow", gFwUnderflow, 32);
-			svc->setProperty("xe-fw-underflowcaller", (unsigned long long)gFwUnderflowCaller, 64);
-			svc->setProperty("xe-fw-count", (unsigned long long)(((uint64_t)(uint32_t)cnt[0]) | ((uint64_t)(uint16_t)cnt[1] << 32) | ((uint64_t)(uint16_t)cnt[2] << 48)), 64);
+			uint64_t packedCnt = ((uint64_t)(uint32_t)cnt[0]) | ((uint64_t)(uint16_t)cnt[1] << 32) | ((uint64_t)(uint16_t)cnt[2] << 48);
+			static bool sFwPubInit = false;
+			static uint32_t sLastDrops = 0, sLastDom = 0, sLastUnderflow = 0;
+			static uint64_t sLastLeakCaller = 0, sLastUnderflowCaller = 0, sLastPackedCnt = 0;
+			uint32_t drops = gFwLeakDrops, dom = gFwLeakDom, uflow = gFwUnderflow;
+			uint64_t lcaller = (uint64_t)gFwLeakCaller, ucaller = (uint64_t)gFwUnderflowCaller;
+			if (!sFwPubInit || drops != sLastDrops || dom != sLastDom || lcaller != sLastLeakCaller ||
+			    uflow != sLastUnderflow || ucaller != sLastUnderflowCaller || packedCnt != sLastPackedCnt) {
+				sFwPubInit = true;
+				sLastDrops = drops;
+				sLastDom = dom;
+				sLastLeakCaller = lcaller;
+				sLastUnderflow = uflow;
+				sLastUnderflowCaller = ucaller;
+				sLastPackedCnt = packedCnt;
+				auto *svc = static_cast<IOService *>(acc);
+				svc->setProperty("xe-fw-leakdrops", drops, 32);
+				svc->setProperty("xe-fw-leakdom", dom, 32);
+				svc->setProperty("xe-fw-leakcaller", (unsigned long long)lcaller, 64);
+				svc->setProperty("xe-fw-underflow", uflow, 32);
+				svc->setProperty("xe-fw-underflowcaller", (unsigned long long)ucaller, 64);
+				svc->setProperty("xe-fw-count", (unsigned long long)packedCnt, 64);
+			}
 		}
 	}
 	if (gFwIdleTc) {
@@ -13163,7 +14325,67 @@ uint8_t Gen11::SetupDPSSTTimings(void *that,void *param_1,void *param_2,void *pa
 }
 
 uint32_t Gen11::validateDetailedTiming(void *that,void *param_1,unsigned long param_2) {
-	return FunctionCast(validateDetailedTiming, callback->ovalidateDetailedTiming)(that,param_1,param_2);
+	static_assert(sizeof(IOFBDisplayModeDescription) == 0xcc, "IOFBDisplayModeDescription size mismatch");
+	static_assert(offsetof(IOFBDisplayModeDescription, timingInfo.detailedInfo.v2.pixelClock) == 0x54, "IOFBDisplayModeDescription pixelClock offset mismatch");
+	static_assert(offsetof(IOFBDisplayModeDescription, timingInfo.detailedInfo.v2.horizontalActive) == 0x6c, "IOFBDisplayModeDescription horizontalActive offset mismatch");
+	static_assert(offsetof(IOFBDisplayModeDescription, timingInfo.detailedInfo.v2.verticalActive) == 0x7c, "IOFBDisplayModeDescription verticalActive offset mismatch");
+	static_assert(offsetof(IOFBDisplayModeDescription, timingInfo.detailedInfo.v2.pixelEncoding) == 0xb4, "IOFBDisplayModeDescription pixelEncoding offset mismatch");
+	static_assert(offsetof(IOFBDisplayModeDescription, timingInfo.detailedInfo.v2.bitsPerColorComponent) == 0xb6, "IOFBDisplayModeDescription bitsPerColorComponent offset mismatch");
+	static_assert(offsetof(IOFBDisplayModeDescription, timingInfo.detailedInfo.v2.dynamicRange) == 0xba, "IOFBDisplayModeDescription dynamicRange offset mismatch");
+
+	const bool hdmiFix = (that != nullptr && param_1 != nullptr && param_2 == 0xcc &&
+	                      NGreen::callback && NGreen::callback->getIsRealTGL() &&
+	                      !checkKernelArgument("-ngreennohdmi") && !checkKernelArgument("-ngreenhdmi10bpc"));
+	uint32_t fbIndex = 0xFFFFFFFFu;
+	uint64_t pixelClock = 0;
+	uint32_t hActive = 0, vActive = 0;
+	uint16_t pEnc = 0, pBPC = 0, dRange = 0;
+	if (hdmiFix) {
+		fbIndex = *reinterpret_cast<const uint32_t *>(static_cast<const uint8_t *>(that) + 0x1dc);
+		if (fbIndex == 1u) {
+			static volatile uint32_t sRejectedNonRgb8Logs = 0;
+			static volatile uint32_t sRejectedOver340Logs = 0;
+			const uint8_t *t = static_cast<const uint8_t *>(param_1);
+			pixelClock = *reinterpret_cast<const uint64_t *>(t + 0x54);
+			hActive = *reinterpret_cast<const uint32_t *>(t + 0x6c);
+			vActive = *reinterpret_cast<const uint32_t *>(t + 0x7c);
+			pEnc = *reinterpret_cast<const uint16_t *>(t + 0xb4);
+			pBPC = *reinterpret_cast<const uint16_t *>(t + 0xb6);
+			dRange = *reinterpret_cast<const uint16_t *>(t + 0xba);
+			if ((pEnc != 0u && pEnc != 1u) || (pBPC > 2u) || (dRange > 1u)) {
+				__sync_add_and_fetch(&gHpHdmiRejectedWireModes, 1);
+				if (__sync_add_and_fetch(&sRejectedNonRgb8Logs, 1) <= 16u) {
+					IOLog("HP-HDMI-TIMING: reject FB1 non-RGB8 %ux%u clk=%llu pEnc=0x%x pBPC=0x%x dRange=0x%x\n",
+					      hActive, vActive, static_cast<unsigned long long>(pixelClock),
+					      static_cast<unsigned>(pEnc), static_cast<unsigned>(pBPC), static_cast<unsigned>(dRange));
+				}
+				return 0xe00002c7u;
+			}
+			const uint64_t maxHdmiClk = checkKernelArgument("-ngreenhdmi340") ? 340000000ULL : 600000000ULL;
+			if (pixelClock > maxHdmiClk) {
+				__sync_add_and_fetch(&gHpHdmiRejectedWireModes, 1);
+				if (__sync_add_and_fetch(&sRejectedOver340Logs, 1) <= 8u) {
+					IOLog("HP-HDMI-TIMING: reject FB1 >%lluMHz %ux%u clk=%llu\n",
+					      static_cast<unsigned long long>(maxHdmiClk / 1000000ULL),
+					      hActive, vActive, static_cast<unsigned long long>(pixelClock));
+				}
+				return 0xe00002c7u;
+			}
+		}
+	}
+
+	uint32_t ret = (callback && callback->ovalidateDetailedTiming)
+	               ? FunctionCast(validateDetailedTiming, callback->ovalidateDetailedTiming)(that, param_1, param_2)
+	               : 0xe00002c7u;
+	if (hdmiFix && fbIndex == 1u && ret == 0u) {
+		uint32_t n = __sync_add_and_fetch(&gHpHdmiAcceptedRgb8Modes, 1);
+		if (n <= 8u) {
+			IOLog("HP-HDMI-TIMING: accept FB1 RGB8 %ux%u clk=%llu pEnc=0x%x pBPC=0x%x dRange=0x%x\n",
+			      hActive, vActive, static_cast<unsigned long long>(pixelClock),
+			      static_cast<unsigned>(pEnc), static_cast<unsigned>(pBPC), static_cast<unsigned>(dRange));
+		}
+	}
+	return ret;
 }
 
 uint8_t Gen11::maxSupportedDepths(void *param_1) {
@@ -13484,7 +14706,10 @@ bool Gen11::wrapIGScheduler5IsGpuIdle(const void *that) {
 		uint32_t instdone = NGreen::callback->readReg32(RING_INSTDONE(RENDER_RING_BASE));
 		if (busyMask == 0 && ((ex & 0x4007c000u) == 0) && (ringHead == ringTail) && (instdone & ~1U) == 0xfffffffe) {
 			static uint32_t n = 0;
-			if (++n <= 8 || (n & 0xfffu) == 0) {
+			static int sV212EvLog = -1;
+			if (sV212EvLog < 0) sV212EvLog = checkKernelArgument("-ngreenevlog") ? 1 : 0;
+			++n;
+			if (n <= 8 || (sV212EvLog == 1 && (n & 0xfffu) == 0)) {
 				SYSLOG("ngreen", "V212[5]: isGpuIdle override #%u INSTDONE=0x%08x ex=0x%08x → idle", n, instdone, ex);
 			}
 			return true;
