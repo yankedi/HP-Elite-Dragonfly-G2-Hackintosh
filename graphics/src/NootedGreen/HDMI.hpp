@@ -6,10 +6,53 @@
 #include <Headers/kern_patcher.hpp>
 #include <Headers/kern_util.hpp>
 
+class IORegistryEntry;
+
 class HDMI {
     public:
     static HDMI *callback;
+    static bool isHdmiAudioFixEnabled();
+    static bool isShdaFound();
+    static uint32_t getShdaMod1Patches();
+    static uint32_t getShdaMod4Patches();
+    static uint32_t getShdaAhdaRouted();
+    static uint32_t getPinBufCtl();
+    static uint32_t getAudFreqCntrl();
+    static uint32_t getAudFreqCntrlInit();
+    static uint32_t getAudChickenBit();
+    static uint32_t getHdefGctl();
+    static uint32_t getHdefWakeen();
+    static uint32_t getHdefStatests();
+    static uint32_t getHdefMlcd();
+    static uint32_t getHdefMl0Lcap();
+    static uint32_t getHdefMl0Lctl();
+    static uint32_t getHdefMl0Lsdiid();
+    static uint32_t getHdefMl1Lcap();
+    static uint32_t getHdefMl1Lctl();
+    static uint32_t getHdefMl1Lsdiid();
+    static uint32_t getHdefEm1();
+    static uint32_t getHdefEm4l();
+    static uint32_t getShdaV7Hooks();
+    static uint32_t getShdaV7OffClk();
+    static uint32_t getShdaV7OffCodec();
+    static uint32_t getLiveSyncCount();
+    static uint32_t getLiveSyncSrc();
+    static uint32_t getLiveGctl();
+    static uint32_t getLiveWakeen();
+    static uint32_t getLiveStatests();
+    static uint32_t getLiveMl1Lctl();
+    static uint32_t getLiveMl1Lsdiid();
+    static uint32_t getLiveEm1();
+    static uint32_t getLiveEm4l();
+    static uint32_t getLiveAudFreq();
+    static uint32_t getLiveAudPinVld();
+    static void publishLiveTelemetry(IORegistryEntry *reg);
+    static void syncLiveHdaAndIgpu(void *hdaCtrl, uint8_t sourceTag);
+    static void wrapSetGraphicsClockDivider(void *hdaCtrl);
+    static uint8_t wrapFindValidDisplayCodec(void *hdaCtrl);
+    static void primeTglIDispAudio(bool earlyBoot);
     void init();
+    void patchSimpleHDA(KernelPatcher &patcher);
     bool processKext(KernelPatcher &patcher, size_t id, mach_vm_address_t slide, size_t size);
 };
 

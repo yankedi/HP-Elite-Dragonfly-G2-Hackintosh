@@ -164,7 +164,7 @@ void NGreen::init() {
 	
 	genx.init();
 	gen11.init();
-	//agfxhda.init();
+	agfxhda.init();
 	dyldpatches.init();
 	
     lilu.onPatcherLoadForce(
@@ -300,12 +300,16 @@ void NGreen::processPatcher(KernelPatcher &patcher) {
 		KernelPatcher::routeVirtual(this->iGPU, WIOKit::PCIConfigOffset::ConfigRead32, configRead32, &orgConfigRead32);
 
         DeviceInfo::deleter(devInfo);
-		
 
-		
+        if (this->iGPU && this->isRealTGL && HDMI::isHdmiAudioFixEnabled()) {
+            this->setRMMIOIfNecessary();
+            HDMI::primeTglIDispAudio(true);
+        }
     } else {
         SYSLOG("ngreen", "Failed to create DeviceInfo");
     }
+
+    agfxhda.patchSimpleHDA(patcher);
 	
 	/*KernelPatcher::RouteRequest request {"__ZN15OSMetaClassBase12safeMetaCastEPKS_PK11OSMetaClass", wrapSafeMetaCast,
 		this->orgSafeMetaCast};
@@ -339,8 +343,10 @@ bool NGreen::wrapIGAccelDeviceStart(void *that) {
 
 void NGreen::setRMMIOIfNecessary() {
 	if (UNLIKELY(!this->rmmio || !this->rmmio->getLength())) {
-		this->rmmio = this->iGPU->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0);
-		this->rmmioPtr = reinterpret_cast<volatile uint32_t *>(this->rmmio->getVirtualAddress());
+		this->rmmio = this->iGPU ? this->iGPU->mapDeviceMemoryWithRegister(kIOPCIConfigBaseAddress0) : nullptr;
+		if (this->rmmio) {
+			this->rmmioPtr = reinterpret_cast<volatile uint32_t *>(this->rmmio->getVirtualAddress());
+		}
 	}
 }
 
@@ -1052,9 +1058,10 @@ bool NGreen::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t
 	DBGLOG("ngreen", "Processed Generation x configuration");
 } else if (gen11.processKext(patcher, index, address, size)) {
         DBGLOG("ngreen", "Processed Generation 11 configuration");
-    } /*else if (agfxhda.processKext(patcher, index, address, size)) {
-		DBGLOG("ngreen", "Processed AppleGFXHDA");
-	}*/
+    } else if (agfxhda.processKext(patcher, index, address, size)) {
+		DBGLOG("ngreen", "Processed AppleHDA/AppleHDAController HDMI audio");
+		return true;
+	}
     return true;
 }
 

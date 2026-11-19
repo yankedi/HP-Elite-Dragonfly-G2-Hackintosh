@@ -59,8 +59,8 @@
         "com.apple.kpi.mach",
         "com.apple.kpi.unsupported"
       ],
-      "executable_sha256": "da62b067f6561568fe0f203ef18663f1f0c137c30d2759ab37d736346dbffca6",
-      "variant": "R32-PCFIX50-HDMI (native 10-bit eDP + built-in DDI-B HDMI 2.0b 600 MHz SCDC 2560x1440@60/120/144Hz)"
+      "executable_sha256": "f219458de1ce2c22838df434279aac838a6e790fc6fe47b0ce8171f3797faa52",
+      "variant": "R32-PCFIX53-AUDIO (native 10-bit eDP + HDMI 2.0b 600 MHz SCDC + iDisp HDMI audio/MCCS volume + ext-display 3D stability + ALC285 9D70 coexistence)"
     },
     {
       "path": "VirtualSMC.kext",
@@ -111,6 +111,23 @@
         "com.apple.kpi.unsupported"
       ],
       "executable_sha256": "2f0b3525cd85e803b8247ff959f16e3f434d3b8126328e11086b9c0bfddf9216"
+    },
+    {
+      "path": "TGLIshAls.kext",
+      "bundle_id": "com.labrouss.TGLIshAls",
+      "version": "0.5.0",
+      "dependencies": [
+        "as.vit9696.VirtualSMC",
+        "com.apple.iokit.IOACPIFamily",
+        "com.apple.iokit.IOPCIFamily",
+        "com.apple.kpi.bsd",
+        "com.apple.kpi.iokit",
+        "com.apple.kpi.libkern",
+        "com.apple.kpi.mach",
+        "com.apple.kpi.unsupported"
+      ],
+      "executable_sha256": "c568478f14ed5416857c312c3f8425a4998781e001e5fd012387dafe542606a0",
+      "variant": "HP Elite Dragonfly G2 TGL-LP ISH (8086:a0fc) clean-room BSD-3-Clause ambient light sensor driver (INTx-AutoDisable)"
     },
     {
       "path": "VoodooPS2Controller.kext",
@@ -307,7 +324,7 @@
     {
       "path": "TGLDmic.kext",
       "bundle_id": "com.labrouss.TGLDmic",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "dependencies": [
         "com.apple.iokit.IOPCIFamily",
         "com.apple.kpi.iokit",
@@ -315,7 +332,7 @@
         "com.apple.kpi.mach",
         "com.apple.kpi.unsupported"
       ],
-      "executable_sha256": "04cd2c7d38ae8fd8dff1c3d2375c53f5f756b0b0bdad2c9535bfc59e9649ecfe",
+      "executable_sha256": "5f7c1d945c8c16d819da816225b2aa63392abaae3f103cc61f405c77afa58d79",
       "variant": "HP EliteBook 840 G8 TGL in-repo source build"
     },
     {
@@ -352,7 +369,7 @@
   "binary_distribution": "Hashes only. Obtain required binaries from their respective upstreams or build from the recorded source.",
   "upstream_sources": {
     "Lilu": "https://github.com/acidanthera/Lilu",
-    "NootedGreen": "Patched NootedGreen source in graphics/ (R32-PCFIX50-HDMI on commit 6f03560 / repair32 baseline)",
+    "NootedGreen": "Patched NootedGreen source in graphics/ (R32-PCFIX53-AUDIO on commit 6f03560 / repair32 baseline)",
     "VirtualSMC_SMCBatteryManager": "https://github.com/acidanthera/VirtualSMC",
     "WhateverGreen": "https://github.com/acidanthera/WhateverGreen",
     "VoodooPS2": "https://github.com/acidanthera/VoodooPS2",
@@ -365,7 +382,8 @@
     "XHCI_unsupported": "https://github.com/DalianSky/OS-X-USB-Inject-All/tree/ce55e00966ac90c5e2504fb39b4ecf3fcebab51a",
     "AppleALC": "https://github.com/acidanthera/AppleALC (v1.9.8)",
     "SimpleHDA": "https://github.com/laobamac/SimpleHDA (v1.0.1, Conexant/ALC285 codec controller)",
-    "TGLDmic": "Built from local source in mac-for-elitebook/drivers/TGLDmic/ (v0.5.0)",
+    "TGLDmic": "Built from local source in mac-for-elitebook/drivers/TGLDmic/ (v0.5.1)",
+    "TGLIshAls": "Clean-room BSD-3-Clause source in mac-for-elitebook/drivers/TGLIshAls/ (v0.5.0)",
     "S0ixStandby": "Built from local source in mac-for-elitebook/drivers/S0ixStandby/ (v0.4.4)"
   }
 }

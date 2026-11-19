@@ -7,6 +7,7 @@ static bool xeFixEnabled();  // xe/xefix, definido junto do FastWriteRegister32
 #include <Headers/kern_api.hpp>
 #include "kern_genx.hpp"
 #include "kern_green.hpp"
+#include "HDMI.hpp"
 #include "IntelDPLinkTraining.hpp"
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IOMemoryDescriptor.h>
@@ -224,7 +225,7 @@ void Gen11::init() {
 	callback = this;
 
 	if (checkKernelArgument("-ngreentglfb") || checkKernelArgument("-ngreentglwithgfx")) {
-		SYSLOG("ngreen", "Gen11::init: FB tier → TGL (ICL FB skipped, R32-PCFIX50-HDMI, R32-PCFIX49-HDMI, R32-PCFIX48-HDMI, R32-PCFIX47-HDMI, R32-PCFIX46-HDMI, R32-PCFIX45-HDMI, R32-PCFIX44-HDMI, R32-PCFIX41-FASTBOOT, R32-PCFIX40-QUIET-HOTPATH, HP-QUIET-HOTPATH, HP-FASTBOOT)");
+		SYSLOG("ngreen", "Gen11::init: FB tier → TGL (ICL FB skipped, R32-PCFIX52-EXTDISPLAY-3D-STABILITY, R32-PCFIX51-HDMI-AUDIO, R32-PCFIX50-HDMI, R32-PCFIX49-HDMI, R32-PCFIX48-HDMI, R32-PCFIX47-HDMI, R32-PCFIX46-HDMI, R32-PCFIX45-HDMI, R32-PCFIX44-HDMI, R32-PCFIX41-FASTBOOT, R32-PCFIX40-QUIET-HOTPATH, HP-QUIET-HOTPATH, HP-FASTBOOT)");
 		lilu.onKextLoadForce(&kextG11FBT);
 		lilu.onKextLoadForce(&kextG11FBTA);
 		if (checkKernelArgument("-ngreentglwithgfx")) {
@@ -1330,6 +1331,179 @@ static volatile uint32_t gHpHdmiScdcWriteCalls = 0, gHpHdmiScdcWriteOk = 0;
 static volatile uint32_t gHpHdmiScdcSinkVer = 0, gHpHdmiScdcLastCfg = 0, gHpHdmiScdcLastStatus = 0, gHpHdmiScdcFlags0 = 0;
 static volatile uint32_t gHpHdmiTransDdiB = 0, gHpHdmiDdiBufB = 0, gHpHdmiCdclkCtl = 0;
 static volatile uint32_t gHpHdmiRangeLogs = 0, gHpHdmiModesetLogs = 0;
+static volatile uint32_t gHpHdmiAudioEnables = 0, gHpHdmiAudPinVld = 0, gHpHdmiAudCfgB = 0;
+static volatile uint32_t gHpHdmiAudioLogs = 0;
+static volatile uint32_t gHpDisableAudBufLogs = 0;
+static mach_vm_address_t gOrgSetupDisplayResources = 0;
+static mach_vm_address_t gOrgSetAudioProperties = 0;
+static mach_vm_address_t gOrgHwEnableAudio = 0;
+static mach_vm_address_t gOrgHwDisableAudio = 0;
+
+static inline bool hpIsHdmiAudioFixEnabled() {
+	return NGreen::callback && NGreen::callback->getIsRealTGL() &&
+	       !checkKernelArgument("-ngreennohdmi") &&
+	       !checkKernelArgument("-ngreennohdahdmi");
+}
+
+static inline bool hpIsOnlineHdmiFb1(const void *fb) {
+	if (!fb || !hpIsHdmiAudioFixEnabled()) {
+		return false;
+	}
+	const auto *base = reinterpret_cast<const uint8_t *>(fb);
+	if (*reinterpret_cast<const uint32_t *>(base + 0x1dc) != 1u) {
+		return false;
+	}
+	return (base[0x1e2] != 0u) || (base[0x4289] != 0u);
+}
+
+static void hpPublishShdaProps(IORegistryEntry *reg) {
+	if (!reg) {
+		return;
+	}
+	reg->setProperty("ngreen-shda-found", HDMI::isShdaFound() ? kOSBooleanTrue : kOSBooleanFalse);
+	reg->setProperty("ngreen-shda-mod1-patches", HDMI::getShdaMod1Patches(), 32);
+	reg->setProperty("ngreen-shda-mod4-patches", HDMI::getShdaMod4Patches(), 32);
+	reg->setProperty("ngreen-shda-ahda-routed", HDMI::getShdaAhdaRouted(), 32);
+	reg->setProperty("ngreen-pin-buf-ctl", HDMI::getPinBufCtl(), 32);
+	reg->setProperty("ngreen-aud-freq-cntrl", HDMI::getAudFreqCntrl(), 32);
+	reg->setProperty("ngreen-aud-freq-cntrl-init", HDMI::getAudFreqCntrlInit(), 32);
+	reg->setProperty("ngreen-aud-chickenbit", HDMI::getAudChickenBit(), 32);
+	reg->setProperty("ngreen-hdef-gctl", HDMI::getHdefGctl(), 32);
+	reg->setProperty("ngreen-hdef-wakeen", HDMI::getHdefWakeen(), 32);
+	reg->setProperty("ngreen-hdef-statests", HDMI::getHdefStatests(), 32);
+	reg->setProperty("ngreen-hdef-mlcd", HDMI::getHdefMlcd(), 32);
+	reg->setProperty("ngreen-hdef-ml0-lcap", HDMI::getHdefMl0Lcap(), 32);
+	reg->setProperty("ngreen-hdef-ml0-lctl", HDMI::getHdefMl0Lctl(), 32);
+	reg->setProperty("ngreen-hdef-ml0-lsdiid", HDMI::getHdefMl0Lsdiid(), 32);
+	reg->setProperty("ngreen-hdef-ml1-lcap", HDMI::getHdefMl1Lcap(), 32);
+	reg->setProperty("ngreen-hdef-ml1-lctl", HDMI::getHdefMl1Lctl(), 32);
+	reg->setProperty("ngreen-hdef-ml1-lsdiid", HDMI::getHdefMl1Lsdiid(), 32);
+	reg->setProperty("ngreen-hdef-em1", HDMI::getHdefEm1(), 32);
+	reg->setProperty("ngreen-hdef-em4l", HDMI::getHdefEm4l(), 32);
+	HDMI::publishLiveTelemetry(reg);
+}
+
+static void hpPublishHdmiAudioPropsNow() {
+	const uint32_t enables = gHpHdmiAudioEnables;
+	const uint32_t pinVld = gHpHdmiAudPinVld;
+	const uint32_t cfgB = gHpHdmiAudCfgB;
+	auto publishAudio = [&](IORegistryEntry *reg) {
+		reg->setProperty("ngreen-hdmi-audio-enables", enables, 32);
+		reg->setProperty("ngreen-hdmi-aud-pin-vld", pinVld, 32);
+		reg->setProperty("ngreen-hdmi-aud-cfg-b", cfgB, 32);
+		hpPublishShdaProps(reg);
+	};
+	if (IOService *igpu = gHpIgpuService) {
+		publishAudio(igpu);
+	}
+	if (void *ctrl = gHpFbCtrl) {
+		publishAudio(reinterpret_cast<IORegistryEntry *>(ctrl));
+	}
+}
+
+static void hpSetupDisplayResources(void *that) {
+	if (hpIsOnlineHdmiFb1(that)) {
+		*reinterpret_cast<uint8_t *>(reinterpret_cast<uint8_t *>(that) + 0x424c) = 1u;
+	}
+	if (gOrgSetupDisplayResources) {
+		FunctionCast(hpSetupDisplayResources, gOrgSetupDisplayResources)(that);
+	}
+	if (hpIsOnlineHdmiFb1(that)) {
+		*reinterpret_cast<uint8_t *>(reinterpret_cast<uint8_t *>(that) + 0x424c) = 1u;
+	}
+}
+
+static uint32_t hpSetAudioProperties(void *that) {
+	const bool forceFb1Audio = hpIsOnlineHdmiFb1(that);
+	if (forceFb1Audio) {
+		*reinterpret_cast<uint8_t *>(reinterpret_cast<uint8_t *>(that) + 0x424c) = 1u;
+	}
+	const uint32_t ret = gOrgSetAudioProperties
+		? FunctionCast(hpSetAudioProperties, gOrgSetAudioProperties)(that)
+		: 0u;
+	if (forceFb1Audio || hpIsOnlineHdmiFb1(that)) {
+		*reinterpret_cast<uint8_t *>(reinterpret_cast<uint8_t *>(that) + 0x424c) = 1u;
+		static const uint8_t kAudioCodecInfo[4] = {0x02u, 0x01u, 0x06u, 0x00u};
+		if (OSData *codecInfo = OSData::withBytes(kAudioCodecInfo, sizeof(kAudioCodecInfo))) {
+			reinterpret_cast<IORegistryEntry *>(that)->setProperty("audio-codec-info", codecInfo);
+			codecInfo->release();
+		}
+	}
+	return ret;
+}
+
+static void hpHwEnableAudio(void *that, void *fb, void *displayPath) {
+	const bool isFb1Audio = hpIsHdmiAudioFixEnabled() &&
+	                        fb != nullptr &&
+	                        (*reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(fb) + 0x1dc) == 1u);
+	if (isFb1Audio) {
+		*reinterpret_cast<uint8_t *>(reinterpret_cast<uint8_t *>(fb) + 0x424c) = 1u;
+		HDMI::primeTglIDispAudio(false);
+	}
+	if (gOrgHwEnableAudio) {
+		FunctionCast(hpHwEnableAudio, gOrgHwEnableAudio)(that, fb, displayPath);
+	}
+	if (isFb1Audio && NGreen::callback) {
+		const uint32_t prePinVld = NGreen::callback->readReg32(0x650C0u);
+		if (prePinVld != 0xFFFFFFFFu && (prePinVld & 0x40u) != 0u) {
+			NGreen::callback->writeReg32(0x650C0u, prePinVld | 0x70u);
+		}
+		const uint32_t postPinVld = NGreen::callback->readReg32(0x650C0u);
+		const uint32_t cfgB = NGreen::callback->readReg32(0x65100u);
+		HDMI::primeTglIDispAudio(false);
+		const uint32_t enables = __sync_add_and_fetch(&gHpHdmiAudioEnables, 1u);
+		gHpHdmiAudPinVld = postPinVld;
+		gHpHdmiAudCfgB = cfgB;
+		hpPublishHdmiAudioPropsNow();
+		if (gHpHdmiTelemetryTc != nullptr) {
+			uint64_t dl = 0;
+			clock_interval_to_deadline(150, kMillisecondScale, &dl);
+			thread_call_enter_delayed(gHpHdmiTelemetryTc, dl);
+		}
+		if (__sync_add_and_fetch(&gHpHdmiAudioLogs, 1u) <= 16u) {
+			IOLog("HP-HDMI-AUDIO: hwEnableAudio #%u fb1 pinVld=0x%08x->0x%08x cfgB=0x%08x\n",
+			      enables, prePinVld, postPinVld, cfgB);
+		}
+	}
+}
+
+static void hpHwDisableAudio(void *that, void *fb, void *displayPath) {
+	if (gOrgHwDisableAudio) {
+		FunctionCast(hpHwDisableAudio, gOrgHwDisableAudio)(that, fb, displayPath);
+	}
+	HDMI::primeTglIDispAudio(false);
+	const bool isFb1Audio = hpIsHdmiAudioFixEnabled() &&
+	                        fb != nullptr &&
+	                        (*reinterpret_cast<const uint32_t *>(reinterpret_cast<const uint8_t *>(fb) + 0x1dc) == 1u);
+	if (isFb1Audio && NGreen::callback) {
+		const uint32_t prePinVld = NGreen::callback->readReg32(0x650C0u);
+		if (prePinVld != 0xFFFFFFFFu && (prePinVld & 0x70u) != 0u) {
+			NGreen::callback->writeReg32(0x650C0u, prePinVld & ~0x70u);
+		}
+		const uint32_t postPinVld = NGreen::callback->readReg32(0x650C0u);
+		const uint32_t cfgB = NGreen::callback->readReg32(0x65100u);
+		gHpHdmiAudPinVld = postPinVld;
+		gHpHdmiAudCfgB = cfgB;
+		hpPublishHdmiAudioPropsNow();
+		if (__sync_add_and_fetch(&gHpHdmiAudioLogs, 1u) <= 16u) {
+			IOLog("HP-HDMI-AUDIO: hwDisableAudio fb1 pinVld=0x%08x->0x%08x cfgB=0x%08x\n",
+			      prePinVld, postPinVld, cfgB);
+		}
+	}
+}
+
+static void hpHwDisableAudioBuffer(void *that) {
+	(void)that;
+	if (!hpIsHdmiAudioFixEnabled()) {
+		return;
+	}
+	HDMI::primeTglIDispAudio(false);
+	hpPublishHdmiAudioPropsNow();
+	if (__sync_add_and_fetch(&gHpDisableAudBufLogs, 1u) <= 16u) {
+		IOLog("HP-HDMI-AUDIO: hwDisableAudioBuffer kept AUD_PIN_BUF_CTL enabled (ctl=0x%08x freq=0x%08x chicken=0x%08x)\n",
+		      HDMI::getPinBufCtl(), HDMI::getAudFreqCntrl(), HDMI::getAudChickenBit());
+	}
+}
 
 static inline bool hpIsActiveHdmiDdiB(uint32_t val) {
 	return val != 0xFFFFFFFFu && (val & 0x87000000u) == 0x80000000u && ((val >> 27) & 0xFu) == 2u;
@@ -1871,9 +2045,17 @@ static void hpPublishHdmiTelemetry(thread_call_param_t, thread_call_param_t) {
 	}
 	const uint32_t hwDdiBufB = NGreen::callback->readReg32(0x64100u);
 	const uint32_t hwCdclkCtl = NGreen::callback->readReg32(0x46000u);
+	const uint32_t hwAudPinVld = NGreen::callback->readReg32(0x650C0u);
+	const uint32_t hwAudCfgB = NGreen::callback->readReg32(0x65100u);
 	gHpHdmiTransDdiB = hwTransDdiB;
 	gHpHdmiDdiBufB = hwDdiBufB;
 	gHpHdmiCdclkCtl = hwCdclkCtl;
+	if (hwAudPinVld != 0xFFFFFFFFu) {
+		gHpHdmiAudPinVld = hwAudPinVld;
+	}
+	if (hwAudCfgB != 0xFFFFFFFFu) {
+		gHpHdmiAudCfgB = hwAudCfgB;
+	}
 
 	const uint32_t rej = gHpHdmiRejectedWireModes;
 	const uint32_t acc = gHpHdmiAcceptedRgb8Modes;
@@ -1885,8 +2067,12 @@ static void hpPublishHdmiTelemetry(thread_call_param_t, thread_call_param_t) {
 	const uint32_t scdcCfg = gHpHdmiScdcLastCfg;
 	const uint32_t scdcStatus = gHpHdmiScdcLastStatus;
 	const uint32_t scdcFlags0 = gHpHdmiScdcFlags0;
+	const uint32_t audioEnables = gHpHdmiAudioEnables;
+	const uint32_t audPinVld = gHpHdmiAudPinVld;
+	const uint32_t audCfgB = gHpHdmiAudCfgB;
 
 	auto publishProps = [&](IORegistryEntry *reg) {
+		hpPublishShdaProps(reg);
 		reg->setProperty("ngreen-hdmi-dpll1-cfgcr0", hwCfgcr0, 32);
 		reg->setProperty("ngreen-hdmi-dpll1-cfgcr1", hwCfgcr1, 32);
 		reg->setProperty("ngreen-hdmi-dpclka-cfgcr0", hwDpclka, 32);
@@ -1904,6 +2090,9 @@ static void hpPublishHdmiTelemetry(thread_call_param_t, thread_call_param_t) {
 		reg->setProperty("ngreen-hdmi-trans-ddi-b", hwTransDdiB, 32);
 		reg->setProperty("ngreen-hdmi-ddi-buf-b", hwDdiBufB, 32);
 		reg->setProperty("ngreen-hdmi-cdclk-ctl", hwCdclkCtl, 32);
+		reg->setProperty("ngreen-hdmi-audio-enables", audioEnables, 32);
+		reg->setProperty("ngreen-hdmi-aud-pin-vld", audPinVld, 32);
+		reg->setProperty("ngreen-hdmi-aud-cfg-b", audCfgB, 32);
 	};
 	if (IOService *igpu = gHpIgpuService) {
 		publishProps(igpu);
@@ -3272,6 +3461,43 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 				      streamEdidRouted ? "routed" : "not routed",
 				      gmbusRouted ? "routed" : "not routed",
 				      lightUpTmdsRouted ? "routed" : "not routed");
+				if (!checkKernelArgument("-ngreennohdahdmi")) {
+					RouteRequestPlus hdmiSetupDispRes{"__ZN21AppleIntelFramebuffer21setupDisplayResourcesEv", hpSetupDisplayResources, gOrgSetupDisplayResources};
+					bool setupDispResRouted = hdmiSetupDispRes.route(patcher, index, address, size);
+					if (!setupDispResRouted) {
+						patcher.clearError();
+					}
+					RouteRequestPlus hdmiSetAudioProps{"__ZN21AppleIntelFramebuffer18setAudioPropertiesEv", hpSetAudioProperties, gOrgSetAudioProperties};
+					bool setAudioPropsRouted = hdmiSetAudioProps.route(patcher, index, address, size);
+					if (!setAudioPropsRouted) {
+						patcher.clearError();
+					}
+					bool hwEnableAudioRouted = false;
+					bool hwDisableAudioRouted = false;
+					if (!isprod) {
+						RouteRequestPlus hdmiHwEnableAudio{"__ZN24AppleIntelBaseController13hwEnableAudioEP21AppleIntelFramebufferP21AppleIntelDisplayPath", hpHwEnableAudio, gOrgHwEnableAudio};
+						hwEnableAudioRouted = hdmiHwEnableAudio.route(patcher, index, address, size);
+						if (!hwEnableAudioRouted) {
+							patcher.clearError();
+						}
+						RouteRequestPlus hdmiHwDisableAudio{"__ZN24AppleIntelBaseController14hwDisableAudioEP21AppleIntelFramebufferP21AppleIntelDisplayPath", hpHwDisableAudio, gOrgHwDisableAudio};
+						hwDisableAudioRouted = hdmiHwDisableAudio.route(patcher, index, address, size);
+						if (!hwDisableAudioRouted) {
+							patcher.clearError();
+						}
+					}
+					RouteRequestPlus hdmiDisableAudBuf{"__ZN24AppleIntelBaseController20hwDisableAudioBufferEv", hpHwDisableAudioBuffer};
+					bool disableAudBufRouted = hdmiDisableAudBuf.route(patcher, index, address, size);
+					if (!disableAudBufRouted) {
+						patcher.clearError();
+					}
+					IOLog("HP-HDMI-AUDIO: setupDispRes=%s setAudioProps=%s hwEnableAudio=%s hwDisableAudio=%s hwDisableAudioBuffer=%s\n",
+					      setupDispResRouted ? "routed" : "not routed",
+					      setAudioPropsRouted ? "routed" : "not routed",
+					      hwEnableAudioRouted ? "routed" : "not routed",
+					      hwDisableAudioRouted ? "routed" : "not routed",
+					      disableAudBufRouted ? "routed" : "not routed");
+				}
 			}
 		}
 
@@ -4481,13 +4707,12 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 				// Keep CS_CHICKEN1's original EDX=0x10001: adding bit1 to
 				// that shared operand would accidentally alter GPU preemption.
 				// No RPL topology changes, PERCTX clearing, or POSH bypass.
+				// R32-PCFIX52: Set bit 1 FF_DOP_CLOCK_GATE_DISABLE (Wa_1606700617) AND
+				// clear bit 0 in both CS_DEBUG_MODE1 (0x20ec) and CS_CHICKEN1 (0x2580)
+				// so TGL-B0 3D object-level preemption is disabled globally when PERCTX=0
+				// while retaining GPGPU thread-group preemption (bit 1).
 				static const uint8_t hpFfdopFind[] = {0x8b,0x90,0xec,0x20,0,0,0xba,1,0,1,0,0x89,0x90,0xec,0x20,0,0};
-				// R32 experiment: keep FF_DOP write, but also set bit 1 in the
-				// value later ORed into the masked CS_CHICKEN1 write. This selects
-				// thread-group rather than mid-thread GPGPU preemption only when
-				// the existing masked write reaches the current context. Context
-				// restore / userspace updates may override it; runtime proof needed.
-				static const uint8_t hpFfdopReplace[] = {0xba,3,0,3,0,0x89,0x90,0xec,0x20,0,0,0xba,3,0,1,0,0x90};
+				static const uint8_t hpFfdopReplace[] = {0xba,2,0,3,0,0x89,0x90,0xec,0x20,0,0,0xba,2,0,1,0,0x90};
 				mach_vm_address_t rectList = 0;
 				SolveRequestPlus symbols[] = {
 					{"__ZL22blit3d_submit_rectlistP23IGHardwareBlit3DContextP15blit3d_params_tPK8IGVectorI11rect_pair_t25IGIOMallocAllocatorPolicyE", rectList},
@@ -6001,9 +6226,12 @@ void Gen11::getOnlineInfo(AppleIntel::AppleIntelFramebuffer *that, AppleIntel::A
 	// can observe original online behavior across boots — if any orig!=1 case shows up
 	// we'll know V96 was masking a real status bug, not just being redundant.
 	FunctionCast(getOnlineInfo, callback->ogetOnlineInfo)(that, displayPath, online, changed);
-	uint32_t fbId = getMember<uint32_t>(that, 0x1DC);
+	uint32_t fbId = that ? getMember<uint32_t>(that, 0x1DC) : 0xFFFFFFFFu;
 	if (NGreen::callback && NGreen::callback->isRealTGL && !checkKernelArgument("-ngreennohdmi") &&
 	    that != nullptr && fbId == 1u && online != nullptr && *online != 0) {
+		if (!checkKernelArgument("-ngreennohdahdmi")) {
+			getMember<uint8_t>(that, 0x424C) = 1u;
+		}
 		const uint64_t maxHdmiClk = checkKernelArgument("-ngreenhdmi340") ? 340000000ULL : 600000000ULL;
 		uint64_t &drvMaxClk = getMember<uint64_t>(that, 0x4368);
 		uint64_t &rangeMaxClk = getMember<uint64_t>(that, 0x4398);
@@ -7266,6 +7494,7 @@ void Gen11::hwInitializeCState(AppleIntel::AppleIntelBaseController *that)
 		NGreen::callback->writeReg32(0x45444, 0x00000003); // ICL_PWR_WELL_CTL_AUX2 — AUX B
 		NGreen::callback->writeReg32(0x45450, 0x00000003); // ICL_PWR_WELL_CTL_DDI1 — DDI A
 		NGreen::callback->writeReg32(0x45454, 0x00000003); // ICL_PWR_WELL_CTL_DDI2 — DDI B
+		HDMI::primeTglIDispAudio(false);
 
 		// TGL display engine registers (DMC trigger/context regs in 0x8Fxxx range)
 		// Values from IDA of original hwInitializeCState (TGL-native values)
@@ -7772,6 +8001,7 @@ bool Gen11::AppleIntelBaseControllerstart(AppleIntel::AppleIntelBaseController *
 
 	SYSLOG("ngreen", "FBController::start() entering...");
 	const bool hdmiDpllFixProp = (!checkKernelArgument("-ngreennohdmi") && !checkKernelArgument("-ngreenicldpll") && gHpHdmiDpllTabPatched != 0);
+	const bool hdmiAudioFixProp = hpIsHdmiAudioFixEnabled();
 	if (param_1) {
 		param_1->setProperty("ngreen-wake-color-fix", kOSBooleanTrue);
 		param_1->setProperty("ngreen-wake-xrgb10-preserved", kOSBooleanTrue);
@@ -7783,7 +8013,13 @@ bool Gen11::AppleIntelBaseControllerstart(AppleIntel::AppleIntelBaseController *
 		param_1->setProperty("ngreen-hdmi-rgb8-fix", (!checkKernelArgument("-ngreennohdmi") && !checkKernelArgument("-ngreenhdmi10bpc")) ? kOSBooleanTrue : kOSBooleanFalse);
 		param_1->setProperty("ngreen-hdmi-dpll-fix", hdmiDpllFixProp ? kOSBooleanTrue : kOSBooleanFalse);
 		param_1->setProperty("ngreen-hdmi-600mhz-fix", (!checkKernelArgument("-ngreennohdmi") && !checkKernelArgument("-ngreenhdmi340")) ? kOSBooleanTrue : kOSBooleanFalse);
-		param_1->setProperty("ngreen-hdmi-fix", "R32-PCFIX50-HDMI");
+		param_1->setProperty("ngreen-hdmi-fix", "R32-PCFIX51-HDMI-AUDIO");
+		param_1->setProperty("ngreen-hdmi-video-fix", "R32-PCFIX50-HDMI");
+		param_1->setProperty("ngreen-hdmi-audio-fix", hdmiAudioFixProp ? kOSBooleanTrue : kOSBooleanFalse);
+		hpPublishShdaProps(param_1);
+		param_1->setProperty("ngreen-hdmi-audio-enables", gHpHdmiAudioEnables, 32);
+		param_1->setProperty("ngreen-hdmi-aud-pin-vld", gHpHdmiAudPinVld, 32);
+		param_1->setProperty("ngreen-hdmi-aud-cfg-b", gHpHdmiAudCfgB, 32);
 		param_1->setProperty("ngreen-hdmi-shotplug-pre", gHpHdmiPreShotplug, 32);
 		param_1->setProperty("ngreen-hdmi-shotplug-post", gHpHdmiPostShotplug, 32);
 		param_1->setProperty("ngreen-hdmi-sdeisr-post", gHpHdmiPostSdeisr, 32);
@@ -7799,7 +8035,13 @@ bool Gen11::AppleIntelBaseControllerstart(AppleIntel::AppleIntelBaseController *
 		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-rgb8-fix", (!checkKernelArgument("-ngreennohdmi") && !checkKernelArgument("-ngreenhdmi10bpc")) ? kOSBooleanTrue : kOSBooleanFalse);
 		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-dpll-fix", hdmiDpllFixProp ? kOSBooleanTrue : kOSBooleanFalse);
 		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-600mhz-fix", (!checkKernelArgument("-ngreennohdmi") && !checkKernelArgument("-ngreenhdmi340")) ? kOSBooleanTrue : kOSBooleanFalse);
-		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-fix", "R32-PCFIX50-HDMI");
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-fix", "R32-PCFIX51-HDMI-AUDIO");
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-video-fix", "R32-PCFIX50-HDMI");
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-audio-fix", hdmiAudioFixProp ? kOSBooleanTrue : kOSBooleanFalse);
+		hpPublishShdaProps(reinterpret_cast<IORegistryEntry *>(that));
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-audio-enables", gHpHdmiAudioEnables, 32);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-aud-pin-vld", gHpHdmiAudPinVld, 32);
+		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-aud-cfg-b", gHpHdmiAudCfgB, 32);
 		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-shotplug-pre", gHpHdmiPreShotplug, 32);
 		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-shotplug-post", gHpHdmiPostShotplug, 32);
 		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-hdmi-sdeisr-post", gHpHdmiPostSdeisr, 32);
@@ -9305,6 +9547,15 @@ void Gen11::xeLrcaRepair(const char *tag)
 void Gen11::populateResetRegisterList(void *that)
 {
 	if (!NGreen::callback->isRealTGL || xePreemptDisabled()) {
+		if (NGreen::callback->isRealTGL) {
+			// R32-PCFIX52: Ensure pre-snapshot live MMIO holds TGL WAs so the
+			// per-context reset register list captures clean defaults.
+			NGreen::callback->writeReg32(RING_PSMI_CTL(RENDER_RING_BASE), (0x1080u << 16) | 0x1080u);
+			NGreen::callback->writeReg32(GEN9_CS_DEBUG_MODE1, 0x00030002u);
+			NGreen::callback->writeReg32(GEN8_CS_CHICKEN1, 0x00030002u);
+			NGreen::callback->writeReg32(GEN11_COMMON_SLICE_CHICKEN3,
+				(GEN12_DISABLE_CPS_AWARE_COLOR_PIPE << 16) | GEN12_DISABLE_CPS_AWARE_COLOR_PIPE);
+		}
 		// Masked clear: mask=bit14, value=0 → 0x40000000
 		NGreen::callback->writeReg32(GEN7_FF_SLICE_CS_CHICKEN1,
 			(GEN9_FFSC_PERCTX_PREEMPT_CTRL << 16) | 0);
@@ -9343,7 +9594,7 @@ void Gen11::populateResetRegisterList(void *that)
 	}
 	// V504: patch reset register list before context image bakes
 	// Walk IGVector: each entry = {uint32_t mmio_addr, uint32_t value, char name[0x1c]}
-	if (!NGreen::callback->isRealTGL) {
+	if (that && (!NGreen::callback->isRealTGL || xePreemptDisabled())) {
 		auto *accel = reinterpret_cast<AppleIntel::IntelAccelerator*>(that);
 		uint64_t count = accel->fResetRegCount;
 		uint8_t *data  = reinterpret_cast<uint8_t*>(accel->fResetRegData);
@@ -9353,18 +9604,24 @@ void Gen11::populateResetRegisterList(void *that)
 		if (v504Verbose)
 			SYSLOG("ngreen", "V504[%d]: IGVector count=%llu data=%p", v504CallCount,
 				   (unsigned long long)count, data);
-		for (uint64_t i = 0; i < count; i++) {
+		for (uint64_t i = 0; i < count && data; i++) {
 			uint32_t *entry = reinterpret_cast<uint32_t*>(data + i * 0x24);
 			uint32_t  addr  = entry[0];
-			// V504-TEST: 0x20ec CS_DEBUG_MODE1 patch commented out to test if clearing
-			// Apple's 0x11 (bits 0+4) is needed or harmful on RPL.
-			// if (addr == 0x20ec) {
-			//     entry[1] = 0x00000000;
-			//     if (v504Verbose) SYSLOG("ngreen", "V504[%d]: patched CS_DEBUG_MODE1 → 0", v504CallCount);
-			// }
-			if (addr == 0x2580) {
-				entry[1] = 0x00000002;
-				if (v504Verbose) SYSLOG("ngreen", "V504[%d]: patched CS_CHICKEN1 → 0x2", v504CallCount);
+			if (NGreen::callback->isRealTGL) {
+				if (addr == 0x20ec) {
+					entry[1] = (entry[1] & ~0x1u) | 0x2u;
+				}
+				if (addr == 0x2580) {
+					entry[1] = 0x00000002u;
+				}
+				if (addr == 0x20e0) {
+					entry[1] &= ~0x4000u;
+				}
+			} else {
+				if (addr == 0x2580) {
+					entry[1] = 0x00000002;
+					if (v504Verbose) SYSLOG("ngreen", "V504[%d]: patched CS_CHICKEN1 → 0x2", v504CallCount);
+				}
 			}
 			// V506: The populateResetRegisterList snapshot reads RING_MODE before Apple enables
 			// GFX_RUN_LIST_ENABLE (bit 15), so the baked value is 0x0.  On first lite-restore
@@ -10071,6 +10328,9 @@ unsigned long Gen11::startGraphicsEngine(void *that)
 	if (!NGreen::callback->isRealTGL) {
 		startCount++;
 		applyPreStartEngineWorkarounds(startCount);
+	} else {
+		startCount++;
+		NGreen::callback->writeReg32(RING_PSMI_CTL(RENDER_RING_BASE), (0x1080u << 16) | 0x1080u);
 	}
 
 	if (NGreen::callback->isRealTGL && getKernelVersion()==KernelVersion::Tahoe && that) {
@@ -10100,6 +10360,52 @@ unsigned long Gen11::startGraphicsEngine(void *that)
 		if (xePreemptDisabled()) {
 			NGreen::callback->writeReg32(GEN7_FF_SLICE_CS_CHICKEN1,
 				(GEN9_FFSC_PERCTX_PREEMPT_CTRL << 16) | 0);
+		}
+		{
+			// R32-PCFIX52: Hold ForceWake render bit 5 and apply full TGL 3D/color/sampler/row WAs
+			// (Wa_1607297627, Wa_1606700617 + TGL-B0 obj-preempt off, Wa_1409142259,
+			// Wa_1508744258/1606931601/1409804808, Wa_14010229206, Wa_1406941453) then read back.
+			auto *cb = NGreen::callback;
+			cb->writeReg32(FORCEWAKE_RENDER_GEN9, (1u << 21) | (1u << 5));
+			for (int i = 0; i < 500 && !(cb->readReg32(FORCEWAKE_ACK_RENDER_GEN9) & (1u << 5)); i++) IODelay(100);
+			cb->writeReg32(RING_PSMI_CTL(RENDER_RING_BASE), (0x1080u << 16) | 0x1080u);
+			cb->writeReg32(GEN9_CS_DEBUG_MODE1, 0x00030002u);
+			cb->writeReg32(GEN8_CS_CHICKEN1, 0x00030002u);
+			cb->writeReg32(GEN7_FF_SLICE_CS_CHICKEN1, (GEN9_FFSC_PERCTX_PREEMPT_CTRL << 16) | 0);
+			cb->writeReg32(GEN11_COMMON_SLICE_CHICKEN3,
+				(GEN12_DISABLE_CPS_AWARE_COLOR_PIPE << 16) | GEN12_DISABLE_CPS_AWARE_COLOR_PIPE);
+			uint32_t mcrOrig = cb->readReg32(GEN8_MCR_SELECTOR);
+			cb->writeReg32(GEN8_MCR_SELECTOR, mcrOrig | 0x80000000u);
+			cb->writeReg32(GEN8_ROW_CHICKEN2, 0xc100c100u);
+			cb->writeReg32(GEN9_ROW_CHICKEN4,
+				(GEN12_DISABLE_TDL_PUSH << 16) | GEN12_DISABLE_TDL_PUSH);
+			cb->writeReg32(GEN10_SAMPLER_MODE,
+				(ENABLE_SMALLPL << 16) | ENABLE_SMALLPL);
+			cb->writeReg32(GEN8_MCR_SELECTOR, mcrOrig);
+			uint32_t r2050 = cb->readReg32(RING_PSMI_CTL(RENDER_RING_BASE));
+			uint32_t r20ec = cb->readReg32(GEN9_CS_DEBUG_MODE1);
+			uint32_t r2580 = cb->readReg32(GEN8_CS_CHICKEN1);
+			uint32_t r20e0 = cb->readReg32(GEN7_FF_SLICE_CS_CHICKEN1);
+			uint32_t r7304 = cb->readReg32(GEN11_COMMON_SLICE_CHICKEN3);
+			uint32_t re4f4 = cb->readReg32(GEN8_ROW_CHICKEN2);
+			uint32_t re48c = cb->readReg32(GEN9_ROW_CHICKEN4);
+			uint32_t re18c = cb->readReg32(GEN10_SAMPLER_MODE);
+			cb->writeReg32(FORCEWAKE_RENDER_GEN9, (1u << 21));
+			if (that) {
+				auto *reg = OSDynamicCast(IORegistryEntry, reinterpret_cast<OSObject *>(that));
+				if (reg) {
+					reg->setProperty("ngreen-pcfix52-2050", r2050, 32);
+					reg->setProperty("ngreen-pcfix52-20ec", r20ec, 32);
+					reg->setProperty("ngreen-pcfix52-2580", r2580, 32);
+					reg->setProperty("ngreen-pcfix52-20e0", r20e0, 32);
+					reg->setProperty("ngreen-pcfix52-7304", r7304, 32);
+					reg->setProperty("ngreen-pcfix52-e4f4", re4f4, 32);
+					reg->setProperty("ngreen-pcfix52-e48c", re48c, 32);
+					reg->setProperty("ngreen-pcfix52-e18c", re18c, 32);
+				}
+			}
+			SYSLOG("ngreen", "HP-PCFIX52: 2050=%08x 20ec=%08x 2580=%08x 20e0=%08x 7304=%08x e4f4=%08x e48c=%08x e18c=%08x",
+				r2050, r20ec, r2580, r20e0, r7304, re4f4, re48c, re18c);
 		}
 		uint64_t sample = __atomic_load_n(&hpR32Readback, __ATOMIC_RELAXED);
 		SYSLOG("ngreen", "HP-R32-READBACK: valid=%u cs=%08x scope=startup-last-writer",

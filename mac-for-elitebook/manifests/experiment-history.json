@@ -164,6 +164,31 @@
         "../scripts/verify_release_artifacts.py"
       ],
       "limitation": "External Ventoy USB was unplugged during NixOS finalization and retains prior PCFIX50 (88889d06...); SimpleHDA.kext does not expose iGPU HDMI audio (codec 2 8086:2812); PenBridge.app awaits first interactive GUI Accessibility toggle approval."
+    },
+    {
+      "date": "2026-11-18",
+      "topic": "R32-PCFIX51..53-AUDIO iDisp HDMI digital audio & MCCS volume, ext-display 3D stability (Signature: 803 fix), TGLDmic v0.5.1 persistent DMA, and amfi=0x7 mic TCC fix",
+      "summary": "Delivered NootedGreen R32-PCFIX51-HDMI-AUDIO (5f8.. -> dec9d3a24eeaf146d0de3c599042fb5374280f86a764ad5d672fdf4922b08577, UUID 4C4C440B-5555-3144-A118-9780E1559D57) routing iDisp HDMI digital audio with fixed-point Q16 MCCS volume/mute scaling; R32-PCFIX52-EXTDISPLAY-3D-STABILITY (d8ac06e8adc923332f85cea82c1d1d61f8d3886107aa720b125db28574c0068e, UUID 4C4C4438-5555-3144-A188-B40CB16CB750) eliminating external HDMI Signature: 803 3D GPU hangs via hpFfdopReplace bit-0 preemption clear and TGL reset/chicken registers; and R32-PCFIX53-AUDIO (632,176 B, SHA-256 f219458de1ce2c22838df434279aac838a6e790fc6fe47b0ce8171f3797faa52, UUID 4C4C44D1-5555-3144-A1C9-4A09DBB0276E) removing 0x9d70->0xa0c8 rewrites so built-in ALC285 retains OutputLowPower=Yes and 49152-frame audio buffers alongside HDMI audio. Updated TGLDmic v0.5.1 (1,187,584 B, SHA-256 5f7c1d945c8c16d819da816225b2aa63392abaae3f103cc61f405c77afa58d79, UUID 4C4C449F-5555-3144-A1C5-AD8B59EE8D82) reusing persistent <4GB 512 KiB DMA boot buffers and updated OpenCore boot-args/csr-active-config (amfi=0x7, <07020000>) so third-party apps properly trigger macOS microphone TCC prompts.",
+      "public_docs": [
+        "../README.md",
+        "../docs/continuation.md",
+        "../patches/nootedgreen-r32-pcfix51-hdmi-audio-20261115.patch",
+        "../patches/nootedgreen-r32-pcfix52-extdisplay-3d-stability-20261115.patch",
+        "../patches/nootedgreen-r32-pcfix53-audio-20261118.patch"
+      ],
+      "limitation": "External Ventoy USB retains prior PCFIX50 unless explicitly refreshed."
+    },
+    {
+      "date": "2026-11-19",
+      "topic": "Clean-room Intel ISH ALS driver TGLIshAls v0.5.0 (R35-PCFIX58-ISH-ALS-V050) restoring native macOS auto-brightness and EC F9 keyboard backlight",
+      "summary": "Developed and published clean-room BSD-3-Clause TGLIshAls.kext v0.5.0 (89,520 B, SHA-256 c568478f14ed5416857c312c3f8425a4998781e001e5fd012387dafe542606a0, UUID 4C4C449A-5555-3144-A1C5-58FEB808F9FD; source + 697-check ASan/UBSan host tests in drivers/TGLIshAls/) for Tiger Lake-LP ISH (8086:a0fc) and Capella CM32183H without fake EC or _OSI spoofing. Initializes BAR0 mailbox, HBM 1.0, client 13 SYSTEM_STATE_SUBSCRIBE, 317B CM32183H GET/SET/Verify feature handshake, VirtualSMC ALV0..MSLD keys, and ACPI0008 nub -> AppleLMUController -> DisplayALSManager; preserves PIMR bit 11 in computeInitPimr() with IOInterruptEventSource (INTx-AutoDisable) + FWSTS flush + IODefaultMatchCategory, cutting Vector 0x5a(ISHD) from 18.4k-39.7k/s down to 10.85-11.85/s with continuous ALSSampleCount updates (880->921->976 over 20s, 1768 at 6m), 0 Apple16X50 probes, and 0 stall ticks. User physically verified dynamic dark/bright screen auto-brightness, F9 keyboard backlight sustain/extinguish, and quiet system operation on config.plist (61,560 B, SHA-256 138ad0570ab37ada77acc8df40007b71a4541740eb05b9423893fe73747d2a44).",
+      "public_docs": [
+        "../README.md",
+        "../docs/continuation.md",
+        "../drivers/TGLIshAls/README.md",
+        "../scripts/verify_release_artifacts.py"
+      ],
+      "limitation": "LKSB/LKSS VirtualSMC keys are passive Apple SMC stubs; F9 keyboard backlight intensity modulation itself remains handled cleanly by HP EC firmware once ISH ambient-light updates run."
     }
   ],
   "privacy_note": "Personal paths, network endpoints, serial/SMBIOS identities, credentials, private keys, and raw logs are intentionally not included. A missing private artifact is not a verified result."

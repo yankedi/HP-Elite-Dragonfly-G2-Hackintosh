@@ -1,10 +1,10 @@
 # OpenCore configuration examples
 
-These **OpenCore 1.0.8** examples are sanitized exports of the finalized daily-use HP EliteBook 840 G8 (`25G83`) accelerated configuration (`R32-PCFIX50-HDMI`, `Timeout=1`, `HideAuxiliary=true`, `PollAppleHotKeys=true`, `AllowSetDefault=true`, `ApplePanic=false`, `DisableWatchDog=false`) and the earlier `GA420C` basic-display control. They are configuration/source examples; assemble the required binaries/kexts and generate unique SMBIOS values locally.
+These **OpenCore 1.0.8** examples are sanitized exports of the finalized HP EliteBook 840 G8 / Elite Dragonfly G2 (`25G83`) accelerated configuration (`R35-PCFIX58-ISH-ALS-V050` / `R32-PCFIX53-AUDIO` + `TGLIshAls.kext v0.5.0` + `TGLDmic.kext v0.5.1`, `Timeout=1`, `HideAuxiliary=true`, `PollAppleHotKeys=true`, `AllowSetDefault=true`, `ApplePanic=false`, `DisableWatchDog=false`, `amfi=0x7`, `csr-active-config <07020000>`) and the earlier `GA420C` basic-display control. They are configuration/source examples; assemble the required binaries/kexts and generate unique SMBIOS values locally.
 
 | File | Role |
 | --- | --- |
-| `config-accelerated.example.plist` | Daily-use `R32-PCFIX50-HDMI` accelerated stack (`Timeout=1`, `HideAuxiliary=true`, `PollAppleHotKeys=true`, `AllowSetDefault=true`, `ApplePanic=false`, `DisableWatchDog=false`, `PMAPFIX`, `PT04->XT04`) |
+| `config-accelerated.example.plist` | Daily-use `R35-PCFIX58-ISH-ALS-V050` / `R32-PCFIX53-AUDIO` accelerated stack (`TGLIshAls v0.5.0`, `TGLDmic v0.5.1`, `Timeout=1`, `HideAuxiliary=true`, `PollAppleHotKeys=true`, `AllowSetDefault=true`, `ApplePanic=false`, `DisableWatchDog=false`, `amfi=0x7`, `csr-active-config <07020000>`, `PMAPFIX`, `PT04->XT04`) |
 | `config-software-display.example.plist` | Earlier `GA420C` visible firmware/basic-display control |
 | `components.json` | Enabled kext versions, bundle IDs, dependencies, and actual executable/ACPI/driver SHA-256 hashes |
 | `export-manifest.json` | Original/private config hashes, public template hashes and explicit redactions |

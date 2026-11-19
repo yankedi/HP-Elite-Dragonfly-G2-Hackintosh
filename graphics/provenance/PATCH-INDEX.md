@@ -45,6 +45,10 @@ The staged progression is:
     `HP-QUIET-HOTPATH` eliminating synchronous hot-path kernel logging (`PCFIX40`),
     `HP-FASTBOOT` reducing OpenCore-to-desktop boot to ~18.5s (`PCFIX41`),
     and native Tiger Lake ComboPHY `DDI-B` (`ddi=1`) built-in HDMI 2.0b support (`PCFIX42`–`PCFIX50`, corresponding to the current `src/NootedGreen/kern_gen11.cpp` and `src/NootedGreen/kern_green.cpp` snapshot): `ConnectorHDMI` + `busId=2` with 3 pipes/6 ports (`PCFIX42`), `hpGetStreamAccessAUX` DP AUX guard preventing `AppleIntelPort::probePortStateEv` `__cxa_pure_virtual` boot hang (`PCFIX43`–`PCFIX44`), `hwDoGMBusRequest` swapped `(reg, val)` fix + `0xC5108` GMBUS2 poll (`PCFIX45`–`PCFIX47`), 24-bit 8bpc RGB 4:4:4 wire-mode filtering (`PCFIX48`), `AppleIntelTGLGraphicsFramebuffer` `0xf3518` DPLL relocation from Ice Lake offsets to Tiger Lake ComboPHY `DPLL{0,1,4}_CFGCR{0,1}` `0x164284..0x164298` with `Gen11::raWriteRegister32` register masks (`PCFIX49`), and `600 MHz` `IOFBTimingRange` + GMBUS2 SCDC `0x54`/`0x20` scrambling & 1/40 clock ratio (`>= 340 MHz`) + `TRANS_DDI_FUNC_CTL_B` `HIGH_TMDS_CHAR_RATE` verified live at `2560x1440@60/120/144Hz` (`PCFIX50`).
+12. `nootedgreen-pcfix51-hdmi-audio-20261115.patch` .. `nootedgreen-pcfix53-audio-20261118.patch` —
+    iDisp HDMI digital audio (`8086:2812`) + fixed-point Q16 MCCS speaker volume/mute scaling via `AppleHDAEngineOutputDP` / `clipOutputSamples` (`nootedgreen-pcfix51-hdmi-audio-20261115.patch`),
+    external HDMI extended-display `Signature: 803` 3D hang fix (`hpFfdopReplace` bit-0 object-level preemption clear + real-TGL `0x2050`/`0x20ec`/`0x2580`/`0x20e0`/`0x7304`/`0xe4f4`/`0xe48c`/`0xe18c` & `V504` reset-list workarounds in `nootedgreen-pcfix52-extdisplay-3d-stability-20261115.patch`),
+    and removal of the 10 `0x9d70->0xa0c8` controller ID rewrites so `AppleHDA8086_9D70Controller@1F,3` restores `OutputLowPower=Yes` & `49152`-frame audio buffers alongside iDisp HDMI audio (`nootedgreen-pcfix53-audio-20261118.patch`).
 
 `NootedGreen-upstream-to-GA416.diff` is the cumulative source comparison from
 NootedGreen upstream commit `95f81898be65cb9f7b3d370ca78054be4cc8a62d` to the

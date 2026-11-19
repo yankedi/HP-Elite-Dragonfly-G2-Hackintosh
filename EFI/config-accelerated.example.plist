@@ -405,6 +405,8 @@
 				<data>
 				AABJmg==
 				</data>
+				<key>model</key>
+				<string>Intel Iris Xe Graphics</string>
 			</dict>
 			<key>PciRoot(0x0)/Pci(0x1F,0x3)</key>
 			<dict>
@@ -548,6 +550,24 @@
 				<string></string>
 				<key>MinKernel</key>
 				<string></string>
+				<key>PlistPath</key>
+				<string>Contents/Info.plist</string>
+			</dict>
+			<dict>
+				<key>Arch</key>
+				<string>x86_64</string>
+				<key>BundlePath</key>
+				<string>TGLIshAls.kext</string>
+				<key>Comment</key>
+				<string>Intel TGL ISH 8086:a0fc ALS VirtualSMC driver (Phase 52 v0.5.0)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>ExecutablePath</key>
+				<string>Contents/MacOS/TGLIshAls</string>
+				<key>MaxKernel</key>
+				<string>25.99.99</string>
+				<key>MinKernel</key>
+				<string>25.0.0</string>
 				<key>PlistPath</key>
 				<string>Contents/Info.plist</string>
 			</dict>
@@ -1066,10 +1086,10 @@
 			<key>7C436110-AB2A-4BBB-A880-FE41995C9F82</key>
 			<dict>
 				<key>boot-args</key>
-				<string>keepsyms=1 debug=0x100000 slide=0 -ngreentglwithgfx ngreenSched=3 ngreen-dmc=tgl -ngreenfixbootmode amfi_get_out_of_my_way=1 -allow3d -disablegfxfirmware ngreen-eu=80 ngreen-l3=6 -tgldmic -s0ixd3 -s0ixnogpureset -s0ixcnvwd3</string>
+				<string>keepsyms=1 debug=0x100000 slide=0 -ngreentglwithgfx ngreenSched=3 ngreen-dmc=tgl -ngreenfixbootmode amfi=0x7 -allow3d -disablegfxfirmware ngreen-eu=80 ngreen-l3=6 -tgldmic -s0ixd3 -s0ixnogpureset -s0ixcnvwd3</string>
 				<key>csr-active-config</key>
 				<data>
-				AwIAAA==
+				BwIAAA==
 				</data>
 				<key>prev-lang:kbd</key>
 				<data>

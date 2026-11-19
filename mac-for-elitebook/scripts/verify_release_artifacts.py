@@ -403,7 +403,7 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
                     errors.append(f"[verified_zero_hang_trials[{idx}]] Invalid trial object in {INSTALL_PREP_REL}")
                     continue
                 tname = str(entry.get("trial", f"idx_{idx}"))
-                if tname == "R32-PCFIX50-HDMI" or (tname in ("R32-PCFIX49-HDMI", "R32-PCFIX48-HDMI", "R32-PCFIX47-HDMI", "R32-PCFIX46-HDMI", "R32-PCFIX44-HDMI", "R32-PCFIX41", "R32-PCFIX40", "R32-PCFIX39", "R32-PCFIX38", "R32-PCFIX37") and not active_ng_trial):
+                if tname == "R32-PCFIX53-AUDIO" or (tname in ("R32-PCFIX52-EXTDISPLAY-3D-STABILITY", "R32-PCFIX51-HDMI-AUDIO", "R32-PCFIX50-HDMI", "R32-PCFIX49-HDMI", "R32-PCFIX48-HDMI", "R32-PCFIX47-HDMI", "R32-PCFIX46-HDMI", "R32-PCFIX44-HDMI", "R32-PCFIX41", "R32-PCFIX40", "R32-PCFIX39", "R32-PCFIX38", "R32-PCFIX37") and not active_ng_trial):
                     active_ng_trial = entry
                 patch_ref = entry.get("patch")
                 expected_psha = entry.get("patch_sha256")
