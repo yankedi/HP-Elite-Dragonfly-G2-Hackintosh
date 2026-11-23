@@ -22,6 +22,76 @@ extern void *volatile gXeBlitMem, *volatile gXeBlitCpu;
 static volatile uint32_t gXeGtFreqApple = 0, gXeGtFreqN = 0;  // XE-GTFREQ: último pedido da Apple, nº de pedidos
 static volatile uint32_t gXeDpmsBlocked = 0;  // XE-NODPMS: escritas de desligamento do caminho de vídeo bloqueadas
 static volatile uint32_t gXeFbDpmsN = 0;  // XE-FBDPMS: transições de repouso interceptadas
+static volatile uint32_t gXeIrqAllFFDrop = 0;  // R32-PCFIX59-SLEEPIRQ: ProcessInterrupt dropped on 0xFFFFFFFF MMIO
+static volatile uint32_t gXeDeErrAllFFDrop = 0;  // R32-PCFIX59-SLEEPIRQ: invokeDEErrorIntrHandler dropped on 0x1c0 / 0xFFFFFFFF
+static volatile uint32_t gXeWmNullDrop = 0;  // R32-PCFIX59-SLEEPIRQ: showWatermarksRelatedRegisters dropped on null/unmapped RAM or 0xFFFFFFFF
+static volatile uint32_t gXeDispIntRestoreN = 0;  // R32-PCFIX59-SLEEPIRQ: GEN11_DISPLAY_INT_CTL bit 31 restored on FB0 wake
+static volatile uint32_t gTglInPowerWellPGE = 0;  // R32-PCFIX60-PGFUSE: recursion depth inside Real TGL hwSetPowerWellStatePGE
+static mach_vm_address_t gTglPgFuseRetAddrs[4] = {};  // R32-PCFIX60-PGFUSE: exact call-return PCs for 0x42000 in hwSetPowerWellStatePGE
+static uint8_t gTglPgFuseBits[4] = {};  // R32-PCFIX60-PGFUSE: expected FUSE_STATUS bit per site (26, 25, 24, 23)
+static uint32_t gTglPgFuseSites = 0;
+static uint32_t gTglReadReg32Routed = 0;
+static volatile uint32_t gTglPgFuseRetryCalls = 0;
+static volatile uint32_t gTglPgFuseWaitIters = 0;
+static volatile uint32_t gTglPgFuseResolved = 0;
+static volatile uint32_t gTglPgFuseTimeouts = 0;
+static uint32_t gTglEdpLtRouted = 0;
+static uint32_t gTglEdpRoutedMask = 0;       // bit0=LightUpEDP, bit1=linkTraining, bit2=setVoltageSwing
+static uint32_t gTglEdpAuxSymsOk = 0;        // bit0=gController, bit1=disDC6, bit2=enDC6, bit3=enAux, bit4=disAux
+static uint32_t gTglEdpTransPatchesCnt = 0;  // Component A: count of applied count=1 TGL transcoder patches (max 10)
+static uint32_t gTglEdpTransPatchesMask = 0; // Component A: 10-bit mask of applied patches (0x3FF = all 10)
+static volatile uint32_t gTglInLightUpEdp = 0;
+static void *volatile gTglEdpLightUpCtrl = nullptr;
+static void *volatile gTglEdpLightUpPath = nullptr;
+static volatile uint32_t gTglEdpEnhancedFraming = 0;
+static volatile uint32_t gTglEdpTranscoder = 0;
+static volatile uint32_t gTglEdpDssm = 0;
+static volatile uint32_t gTglEdpDpll0Raw = 0;
+static volatile uint32_t gTglEdpDpll0Cfgcr0 = 0;
+static volatile uint32_t gTglEdpDpll0Cfgcr1 = 0;
+static volatile uint32_t gTglEdpDpll0FixedCount = 0;
+static volatile uint32_t gTglEdpDpll0WriteLogs = 0;
+static volatile uint32_t gTglEdpLtCalls = 0;
+static volatile uint32_t gTglEdpLtOk = 0;
+static volatile uint32_t gTglEdpLtFail = 0;
+static volatile uint32_t gTglEdpLtLastRet = 0;
+static volatile uint32_t gTglEdpLtPreDpll0 = 0;
+static volatile uint32_t gTglEdpLtPreDpll0En = 0;
+static volatile uint32_t gTglEdpLtPreDpclka = 0;
+static volatile uint32_t gTglEdpLtPrePpStat = 0;
+static volatile uint32_t gTglEdpLtPreAuxCtl = 0;
+static volatile uint32_t gTglEdpLtPostDdiBuf = 0;
+static volatile uint32_t gTglEdpLtPostDpTpCtl = 0;
+static volatile uint32_t gTglEdpLtPostAuxCtl = 0;
+static volatile uint32_t gTglEdpAuxHoldCount = 0;
+static volatile uint32_t gTglEdpPhyReinitCount = 0;
+static volatile uint32_t gTglEdpPhyCompDw0Pre = 0;
+static volatile uint32_t gTglEdpPhyCompDw0Post = 0;
+static volatile uint32_t gTglEdpPhyCompDw3 = 0;
+static volatile uint32_t gTglEdpPhyCompDw8Pre = 0;
+static volatile uint32_t gTglEdpPhyCompDw8Post = 0;
+static volatile uint32_t gTglEdpPhyTxDw8Pre = 0;
+static volatile uint32_t gTglEdpPhyTxDw8Post = 0;
+static volatile uint32_t gTglEdpPreTransClk = 0;
+static volatile uint32_t gTglEdpPreTransDdi = 0;
+static volatile uint32_t gTglEdpDpTpEfFixed = 0;
+static volatile uint32_t gTglEdpVswingCalls = 0;
+static volatile uint32_t gTglEdpVswingLast = 0;
+static volatile uint32_t gTglEdpTxDw5Pre = 0;
+static volatile uint32_t gTglEdpTxDw5Post = 0;
+static volatile uint32_t gTglEdpTxDw2Ln0 = 0;
+static volatile uint32_t gTglEdpTxDw4Ln0 = 0;
+static volatile uint32_t gTglEdpTxDw4Ln1 = 0;
+static volatile uint32_t gTglEdpTxDw7Ln0 = 0;
+static volatile uint32_t gTglEdpClDw10 = 0;
+static volatile uint32_t gTglEdpLightUpCalls = 0;
+static volatile uint32_t gTglEdpLightUpLastRet = 0;
+static volatile uint32_t gTglEdpLightUpPostTransClk = 0;
+static volatile uint32_t gTglEdpLightUpPostTransDdi = 0;
+static volatile uint32_t gTglEdpLightUpPostTransConf = 0;
+static volatile uint32_t gHpHdmiDpll384FixedCount = 0;
+static volatile uint32_t gHpHdmiDpll4Cfgcr0 = 0;
+static void xePublishSleepIrqProps(IORegistryEntry *reg);
 static volatile uint32_t gXeResFreeFix = 0;  // XE-RESFREE: entradas inválidas neutralizadas
 extern volatile uint32_t gXeOrphanMiss;  // XE-NOORPHAN (kern_green.cpp)
 extern bool gXeLockRouted;
@@ -225,7 +295,7 @@ void Gen11::init() {
 	callback = this;
 
 	if (checkKernelArgument("-ngreentglfb") || checkKernelArgument("-ngreentglwithgfx")) {
-		SYSLOG("ngreen", "Gen11::init: FB tier → TGL (ICL FB skipped, R32-PCFIX52-EXTDISPLAY-3D-STABILITY, R32-PCFIX51-HDMI-AUDIO, R32-PCFIX50-HDMI, R32-PCFIX49-HDMI, R32-PCFIX48-HDMI, R32-PCFIX47-HDMI, R32-PCFIX46-HDMI, R32-PCFIX45-HDMI, R32-PCFIX44-HDMI, R32-PCFIX41-FASTBOOT, R32-PCFIX40-QUIET-HOTPATH, HP-QUIET-HOTPATH, HP-FASTBOOT)");
+		SYSLOG("ngreen", "Gen11::init: FB tier → TGL (ICL FB skipped, R32-PCFIX60-PGFUSE, R32-PCFIX59-SLEEPIRQ, R32-PCFIX52-EXTDISPLAY-3D-STABILITY, R32-PCFIX51-HDMI-AUDIO, R32-PCFIX50-HDMI, R32-PCFIX49-HDMI, R32-PCFIX48-HDMI, R32-PCFIX47-HDMI, R32-PCFIX46-HDMI, R32-PCFIX45-HDMI, R32-PCFIX44-HDMI, R32-PCFIX41-FASTBOOT, R32-PCFIX40-QUIET-HOTPATH, HP-QUIET-HOTPATH, HP-FASTBOOT)");
 		lilu.onKextLoadForce(&kextG11FBT);
 		lilu.onKextLoadForce(&kextG11FBTA);
 		if (checkKernelArgument("-ngreentglwithgfx")) {
@@ -485,6 +555,10 @@ static volatile uint64_t gFwLeakCaller = 0;         // file offset of the get th
 static volatile uint64_t gFwUnderflowCaller = 0;    // file offset of the last ignored put
 
 static void xeSafeForceWake(void *that, bool set, uint32_t dom);
+static mach_vm_address_t gOrgAccelSystemDidWake = 0;
+static volatile uint32_t gFwWakeResyncRouted = 0;
+static volatile uint32_t gFwWakeResyncCount = 0;
+static IOReturn xeAccelSystemDidWake(void *that);
 static void xeRc6FwStart(void *accel);
 static void xeGpuRecInstall(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size);  // xe/gpurec (22/10)
 static bool xeBlitFixInstall(KernelPatcher &patcher, KernelPatcher::KextInfo *kext, mach_vm_address_t address, size_t size, const uint8_t *v2, size_t v2Size);  // xe/blitfix (23/10)
@@ -2075,6 +2149,9 @@ static void hpPublishHdmiTelemetry(thread_call_param_t, thread_call_param_t) {
 		hpPublishShdaProps(reg);
 		reg->setProperty("ngreen-hdmi-dpll1-cfgcr0", hwCfgcr0, 32);
 		reg->setProperty("ngreen-hdmi-dpll1-cfgcr1", hwCfgcr1, 32);
+		reg->setProperty("ngreen-hdmi-dpll4-cfgcr0", __atomic_load_n(&gHpHdmiDpll4Cfgcr0, __ATOMIC_RELAXED), 32);
+		reg->setProperty("ngreen-hdmi-dpll384-fix", (!checkKernelArgument("-ngreennohdmi384")) ? kOSBooleanTrue : kOSBooleanFalse);
+		reg->setProperty("ngreen-hdmi-dpll384-fixed-cnt", __atomic_load_n(&gHpHdmiDpll384FixedCount, __ATOMIC_RELAXED), 32);
 		reg->setProperty("ngreen-hdmi-dpclka-cfgcr0", hwDpclka, 32);
 		reg->setProperty("ngreen-hdmi-dpll1-enable", hwDpll1En, 32);
 		reg->setProperty("ngreen-hdmi-rejected-wire-modes", rej, 32);
@@ -3501,6 +3578,53 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 			}
 		}
 
+		bool tglPgScanReady = false;
+		if (NGreen::callback->isRealTGL) {
+			gTglPgFuseSites = 0;
+			gTglReadReg32Routed = 0;
+			mach_vm_address_t pgeFn = patcher.solveSymbol(index, "__ZN19AppleIntelPowerWell21hwSetPowerWellStatePGEbj", address, size);
+			if (!pgeFn) patcher.clearError();
+			mach_vm_address_t readRegFn = patcher.solveSymbol(index, "__ZN31AppleIntelRegisterAccessManager14ReadRegister32Em", address, size);
+			if (!readRegFn) patcher.clearError();
+			if (pgeFn && readRegFn) {
+				size_t scanLimit = 0xc00;
+				if (address && size && pgeFn >= address && pgeFn < address + size) {
+					const size_t avail = static_cast<size_t>((address + size) - pgeFn);
+					if (avail < scanLimit) scanLimit = avail;
+				}
+				const auto *code = reinterpret_cast<const uint8_t *>(pgeFn);
+				uint32_t foundCount = 0;
+				uint32_t seenMask = 0;
+				for (size_t off = 0; off + 14 <= scanLimit; ++off) {
+					if (code[off] == 0xbe && code[off + 1] == 0x00 && code[off + 2] == 0x20 &&
+					    code[off + 3] == 0x04 && code[off + 4] == 0x00 && code[off + 5] == 0xe8 &&
+					    code[off + 10] == 0x0f && code[off + 11] == 0xba && code[off + 12] == 0xe0) {
+						const uint8_t bit = code[off + 13];
+						if (bit >= 23 && bit <= 26) {
+							int32_t rel = 0;
+							memcpy(&rel, code + off + 6, sizeof(rel));
+							const mach_vm_address_t callNext = pgeFn + off + 10;
+							const mach_vm_address_t callTarget = callNext + static_cast<int64_t>(rel);
+							const uint32_t bitFlag = 1u << (bit - 23);
+							if (callTarget == readRegFn && !(seenMask & bitFlag) && foundCount < 4) {
+								gTglPgFuseRetAddrs[foundCount] = callNext;
+								gTglPgFuseBits[foundCount] = bit;
+								seenMask |= bitFlag;
+								++foundCount;
+							}
+						}
+					}
+				}
+				gTglPgFuseSites = foundCount;
+				tglPgScanReady = (foundCount == 4 && seenMask == 0x0Fu);
+				SYSLOG("ngreen", "R32-PCFIX60-PGFUSE: scan pge=0x%llx read32=0x%llx matched=%u/4 mask=0x%x",
+				       static_cast<uint64_t>(pgeFn), static_cast<uint64_t>(readRegFn), foundCount, seenMask);
+			} else {
+				SYSLOG("ngreen", "R32-PCFIX60-PGFUSE: solve skipped pge=0x%llx read32=0x%llx",
+				       static_cast<uint64_t>(pgeFn), static_cast<uint64_t>(readRegFn));
+			}
+		}
+
 		RouteRequestPlus requests[] = {
 			// ...existing routes...
 			//{"__ZN24AppleIntelBaseController17registerWithAICPMEPv", alwaysReturnSuccess, this->oalwaysReturnSuccess},
@@ -3572,6 +3696,8 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 			{"__ZN21AppleIntelFramebuffer13getOnlineInfoEP21AppleIntelDisplayPathPhS2_", getOnlineInfo, this->ogetOnlineInfo},
 			// 20/10 (XE-FBDPMS): repouso da tela sem desmontar pipe/transcoder/DDI (ver wrapSetFramebufferPowerState).
 			{"__ZN21AppleIntelFramebuffer24setFramebufferPowerStateEj", wrapSetFramebufferPowerState, this->oSetFramebufferPowerState},
+			// R32-PCFIX59-SLEEPIRQ: guard plane watermark register dump against null/unmapped RAM or 0xFFFFFFFF MMIO.
+			{"__ZN15AppleIntelPlane30showWatermarksRelatedRegistersEv", wrapShowWatermarksRelatedRegisters, this->oShowWatermarksRelatedRegisters},
 			// V208/V209/V210 routes DISABLED at 3/3/3 baseline. They actively cause
 			// the IOFramebuffer::getAttributeExt+0x25 NULL deref when fb1/fb2 start()
 			// is refused but IGAccelDisplayPipe still tracks them. Re-enable only
@@ -3623,6 +3749,83 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 		};
 		PANIC_COND(!RouteRequestPlus::routeAll(patcher, index, requests, address, size), "ngreen","Failed to route dp symbols");
 		gTglFbRoutesDone++;
+		if (NGreen::callback->isRealTGL && tglPgScanReady) {
+			RouteRequestPlus pgReadReq[] = {
+				{"__ZN31AppleIntelRegisterAccessManager14ReadRegister32Em", wrapTglReadRegister32, this->oTglReadRegister32},
+			};
+			if (RouteRequestPlus::routeAll(patcher, index, pgReadReq, address, size)) {
+				gTglReadReg32Routed = 1;
+			} else {
+				patcher.clearError();
+				SYSLOG("ngreen", "R32-PCFIX60-PGFUSE: ReadRegister32 route failed");
+			}
+			SYSLOG("ngreen", "R32-PCFIX60-PGFUSE: routed=%u sites=%u org=0x%llx",
+			       gTglReadReg32Routed, gTglPgFuseSites, static_cast<uint64_t>(this->oTglReadRegister32));
+		}
+		if (NGreen::callback->isRealTGL && !checkKernelArgument("-ngreennoedpfix")) {
+			this->oGetFirstPathByPort = patcher.solveSymbol(
+				index, "__ZN21AppleIntelDisplayPath18getFirstPathByPortEP14AppleIntelPort", address, size);
+			if (!this->oGetFirstPathByPort) patcher.clearError();
+			this->oGController = patcher.solveSymbol(index, "_gController", address, size);
+			if (!this->oGController) patcher.clearError();
+			this->oDisableHWDC6 = patcher.solveSymbol(
+				index, "__ZN24AppleIntelBaseController12disableHWDC6Ev", address, size);
+			if (!this->oDisableHWDC6) patcher.clearError();
+			this->oEnableHWDC6 = patcher.solveSymbol(
+				index, "__ZN24AppleIntelBaseController11enableHWDC6Ev", address, size);
+			if (!this->oEnableHWDC6) patcher.clearError();
+			this->oPortEnablePowerWellAux = patcher.solveSymbol(
+				index, "__ZN14AppleIntelPort18enablePowerWellAuxEv", address, size);
+			if (!this->oPortEnablePowerWellAux) patcher.clearError();
+			this->oPortDisablePowerWellAux = patcher.solveSymbol(
+				index, "__ZN14AppleIntelPort19disablePowerWellAuxEv", address, size);
+			if (!this->oPortDisablePowerWellAux) patcher.clearError();
+			gTglEdpAuxSymsOk = (this->oGController ? 1u : 0u)
+			                 | (this->oDisableHWDC6 ? 2u : 0u)
+			                 | (this->oEnableHWDC6 ? 4u : 0u)
+			                 | (this->oPortEnablePowerWellAux ? 8u : 0u)
+			                 | (this->oPortDisablePowerWellAux ? 16u : 0u);
+
+			uint32_t rmask = 0;
+			RouteRequestPlus lightUpReq[] = {
+				{"__ZN24AppleIntelBaseController10LightUpEDPEP21AppleIntelFramebufferP21AppleIntelDisplayPathPK29IODetailedTimingInformationV2", LightUpEDP, this->oLightUpEDP},
+			};
+			if (RouteRequestPlus::routeAll(patcher, index, lightUpReq, address, size)) {
+				rmask |= 1u;
+			} else {
+				patcher.clearError();
+			}
+			RouteRequestPlus edpLtReq[] = {
+				{"__ZN14AppleIntelPort12linkTrainingEP18AGDCDPPortConfig_t", wrapLinkTraining, this->oLinkTraining},
+			};
+			if (RouteRequestPlus::routeAll(patcher, index, edpLtReq, address, size)) {
+				rmask |= 2u;
+				gTglEdpLtRouted = 1;
+			} else {
+				patcher.clearError();
+			}
+			if (!checkKernelArgument("-ngreennovswing")) {
+				RouteRequestPlus vswingReq[] = {
+					{"__ZN17AppleIntelPortHAL29setVoltageSwingAndPreEmphasisEjjP15PortDriveConfig", wrapSetVoltageSwingAndPreEmphasis, this->oSetVoltageSwingAndPreEmphasis},
+				};
+				if (RouteRequestPlus::routeAll(patcher, index, vswingReq, address, size)) {
+					rmask |= 4u;
+				} else {
+					patcher.clearError();
+				}
+			}
+			gTglEdpRoutedMask = rmask;
+			SYSLOG("ngreen", "R32-PCFIX63-EDPWAKE: active=1 rmask=0x%x auxSyms=0x%x getFirstPath=0x%llx",
+			       gTglEdpRoutedMask, gTglEdpAuxSymsOk, static_cast<uint64_t>(this->oGetFirstPathByPort));
+		}
+		if (!gPmapFindPhys) {
+			gPmapFindPhys = patcher.solveSymbol(KernelPatcher::KernelID, "_pmap_find_phys");
+			if (!gPmapFindPhys) patcher.clearError();
+		}
+		if (!gKernelPmap) {
+			gKernelPmap = patcher.solveSymbol(KernelPatcher::KernelID, "_kernel_pmap");
+			if (!gKernelPmap) patcher.clearError();
+		}
 		if (xeAuxBlMode()) {
 			gXeAuxBlWr = patcher.solveSymbol(index, "__ZN14AppleIntelPort8writeAUXEjPvj", address, size);
 			patcher.clearError();
@@ -3659,6 +3862,8 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 				{"__ZN31AppleIntelFramebufferController28setCDClockFrequencyOnHotplugEv",setCDClockFrequencyOnHotplug, this->osetCDClockFrequencyOnHotplug},
 				{"__ZN31AppleIntelFramebufferController14disableCDClockEv",disableCDClock,this->odisableCDClock},
 				{"__ZN31AppleIntelFramebufferController16hwRegsNeedUpdateEP21AppleIntelFramebufferP21AppleIntelDisplayPathP10CRTCParamsPK29IODetailedTimingInformationV2PN16AppleIntelScaler12SCALERPARAMSE",hwRegsNeedUpdate, this->ohwRegsNeedUpdate},
+				{"__ZN31AppleIntelFramebufferController16ProcessInterruptEv", wrapProcessInterrupt, this->oProcessInterrupt},
+				{"__ZN31AppleIntelFramebufferController24invokeDEErrorIntrHandlerEj", wrapInvokeDEErrorIntrHandler, this->oInvokeDEErrorIntrHandler},
 			};
 			PANIC_COND(!RouteRequestPlus::routeAll(patcher, index, requests, address, size), "ngreen","Failed to route p symbols");
 			
@@ -3682,6 +3887,9 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 				// V201 diagnostic: read scanout buffer right after hwSetupMemory returns to
 				// detect what fills it (zeros vs wallpaper pixels). FB-only scope.
 				{"__ZN24AppleIntelBaseController13hwSetupMemoryEP21AppleIntelFramebufferP21AppleIntelDisplayPathP10CRTCParamsb", wrapHwSetupMemory, this->ohwSetupMemory},
+				// R32-PCFIX59-SLEEPIRQ: guard primary ISR and DE error handler against 0xFFFFFFFF MMIO on wake.
+				{"__ZN24AppleIntelBaseController16ProcessInterruptEv", wrapProcessInterrupt, this->oProcessInterrupt},
+				{"__ZN24AppleIntelBaseController24invokeDEErrorIntrHandlerEj", wrapInvokeDEErrorIntrHandler, this->oInvokeDEErrorIntrHandler},
 			};
 			PANIC_COND(!RouteRequestPlus::routeAll(patcher, index, requests, address, size), "ngreen","Failed to route d symbols");
 			
@@ -3946,6 +4154,78 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 				};
 
 			PANIC_COND(!LookupPatchPlus::applyAll(patcher, patches , address, size), "ngreen", "kextG11FBT Failed to apply dbg patches!");
+			// R32-PCFIX63-EDPWAKE Component A: Fix 9 unpatched ICL TRANSCODER_EDP (0xF -> 0x6F000/0x6F400/0x7F008)
+			// sites in debug TGLFB (enablePipe, setColorMode, getTranscoderOffset, setVSCSDPForPixelEncoding,
+			// VRR/DIP) plus SetupParams zeroing TRANS_CLK_SEL_A for eDP. Every patch is count=1 with RIP-relative
+			// __data displacements masked out so AuxKC layout shifts cannot break matching.
+			if (NGreen::callback && NGreen::callback->isRealTGL &&
+			    !checkKernelArgument("-ngreennoedpfix") && !checkKernelArgument("-ngreennotranspatch")) {
+				static const uint8_t f_epipe[]  = {0x83, 0x78, 0x08, 0x00, 0x75, 0x0d, 0x48, 0xff, 0x05, 0x00, 0x00, 0x00, 0x00, 0x41, 0xbc, 0x0f, 0x00, 0x00, 0x00, 0x41, 0xc1, 0xe4, 0x0c, 0x49, 0x8b, 0xbf, 0x40, 0x0c, 0x00, 0x00, 0x41, 0x8d, 0xb4, 0x24, 0x00, 0x00, 0x06, 0x00};
+				static const uint8_t fm_epipe[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+				static const uint8_t r_epipe[]  = {0x00, 0x00, 0x00, 0x00, 0xeb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+				static const uint8_t rm_epipe[] = {0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+				static const uint8_t f_dvrr[]  = {0x83, 0x78, 0x08, 0x00, 0x75, 0x0d, 0x48, 0xff, 0x05, 0x00, 0x00, 0x00, 0x00, 0x41, 0xbe, 0x0f, 0x00, 0x00, 0x00, 0x41, 0xc1, 0xe6, 0x0c, 0x41, 0x81, 0xc6, 0x2c, 0x04, 0x06, 0x00};
+				static const uint8_t fm_dvrr[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+				static const uint8_t r_dvrr[]  = {0x00, 0x00, 0x00, 0x00, 0xeb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+				static const uint8_t rm_dvrr[] = {0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+				static const uint8_t f_evrr[]  = {0x83, 0x78, 0x08, 0x00, 0x75, 0x0d, 0x48, 0xff, 0x05, 0x00, 0x00, 0x00, 0x00, 0x41, 0xbf, 0x0f, 0x00, 0x00, 0x00, 0x41, 0x80, 0xbc, 0x24, 0x39, 0x4a, 0x00, 0x00, 0x00};
+				static const uint8_t fm_evrr[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+				static const uint8_t r_evrr[]  = {0x00, 0x00, 0x00, 0x00, 0xeb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+				static const uint8_t rm_evrr[] = {0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+				static const uint8_t f_evsc[]  = {0x83, 0x78, 0x08, 0x00, 0x75, 0x0d, 0x48, 0xff, 0x05, 0x00, 0x00, 0x00, 0x00, 0x41, 0xbe, 0x0f, 0x00, 0x00, 0x00, 0x41, 0xc1, 0xe6, 0x0c, 0x49, 0x8b, 0xbc, 0x24, 0x40, 0x0c, 0x00, 0x00, 0x45, 0x8d, 0xbe, 0x00, 0x02, 0x06, 0x00};
+				static const uint8_t fm_evsc[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+				static const uint8_t r_evsc[]  = {0x00, 0x00, 0x00, 0x00, 0xeb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+				static const uint8_t rm_evsc[] = {0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+				static const uint8_t f_eavi[]  = {0x83, 0x78, 0x08, 0x00, 0x75, 0x0d, 0x48, 0xff, 0x05, 0x00, 0x00, 0x00, 0x00, 0x41, 0xbe, 0x0f, 0x00, 0x00, 0x00, 0x41, 0xc1, 0xe6, 0x0c, 0x4c, 0x8d, 0x65, 0x98};
+				static const uint8_t fm_eavi[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+				static const uint8_t r_eavi[]  = {0x00, 0x00, 0x00, 0x00, 0xeb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+				static const uint8_t rm_eavi[] = {0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+				static const uint8_t f_edrm[]  = {0x83, 0x78, 0x08, 0x00, 0x75, 0x0d, 0x48, 0xff, 0x05, 0x00, 0x00, 0x00, 0x00, 0x41, 0xbd, 0x0f, 0x00, 0x00, 0x00, 0x41, 0xc1, 0xe5, 0x0c, 0x49, 0x8b, 0xbc, 0x24, 0x40, 0x0c, 0x00, 0x00};
+				static const uint8_t fm_edrm[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+				static const uint8_t r_edrm[]  = {0x00, 0x00, 0x00, 0x00, 0xeb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+				static const uint8_t rm_edrm[] = {0x00, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+				static const uint8_t f_gtroff[] = {0x83, 0x7a, 0x08, 0x00, 0x75, 0x0c, 0x48, 0xff};
+				static const uint8_t r_gtroff[] = {0x83, 0x7a, 0x08, 0x00, 0xeb, 0x0c, 0x48, 0xff};
+				static const uint8_t f_scolor[] = {0x83, 0x78, 0x08, 0x00, 0x48, 0x8b, 0x55, 0xd0, 0x75, 0x13};
+				static const uint8_t r_scolor[] = {0x83, 0x78, 0x08, 0x00, 0x48, 0x8b, 0x55, 0xd0, 0xeb, 0x13};
+				static const uint8_t f_svscs[]  = {0x83, 0x78, 0x08, 0x00, 0x48, 0x8b, 0x5d, 0xd0, 0x75, 0x1a};
+				static const uint8_t r_svscs[]  = {0x83, 0x78, 0x08, 0x00, 0x48, 0x8b, 0x5d, 0xd0, 0xeb, 0x1a};
+				static const uint8_t f_sclks[]  = {0x83, 0x79, 0x08, 0x00, 0x74, 0x6c};
+				static const uint8_t r_sclks[]  = {0x83, 0x79, 0x08, 0x00, 0x90, 0x90};
+
+				LookupPatchPlus const edpTransPatches[] = {
+					{activeKext, f_epipe,  fm_epipe, r_epipe, rm_epipe, 1},
+					{activeKext, f_dvrr,   fm_dvrr,  r_dvrr,  rm_dvrr,  1},
+					{activeKext, f_evrr,   fm_evrr,  r_evrr,  rm_evrr,  1},
+					{activeKext, f_evsc,   fm_evsc,  r_evsc,  rm_evsc,  1},
+					{activeKext, f_eavi,   fm_eavi,  r_eavi,  rm_eavi,  1},
+					{activeKext, f_edrm,   fm_edrm,  r_edrm,  rm_edrm,  1},
+					{activeKext, f_gtroff, r_gtroff, arrsize(f_gtroff), 1},
+					{activeKext, f_scolor, r_scolor, arrsize(f_scolor), 1},
+					{activeKext, f_svscs,  r_svscs,  arrsize(f_svscs),  1},
+					{activeKext, f_sclks,  r_sclks,  arrsize(f_sclks),  1},
+				};
+				uint32_t appliedMask = 0;
+				uint32_t appliedCnt = 0;
+				for (size_t pi = 0; pi < arrsize(edpTransPatches); ++pi) {
+					if (edpTransPatches[pi].apply(patcher, address, size)) {
+						appliedMask |= (1u << pi);
+						appliedCnt++;
+					} else {
+						patcher.clearError();
+						SYSLOG("ngreen", "R32-PCFIX63-EDPWAKE: trans patch[%zu] failed", pi);
+					}
+				}
+				gTglEdpTransPatchesCnt = appliedCnt;
+				gTglEdpTransPatchesMask = appliedMask;
+				SYSLOG("ngreen", "R32-PCFIX63-EDPWAKE: trans patches=%u/10 mask=0x%x", appliedCnt, appliedMask);
+			}
 			if (!hdmiFix) {
 				LookupPatchPlus const spoofDbgPatches[] = {
 					{activeKext, f10, r10, arrsize(f10), 1},
@@ -4469,6 +4749,19 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t 
 					else patcher.clearError();
 				}
 				SYSLOG("ngreen", "XE-RC6FW: sym=%d sig=%d/%d route=%d idle=%u drop=%d", sfw != 0, sigCnt, sigLock, gRc6FwOn, gRc6IdleMs, gRc6FwDrop);
+			}
+			// R32-PCFIX63 (Phase 60 F2): Synchronize gFwRef to 0 in IntelAccelerator::systemDidWake
+			// right before Apple zeroes accel+0x1290[0..2] and wakes IGInterruptBridge/IGScheduler5.
+			if (!checkKernelArgument("-ngreennofwresync")) {
+				RouteRequestPlus wakeFwReq[] = {
+					{"__ZN16IntelAccelerator13systemDidWakeEv", xeAccelSystemDidWake, gOrgAccelSystemDidWake},
+				};
+				if (RouteRequestPlus::routeAll(patcher, index, wakeFwReq, address, size)) {
+					gFwWakeResyncRouted = 1;
+				} else {
+					patcher.clearError();
+				}
+				SYSLOG("ngreen", "R32-PCFIX63-FWRESYNC: routed=%u", gFwWakeResyncRouted);
 			}
 		}
 		// xe/gpurec (22/10): restore + replay the render-reset-domain sibling (RCS <-> CCS) after a GPU restart
@@ -6004,8 +6297,8 @@ void Gen11::enableDisplayEngine(AppleIntel::AppleIntelBaseController *that)
 	FunctionCast(enableDisplayEngine, callback->oenableDisplayEngine)(that );
 }
 
-void Gen11::computeLaneCount(AppleIntel::AppleIntelBaseController *that, const IODetailedTimingInformationV2 *timing, unsigned int linkRate, unsigned int bpp, unsigned int *laneCount) {
-	if (!laneCount) return;
+bool Gen11::computeLaneCount(AppleIntel::AppleIntelBaseController *that, const IODetailedTimingInformationV2 *timing, unsigned int linkRate, unsigned int bpp, unsigned int *laneCount) {
+	if (!laneCount) return false;
 
 	if (NGreen::callback && NGreen::callback->isRealTGL && !checkKernelArgument("-ngreennohdmi") &&
 	    that != nullptr && linkRate < 0x14u) {
@@ -6016,11 +6309,11 @@ void Gen11::computeLaneCount(AppleIntel::AppleIntelBaseController *that, const I
 	}
 
 	// Call original first — handles all standard DP rates on both real TGL and spoofed paths.
-	FunctionCast(computeLaneCount, callback->ocomputeLaneCount)(that, timing, linkRate, bpp, laneCount);
+	const bool ok = FunctionCast(computeLaneCount, callback->ocomputeLaneCount)(that, timing, linkRate, bpp, laneCount);
 
 	// Real TGL: preserve Apple's result unchanged.
 	if (NGreen::callback->isRealTGL)
-		return;
+		return ok;
 
 	// For !isRealTGL (RPL spoofed): Apple's DPCD-based result (MAX_LANE_COUNT) reflects
 	// the panel's capability, but UEFI/GOP may have trained the link at a different lane
@@ -6042,6 +6335,7 @@ void Gen11::computeLaneCount(AppleIntel::AppleIntelBaseController *that, const I
 
 	if (hwLanes > *laneCount)
 		*laneCount = hwLanes;
+	return ok;
 }
 
 // setupOptimalLaneCount is called by hwSetMode to pick the lane count that gets
@@ -6050,12 +6344,12 @@ void Gen11::computeLaneCount(AppleIntel::AppleIntelBaseController *that, const I
 // port->maxLaneCount (from DPCD MAX_LANE_COUNT, which is 2 on this panel).
 // On !isRealTGL we instead snap the cached count to match DDI_BUF_CTL_A so that
 // SetupParams builds TRANS_DDI_FUNC_CTL with the correct HW-trained lane field.
-void Gen11::setupOptimalLaneCount(AppleIntel::AppleIntelBaseController *that, const IODetailedTimingInformationV2 *timing, unsigned int bpp) {
+IOReturn Gen11::setupOptimalLaneCount(AppleIntel::AppleIntelBaseController *that, const IODetailedTimingInformationV2 *timing, unsigned int bpp) {
 	// Always run Apple's original first to populate all other LinkConfig fields.
-	FunctionCast(setupOptimalLaneCount, callback->osetupOptimalLaneCount)(that, timing, bpp);
+	const IOReturn ret = FunctionCast(setupOptimalLaneCount, callback->osetupOptimalLaneCount)(that, timing, bpp);
 
 	if (NGreen::callback->isRealTGL)
-		return;
+		return ret;
 
 	// Read HW-trained lane count from DDI_BUF_CTL_A bits[3:1].
 	// PORT_WIDTH: 0=x1, 1=x2, 3=x4.
@@ -6079,6 +6373,7 @@ void Gen11::setupOptimalLaneCount(AppleIntel::AppleIntelBaseController *that, co
 
 	if (hwLanes > cached)
 		cached = hwLanes;
+	return ret;
 }
 
 using XeAuxFn = uint32_t (*)(void *, uint32_t, void *, uint32_t);
@@ -6413,9 +6708,54 @@ void Gen11::hwSetPowerWellStatePGE(AppleIntel::AppleIntelBaseController *that, b
 		NGreen::callback->writeReg32(0x45400, newVal);
 		return;
 	}
-	// Real TGL: use original with ccont fixup.
+	// Real TGL: use original with ccont fixup + track active PGE depth for R32-PCFIX60-PGFUSE.
 	getMember<void *>(that, 0x78) = ccont;
+	__atomic_add_fetch(&gTglInPowerWellPGE, 1, __ATOMIC_SEQ_CST);
 	FunctionCast(hwSetPowerWellStatePGE, callback->ohwSetPowerWellStatePGE)(that, param_1, param_2);
+	__atomic_sub_fetch(&gTglInPowerWellPGE, 1, __ATOMIC_SEQ_CST);
+}
+
+uint32_t Gen11::wrapTglReadRegister32(void *that, unsigned long reg)
+{
+	uint32_t val = FunctionCast(wrapTglReadRegister32, callback->oTglReadRegister32)(that, reg);
+	if (__builtin_expect(reg == 0x42000ul &&
+	                     __atomic_load_n(&gTglInPowerWellPGE, __ATOMIC_ACQUIRE) > 0 &&
+	                     gTglPgFuseSites == 4, 0)) {
+		const mach_vm_address_t retAddr = reinterpret_cast<mach_vm_address_t>(__builtin_return_address(0));
+		int matchedBit = -1;
+		for (uint32_t i = 0; i < 4; ++i) {
+			if (gTglPgFuseRetAddrs[i] == retAddr) {
+				matchedBit = static_cast<int>(gTglPgFuseBits[i]);
+				break;
+			}
+		}
+		if (matchedBit >= 23 && matchedBit <= 26) {
+			const uint32_t mask = 1u << static_cast<uint32_t>(matchedBit);
+			if (val == 0xFFFFFFFFu || (val & mask) == 0) {
+				__atomic_add_fetch(&gTglPgFuseRetryCalls, 1, __ATOMIC_RELAXED);
+				const uint32_t firstVal = val;
+				uint32_t iters = 0;
+				for (; iters < 500; ++iters) {
+					IODelay(10);
+					__atomic_add_fetch(&gTglPgFuseWaitIters, 1, __ATOMIC_RELAXED);
+					val = FunctionCast(wrapTglReadRegister32, callback->oTglReadRegister32)(that, reg);
+					if (val != 0xFFFFFFFFu && (val & mask) != 0) {
+						break;
+					}
+				}
+				if (val != 0xFFFFFFFFu && (val & mask) != 0) {
+					__atomic_add_fetch(&gTglPgFuseResolved, 1, __ATOMIC_RELAXED);
+					IOLog("NGreen PCFIX60-PGFUSE: bit %d fuse ready after %u us (0x%08x -> 0x%08x)\n",
+					      matchedBit, (iters + 1u) * 10u, firstVal, val);
+				} else {
+					__atomic_add_fetch(&gTglPgFuseTimeouts, 1, __ATOMIC_RELAXED);
+					IOLog("NGreen PCFIX60-PGFUSE: bit %d fuse TIMEOUT after 5000 us (0x%08x -> 0x%08x)\n",
+					      matchedBit, firstVal, val);
+				}
+			}
+		}
+	}
+	return val;
 }
 
 void Gen11::hwSetPowerWellStateAux(AppleIntel::AppleIntelBaseController *that, bool param_1, uint param_2)
@@ -6879,38 +7219,95 @@ void Gen11::raWriteRegister32(void *that,unsigned long param_1, UInt32 param_2)
 {
 	if (xeInertDrop(param_1)) return;
 	param_2 = xeFixFilterWrite(param_1, param_2, NGreen::callback && NGreen::callback->isRealTGL);
-	if (NGreen::callback && NGreen::callback->isRealTGL && !checkKernelArgument("-ngreennohdmi")) {
+	if (NGreen::callback && NGreen::callback->isRealTGL) {
 		const uint32_t dpllReg = static_cast<uint32_t>(param_1 & 0xFFFFFFu);
-		if (dpllReg == 0x61400u || dpllReg == 0x62400u || dpllReg == 0x63400u) {
-			if (hpIsActiveHdmiDdiB(param_2)) {
-				param_2 = (param_2 & ~0xD1u) | (gHpHdmiHighTmds ? 0x11u : 0u);
-				gHpHdmiTransDdiB = param_2;
+		if (!checkKernelArgument("-ngreennoedpfix") && !checkKernelArgument("-ngreennoedpef")) {
+			const uint32_t edpDpTpReg = 0x60540u + ((__atomic_load_n(&gTglEdpTranscoder, __ATOMIC_ACQUIRE) & 3u) << 12);
+			if (dpllReg == edpDpTpReg &&
+			    __atomic_load_n(&gTglEdpEnhancedFraming, __ATOMIC_ACQUIRE) != 0u &&
+			    (param_2 & 0x80000000u) != 0u &&
+			    (param_2 & 0x00040000u) == 0u) {
+				param_2 |= 0x00040000u; // DP_TP_CTL_ENHANCED_FRAME_ENABLE (DPCD 0x101[7])
+				__atomic_add_fetch(&gTglEdpDpTpEfFixed, 1u, __ATOMIC_RELAXED);
 			}
-		} else if (!checkKernelArgument("-ngreenicldpll")) {
-			if (dpllReg == 0x16428Cu || dpllReg == 0x164294u) {
-				uint32_t orig = param_2;
+		}
+		if (dpllReg == 0x164284u) {
+			const uint32_t rawVal = param_2;
+			const uint32_t dssm = (NGreen::callback->mmioLength() >= 0x51008u)
+			                    ? NGreen::callback->readReg32(0x51004u) : 0u;
+			gTglEdpDssm = dssm;
+			gTglEdpDpll0Raw = rawVal;
+			if (!checkKernelArgument("-ngreenicldpll")) {
 				param_2 &= 0x1FFFFFFFu;
-				if (dpllReg == 0x16428Cu) {
-					gHpHdmiDpll1Cfgcr0 = param_2;
-					if (__sync_add_and_fetch(&gHpHdmiDpllWriteLogs, 1u) <= 12u) {
-						IOLog("HP-HDMI-DPLL: write 0x%x 0x%08x -> 0x%08x\n", dpllReg, orig, param_2);
-					}
+			}
+			// BSpec 49204 / Linux intel_dpll_mgr.c: on TGL 38.4 MHz refclk (DSSM[31:29]==2),
+			// Combo PLL DCO_FRACTION (bits[24:10]) must be halved relative to 19.2 MHz.
+			// Apple enableClocks hardcodes 0x01C001A5 (+2074 ppm); halving yields 0x00E001A5 (0 ppm).
+			if (!checkKernelArgument("-ngreennoedpfix") && ((dssm >> 29) & 0x7u) == 2u) {
+				const uint32_t dcoFrac = (param_2 >> 10) & 0x7FFFu;
+				if (dcoFrac != 0u) {
+					param_2 = (param_2 & ~0x01FFFC00u) | ((dcoFrac >> 1) << 10);
+					__atomic_add_fetch(&gTglEdpDpll0FixedCount, 1u, __ATOMIC_RELAXED);
 				}
-			} else if (dpllReg == 0x164288u || dpllReg == 0x164290u || dpllReg == 0x164298u) {
-				uint32_t orig = param_2;
+			}
+			gTglEdpDpll0Cfgcr0 = param_2;
+			if (__atomic_add_fetch(&gTglEdpDpll0WriteLogs, 1u, __ATOMIC_RELAXED) <= 12u) {
+				IOLog("NGreen PCFIX63-DPLL384: write 0x164284 dssm=0x%08x 0x%08x -> 0x%08x\n",
+				      dssm, rawVal, param_2);
+			}
+		} else if (dpllReg == 0x164288u) {
+			if (!checkKernelArgument("-ngreenicldpll")) {
 				param_2 &= 0x0003FFFCu;
-				if (dpllReg == 0x164290u) {
-					gHpHdmiDpll1Cfgcr1 = param_2;
-					if (__sync_add_and_fetch(&gHpHdmiDpllWriteLogs, 1u) <= 12u) {
-						IOLog("HP-HDMI-DPLL: write 0x%x 0x%08x -> 0x%08x\n", dpllReg, orig, param_2);
-					}
+			}
+			gTglEdpDpll0Cfgcr1 = param_2;
+		}
+		if (!checkKernelArgument("-ngreennohdmi")) {
+			if (dpllReg == 0x61400u || dpllReg == 0x62400u || dpllReg == 0x63400u) {
+				if (hpIsActiveHdmiDdiB(param_2)) {
+					param_2 = (param_2 & ~0xD1u) | (gHpHdmiHighTmds ? 0x11u : 0u);
+					gHpHdmiTransDdiB = param_2;
 				}
-			} else if (dpllReg == 0x164280u) {
-				gHpHdmiDpclkaCfgcr0 = param_2;
-				if (gHpHdmiTelemetryTc) {
-					uint64_t dl = 0;
-					clock_interval_to_deadline(50, kMillisecondScale, &dl);
-					thread_call_enter_delayed(gHpHdmiTelemetryTc, dl);
+			} else if (!checkKernelArgument("-ngreenicldpll")) {
+				if (dpllReg == 0x16428Cu || dpllReg == 0x164294u) {
+					uint32_t orig = param_2;
+					param_2 &= 0x1FFFFFFFu;
+					// Phase 60 K1: Apply identical TGL 38.4 MHz DCO_FRACTION halving to HDMI DPLL1/DPLL4
+					// (e.g. 0x01A801CF +1785.41 ppm -> 0x00D401CF 0.00 ppm = 593.700 MHz / 144.000 Hz).
+					if (!checkKernelArgument("-ngreennohdmi384")) {
+						const uint32_t dssm = (NGreen::callback->mmioLength() >= 0x51008u)
+						                    ? NGreen::callback->readReg32(0x51004u) : 0u;
+						if (((dssm >> 29) & 0x7u) == 2u) {
+							const uint32_t dcoFrac = (param_2 >> 10) & 0x7FFFu;
+							if (dcoFrac != 0u) {
+								param_2 = (param_2 & ~0x01FFFC00u) | ((dcoFrac >> 1) << 10);
+								__atomic_add_fetch(&gHpHdmiDpll384FixedCount, 1u, __ATOMIC_RELAXED);
+							}
+						}
+					}
+					if (dpllReg == 0x16428Cu) {
+						gHpHdmiDpll1Cfgcr0 = param_2;
+						if (__sync_add_and_fetch(&gHpHdmiDpllWriteLogs, 1u) <= 12u) {
+							IOLog("HP-HDMI-DPLL: write 0x%x 0x%08x -> 0x%08x\n", dpllReg, orig, param_2);
+						}
+					} else {
+						gHpHdmiDpll4Cfgcr0 = param_2;
+					}
+				} else if (dpllReg == 0x164290u || dpllReg == 0x164298u) {
+					uint32_t orig = param_2;
+					param_2 &= 0x0003FFFCu;
+					if (dpllReg == 0x164290u) {
+						gHpHdmiDpll1Cfgcr1 = param_2;
+						if (__sync_add_and_fetch(&gHpHdmiDpllWriteLogs, 1u) <= 12u) {
+							IOLog("HP-HDMI-DPLL: write 0x%x 0x%08x -> 0x%08x\n", dpllReg, orig, param_2);
+						}
+					}
+				} else if (dpllReg == 0x164280u) {
+					gHpHdmiDpclkaCfgcr0 = param_2;
+					if (gHpHdmiTelemetryTc) {
+						uint64_t dl = 0;
+						clock_interval_to_deadline(50, kMillisecondScale, &dl);
+						thread_call_enter_delayed(gHpHdmiTelemetryTc, dl);
+					}
 				}
 			}
 		}
@@ -7468,6 +7865,14 @@ void Gen11::hwInitializeCState(AppleIntel::AppleIntelBaseController *that)
 	char dmcArg[16] = {};
 	PE_parse_boot_argn("ngreen-dmc", dmcArg, sizeof(dmcArg));
 
+	if (NGreen::callback && NGreen::callback->isRealTGL) {
+		SYSLOG("ngreen", "hwInitCState: Real TGL native passthrough (dmcArg=%s)", dmcArg[0] ? dmcArg : "unset");
+		FunctionCast(hwInitializeCState, callback->ohwInitializeCState)(that);
+		HDMI::primeTglIDispAudio(false);
+		SYSLOG("ngreen", "hwInitCState: done (Real TGL)");
+		return;
+	}
+
 	if (dmcArg[0] == 't' || dmcArg[0] == 'T') {
 		// ── TGL DMC ──
 		SYSLOG("ngreen", "hwInitCState: ngreen-dmc=tgl, loading TGL DMC v2.12 (%u dwords)", tgl_dmc_ver2_12_bin_s / 4);
@@ -7778,7 +8183,7 @@ void Gen11::hwInitializeCState(AppleIntel::AppleIntelBaseController *that)
 }
 
 void NGreen::adlpDcExit(const char *caller) {
-	if (!dmcIsAdlp) return;
+	if (!dmcIsAdlp || isRealTGL) return;
 	const uint32_t dcState = readReg32(0x45504); // DC_STATE_EN
 	if (dcState == 0) return;
 	static int adlpDcExitCount = 0;
@@ -7954,6 +8359,9 @@ void Gen11::prepareToExitSleep(AppleIntel::AppleIntelFramebuffer *that)
 			}
 		}
 	}
+	if (that) {
+		xePublishSleepIrqProps(reinterpret_cast<IORegistryEntry *>(that));
+	}
 	logFBCtrlState("prepareToExitSleep<<", that);
 }
 
@@ -8005,6 +8413,7 @@ bool Gen11::AppleIntelBaseControllerstart(AppleIntel::AppleIntelBaseController *
 	if (param_1) {
 		param_1->setProperty("ngreen-wake-color-fix", kOSBooleanTrue);
 		param_1->setProperty("ngreen-wake-xrgb10-preserved", kOSBooleanTrue);
+		xePublishSleepIrqProps(param_1);
 		param_1->setProperty("ngreen-camellia-nullguard", kOSBooleanTrue);
 		param_1->setProperty("ngreen-orphan-pool-512mb", checkKernelArgument("-ngreennoorphan") ? kOSBooleanFalse : kOSBooleanTrue);
 		param_1->setProperty("ngreen-quiet-hotpath", kOSBooleanTrue);
@@ -8027,6 +8436,7 @@ bool Gen11::AppleIntelBaseControllerstart(AppleIntel::AppleIntelBaseController *
 	if (that) {
 		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-color-fix", kOSBooleanTrue);
 		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-xrgb10-preserved", kOSBooleanTrue);
+		xePublishSleepIrqProps(reinterpret_cast<IORegistryEntry *>(that));
 		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-camellia-nullguard", kOSBooleanTrue);
 		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-orphan-pool-512mb", checkKernelArgument("-ngreennoorphan") ? kOSBooleanFalse : kOSBooleanTrue);
 		reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-quiet-hotpath", kOSBooleanTrue);
@@ -9962,6 +10372,75 @@ void Gen11::wrapWaitForGpuIdle(void *that)
 	}
 }
 
+static void xePublishSleepIrqProps(IORegistryEntry *reg) {
+	if (!reg) return;
+	reg->setProperty("ngreen-sleep-irq-guard", kOSBooleanTrue);
+	reg->setProperty("ngreen-irq-allff-drops", __atomic_load_n(&gXeIrqAllFFDrop, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-de-err-drops", __atomic_load_n(&gXeDeErrAllFFDrop, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-wm-null-drops", __atomic_load_n(&gXeWmNullDrop, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-disp-int-restores", __atomic_load_n(&gXeDispIntRestoreN, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-pg-fuse-sites", gTglPgFuseSites, 32);
+	reg->setProperty("ngreen-pg-fuse-routed", gTglReadReg32Routed ? kOSBooleanTrue : kOSBooleanFalse);
+	reg->setProperty("ngreen-pg-fuse-retries", __atomic_load_n(&gTglPgFuseRetryCalls, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-pg-fuse-wait-iters", __atomic_load_n(&gTglPgFuseWaitIters, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-pg-fuse-resolved", __atomic_load_n(&gTglPgFuseResolved, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-pg-fuse-timeouts", __atomic_load_n(&gTglPgFuseTimeouts, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-dpll384-fix", (!checkKernelArgument("-ngreennoedpfix")) ? kOSBooleanTrue : kOSBooleanFalse);
+	reg->setProperty("ngreen-edp-pcfix63", (!checkKernelArgument("-ngreennoedpfix")) ? "R32-PCFIX63-EDPWAKE" : "disabled");
+	reg->setProperty("ngreen-edp-lt-routed", gTglEdpLtRouted ? kOSBooleanTrue : kOSBooleanFalse);
+	reg->setProperty("ngreen-edp-routed-mask", gTglEdpRoutedMask, 32);
+	reg->setProperty("ngreen-edp-aux-syms-mask", gTglEdpAuxSymsOk, 32);
+	reg->setProperty("ngreen-edp-trans-patches-cnt", gTglEdpTransPatchesCnt, 32);
+	reg->setProperty("ngreen-edp-trans-patches-mask", gTglEdpTransPatchesMask, 32);
+	reg->setProperty("ngreen-edp-dssm", __atomic_load_n(&gTglEdpDssm, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-dpll0-raw", __atomic_load_n(&gTglEdpDpll0Raw, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-dpll0-cfgcr0", __atomic_load_n(&gTglEdpDpll0Cfgcr0, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-dpll0-cfgcr1", __atomic_load_n(&gTglEdpDpll0Cfgcr1, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-dpll0-fixed-cnt", __atomic_load_n(&gTglEdpDpll0FixedCount, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lt-calls", __atomic_load_n(&gTglEdpLtCalls, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lt-ok", __atomic_load_n(&gTglEdpLtOk, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lt-fail", __atomic_load_n(&gTglEdpLtFail, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lt-last-ret", __atomic_load_n(&gTglEdpLtLastRet, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lt-pre-dpll0", __atomic_load_n(&gTglEdpLtPreDpll0, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lt-pre-dpll0-en", __atomic_load_n(&gTglEdpLtPreDpll0En, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lt-pre-dpclka", __atomic_load_n(&gTglEdpLtPreDpclka, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lt-pre-pp-stat", __atomic_load_n(&gTglEdpLtPrePpStat, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lt-pre-aux", __atomic_load_n(&gTglEdpLtPreAuxCtl, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lt-post-ddibuf", __atomic_load_n(&gTglEdpLtPostDdiBuf, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lt-post-dptp", __atomic_load_n(&gTglEdpLtPostDpTpCtl, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lt-post-aux", __atomic_load_n(&gTglEdpLtPostAuxCtl, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-aux-hold-cnt", __atomic_load_n(&gTglEdpAuxHoldCount, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-phy-reinit-cnt", __atomic_load_n(&gTglEdpPhyReinitCount, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-phy-comp-dw0-pre", __atomic_load_n(&gTglEdpPhyCompDw0Pre, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-phy-comp-dw0-post", __atomic_load_n(&gTglEdpPhyCompDw0Post, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-phy-comp-dw3", __atomic_load_n(&gTglEdpPhyCompDw3, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-phy-comp-dw8-pre", __atomic_load_n(&gTglEdpPhyCompDw8Pre, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-phy-comp-dw8-post", __atomic_load_n(&gTglEdpPhyCompDw8Post, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-phy-tx-dw8-pre", __atomic_load_n(&gTglEdpPhyTxDw8Pre, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-phy-tx-dw8-post", __atomic_load_n(&gTglEdpPhyTxDw8Post, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-pre-trans-clk", __atomic_load_n(&gTglEdpPreTransClk, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-pre-trans-ddi", __atomic_load_n(&gTglEdpPreTransDdi, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-dptp-ef-fixed", __atomic_load_n(&gTglEdpDpTpEfFixed, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-vswing-calls", __atomic_load_n(&gTglEdpVswingCalls, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-vswing-last", __atomic_load_n(&gTglEdpVswingLast, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-tx-dw5-pre", __atomic_load_n(&gTglEdpTxDw5Pre, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-tx-dw5-post", __atomic_load_n(&gTglEdpTxDw5Post, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-tx-dw2-ln0", __atomic_load_n(&gTglEdpTxDw2Ln0, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-tx-dw4-ln0", __atomic_load_n(&gTglEdpTxDw4Ln0, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-tx-dw4-ln1", __atomic_load_n(&gTglEdpTxDw4Ln1, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-tx-dw7-ln0", __atomic_load_n(&gTglEdpTxDw7Ln0, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-cl-dw10", __atomic_load_n(&gTglEdpClDw10, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lightup-calls", __atomic_load_n(&gTglEdpLightUpCalls, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lightup-last-ret", __atomic_load_n(&gTglEdpLightUpLastRet, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lightup-trans-clk", __atomic_load_n(&gTglEdpLightUpPostTransClk, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lightup-trans-ddi", __atomic_load_n(&gTglEdpLightUpPostTransDdi, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-edp-lightup-trans-conf", __atomic_load_n(&gTglEdpLightUpPostTransConf, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-hdmi-dpll384-fix", (!checkKernelArgument("-ngreennohdmi384")) ? kOSBooleanTrue : kOSBooleanFalse);
+	reg->setProperty("ngreen-hdmi-dpll384-fixed-cnt", __atomic_load_n(&gHpHdmiDpll384FixedCount, __ATOMIC_RELAXED), 32);
+	reg->setProperty("ngreen-fw-wake-resync-routed", __atomic_load_n(&gFwWakeResyncRouted, __ATOMIC_RELAXED) ? kOSBooleanTrue : kOSBooleanFalse);
+	reg->setProperty("ngreen-fw-wake-resync-cnt", __atomic_load_n(&gFwWakeResyncCount, __ATOMIC_RELAXED), 32);
+}
+
 // 20/10 (XE-FBDPMS): a tela não acordava do repouso. AppleIntelFramebuffer::setFramebufferPowerState(state) (2=Wake,
 // 1=Doze, 0=Sleep; estado atual em fb+0x4284) chama prepareToExitWake ao sair de Wake, que desliga pipe A,
 // TRANS_DDI_FUNC_CTL_A, DDI_BUF_CTL_A, escalador e painel; ao voltar, prepareToEnterWake religa painel e plano mas não
@@ -10020,6 +10499,7 @@ IOReturn Gen11::wrapSetFramebufferPowerState(void *that, unsigned int state)
 			*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
 			return kIOReturnSuccess;
 		}
+		auto *fbReg = reinterpret_cast<IORegistryEntry *>(that);
 		if (cur == 2 && state < 2) {
 			if (gXeWakeBlHold) {
 				gXeWakeBlHold = false;
@@ -10039,6 +10519,7 @@ IOReturn Gen11::wrapSetFramebufferPowerState(void *that, unsigned int state)
 			xeNormalizePlane1AColor();
 			*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
 			*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
+			xePublishSleepIrqProps(fbReg);
 			IOLog("XeNG FBDPMS: FB0 %u -> %u: só luz de fundo off (BLC_CTL 0x%x freq 0x%x duty 0x%x lastDesktop=0x%x CTL=0x%x handleEvent=0x%llx)\n",
 			      cur, state, gXeFbBlcCtl, gXeFbBlcFreq, gXeFbBlcDuty, gXeLastDesktopSurf, NGreen::callback->readReg32(0x70180), reinterpret_cast<uint64_t>(gHpIOFBHandleEvent));
 			return kIOReturnSuccess;
@@ -10060,11 +10541,23 @@ IOReturn Gen11::wrapSetFramebufferPowerState(void *that, unsigned int state)
 				*reinterpret_cast<uint32_t *>(fb + 0x4284) = state;
 				*reinterpret_cast<uint32_t *>(fb + 0x49e0) = 4;
 			}
+			xePublishSleepIrqProps(fbReg);
 			return kIOReturnSuccess;
 		}
 		if (cur < 2 && state == 2 && gXeFbFake) {
-			reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-color-fix", kOSBooleanTrue);
-			reinterpret_cast<IORegistryEntry *>(that)->setProperty("ngreen-wake-xrgb10-preserved", kOSBooleanTrue);
+			fbReg->setProperty("ngreen-wake-color-fix", kOSBooleanTrue);
+			fbReg->setProperty("ngreen-wake-xrgb10-preserved", kOSBooleanTrue);
+			uint32_t deCtlPost = 0;
+			if (NGreen::callback->mmioLength() >= GEN11_DISPLAY_INT_CTL + sizeof(uint32_t)) {
+				const uint32_t deCtl = NGreen::callback->readReg32(GEN11_DISPLAY_INT_CTL);
+				if (deCtl != 0xFFFFFFFFu && !(deCtl & 0x80000000u)) {
+					NGreen::callback->writeReg32(GEN11_DISPLAY_INT_CTL, deCtl | 0x80000000u);
+					deCtlPost = NGreen::callback->readReg32(GEN11_DISPLAY_INT_CTL);
+					__atomic_fetch_add(&gXeDispIntRestoreN, 1u, __ATOMIC_RELAXED);
+				} else {
+					deCtlPost = deCtl;
+				}
+			}
 			if (gXeFbBlcFreq && gXeFbBlcFreq != 0xFFFFFFFFu) NGreen::callback->writeReg32(0xC8254, gXeFbBlcFreq);
 			if (gXeFbBlcDuty && gXeFbBlcDuty != 0xFFFFFFFFu) NGreen::callback->writeReg32(0xC8258, gXeFbBlcDuty);
 			xeNormalizePlane1AColor();
@@ -10089,12 +10582,93 @@ IOReturn Gen11::wrapSetFramebufferPowerState(void *that, unsigned int state)
 			} else {
 				xeWakeHoldRelease("no-timer");
 			}
-			IOLog("XeNG FBDPMS: FB0 %u -> 2: wake backlight hold armed 820ms (freq 0x%x duty 0x%x lastDesktop=0x%x CTL=0x%x 701CC=0x%x handleEvent=0x%llx)\n",
-			      cur, gXeFbBlcFreq, gXeFbBlcDuty, gXeLastDesktopSurf, NGreen::callback->readReg32(0x70180), NGreen::callback->readReg32(0x701CC), reinterpret_cast<uint64_t>(gHpIOFBHandleEvent));
+			xePublishSleepIrqProps(fbReg);
+			IOLog("XeNG FBDPMS: FB0 %u -> 2: wake backlight hold armed 820ms (freq 0x%x duty 0x%x lastDesktop=0x%x CTL=0x%x 701CC=0x%x deCtl=0x%x restores=%u handleEvent=0x%llx)\n",
+			      cur, gXeFbBlcFreq, gXeFbBlcDuty, gXeLastDesktopSurf, NGreen::callback->readReg32(0x70180), NGreen::callback->readReg32(0x701CC),
+			      deCtlPost, __atomic_load_n(&gXeDispIntRestoreN, __ATOMIC_RELAXED), reinterpret_cast<uint64_t>(gHpIOFBHandleEvent));
 			return kIOReturnSuccess;
 		}
 	}
-	return FunctionCast(wrapSetFramebufferPowerState, callback->oSetFramebufferPowerState)(that, state);
+	IOReturn ret = FunctionCast(wrapSetFramebufferPowerState, callback->oSetFramebufferPowerState)(that, state);
+	if (that) {
+		xePublishSleepIrqProps(reinterpret_cast<IORegistryEntry *>(that));
+	}
+	return ret;
+}
+
+// R32-PCFIX59-SLEEPIRQ: Guard display IRQ paths against 0xFFFFFFFF MMIO reads and null
+// plane->fRegisterAccessManager while IGPU PCI Memory Space Decode is still disabled at wake.
+bool Gen11::wrapProcessInterrupt(void *that)
+{
+	// CRITICAL: Primary ISR filter context (HWInterruptHandler).
+	// Strictly NO IOLog, NO SYSLOG, NO locks, NO heap allocations.
+	if (NGreen::callback && NGreen::callback->mmioLength() >= GEN11_GFX_MSTR_IRQ + sizeof(uint32_t)) {
+		const uint32_t mstr = NGreen::callback->readReg32(GEN11_GFX_MSTR_IRQ);
+		if (mstr == 0xFFFFFFFFu) {
+			__atomic_fetch_add(&gXeIrqAllFFDrop, 1u, __ATOMIC_RELAXED);
+			return false;
+		}
+		if (mstr & (1u << 16)) {
+			const uint32_t deCtl = NGreen::callback->readReg32(GEN11_DISPLAY_INT_CTL);
+			if (deCtl == 0xFFFFFFFFu) {
+				__atomic_fetch_add(&gXeIrqAllFFDrop, 1u, __ATOMIC_RELAXED);
+				return false;
+			}
+		}
+	}
+	if (!that || !callback || !callback->oProcessInterrupt)
+		return false;
+	return FunctionCast(wrapProcessInterrupt, callback->oProcessInterrupt)(that);
+}
+
+void Gen11::wrapInvokeDEErrorIntrHandler(void *that, uint32_t errMask)
+{
+	uint32_t mstr = 0;
+	if (NGreen::callback && NGreen::callback->mmioLength() >= GEN11_GFX_MSTR_IRQ + sizeof(uint32_t))
+		mstr = NGreen::callback->readReg32(GEN11_GFX_MSTR_IRQ);
+	if (errMask == 0x1c0u || mstr == 0xFFFFFFFFu) {
+		const uint32_t prev = __atomic_fetch_add(&gXeDeErrAllFFDrop, 1u, __ATOMIC_RELAXED);
+		if (prev < 16u) {
+			IOLog("XeNG SLEEPIRQ: dropped invokeDEErrorIntrHandler errMask=0x%x mstr=0x%x (drop #%u)\n",
+			      errMask, mstr, prev + 1u);
+		}
+		return;
+	}
+	if (!that || !callback || !callback->oInvokeDEErrorIntrHandler)
+		return;
+	FunctionCast(wrapInvokeDEErrorIntrHandler, callback->oInvokeDEErrorIntrHandler)(that, errMask);
+}
+
+void Gen11::wrapShowWatermarksRelatedRegisters(void *that)
+{
+	if (!that)
+		return;
+	const uint64_t thatAddr = reinterpret_cast<uint64_t>(that);
+	if (!xeMapeado(thatAddr) || !xeMapeado(thatAddr + 0x90)) {
+		const uint32_t prev = __atomic_fetch_add(&gXeWmNullDrop, 1u, __ATOMIC_RELAXED);
+		if (prev < 16u) {
+			IOLog("XeNG SLEEPIRQ: dropped showWatermarksRelatedRegisters unmapped plane=%p (drop #%u)\n",
+			      that, prev + 1u);
+		}
+		return;
+	}
+	void *ram = *reinterpret_cast<void * const *>(reinterpret_cast<const uint8_t *>(that) + 0x90);
+	const uint64_t ramAddr = reinterpret_cast<uint64_t>(ram);
+	const bool ramOk = ram != nullptr && xeMapeado(ramAddr) && xeMapeado(ramAddr + 0x60);
+	uint32_t mstr = 0;
+	if (NGreen::callback && NGreen::callback->mmioLength() >= GEN11_GFX_MSTR_IRQ + sizeof(uint32_t))
+		mstr = NGreen::callback->readReg32(GEN11_GFX_MSTR_IRQ);
+	if (!ramOk || mstr == 0xFFFFFFFFu) {
+		const uint32_t prev = __atomic_fetch_add(&gXeWmNullDrop, 1u, __ATOMIC_RELAXED);
+		if (prev < 16u) {
+			IOLog("XeNG SLEEPIRQ: dropped showWatermarksRelatedRegisters plane=%p ram=%p ramOk=%d mstr=0x%x (drop #%u)\n",
+			      that, ram, ramOk ? 1 : 0, mstr, prev + 1u);
+		}
+		return;
+	}
+	if (!callback || !callback->oShowWatermarksRelatedRegisters)
+		return;
+	FunctionCast(wrapShowWatermarksRelatedRegisters, callback->oShowWatermarksRelatedRegisters)(that);
 }
 
 void Gen11::IGAccelResourcefree(void *that)
@@ -13546,12 +14120,14 @@ static void xeFwIdleWorker(thread_call_param_t, thread_call_param_t) {
 			pubTick = 0;
 			uint64_t packedCnt = ((uint64_t)(uint32_t)cnt[0]) | ((uint64_t)(uint16_t)cnt[1] << 32) | ((uint64_t)(uint16_t)cnt[2] << 48);
 			static bool sFwPubInit = false;
-			static uint32_t sLastDrops = 0, sLastDom = 0, sLastUnderflow = 0;
+			static uint32_t sLastDrops = 0, sLastDom = 0, sLastUnderflow = 0, sLastWakeResync = 0;
 			static uint64_t sLastLeakCaller = 0, sLastUnderflowCaller = 0, sLastPackedCnt = 0;
 			uint32_t drops = gFwLeakDrops, dom = gFwLeakDom, uflow = gFwUnderflow;
+			uint32_t wresync = __atomic_load_n(&gFwWakeResyncCount, __ATOMIC_RELAXED);
 			uint64_t lcaller = (uint64_t)gFwLeakCaller, ucaller = (uint64_t)gFwUnderflowCaller;
 			if (!sFwPubInit || drops != sLastDrops || dom != sLastDom || lcaller != sLastLeakCaller ||
-			    uflow != sLastUnderflow || ucaller != sLastUnderflowCaller || packedCnt != sLastPackedCnt) {
+			    uflow != sLastUnderflow || ucaller != sLastUnderflowCaller || packedCnt != sLastPackedCnt ||
+			    wresync != sLastWakeResync) {
 				sFwPubInit = true;
 				sLastDrops = drops;
 				sLastDom = dom;
@@ -13559,6 +14135,7 @@ static void xeFwIdleWorker(thread_call_param_t, thread_call_param_t) {
 				sLastUnderflow = uflow;
 				sLastUnderflowCaller = ucaller;
 				sLastPackedCnt = packedCnt;
+				sLastWakeResync = wresync;
 				auto *svc = static_cast<IOService *>(acc);
 				svc->setProperty("xe-fw-leakdrops", drops, 32);
 				svc->setProperty("xe-fw-leakdom", dom, 32);
@@ -13566,6 +14143,7 @@ static void xeFwIdleWorker(thread_call_param_t, thread_call_param_t) {
 				svc->setProperty("xe-fw-underflow", uflow, 32);
 				svc->setProperty("xe-fw-underflowcaller", (unsigned long long)ucaller, 64);
 				svc->setProperty("xe-fw-count", (unsigned long long)packedCnt, 64);
+				svc->setProperty("xe-fw-wake-resync", wresync, 32);
 			}
 		}
 	}
@@ -13574,6 +14152,18 @@ static void xeFwIdleWorker(thread_call_param_t, thread_call_param_t) {
 		clock_interval_to_deadline(tick, kMillisecondScale, &deadline);
 		thread_call_enter_delayed(gFwIdleTc, deadline);
 	}
+}
+
+static IOReturn xeAccelSystemDidWake(void *that) {
+	if (gFwLock && !checkKernelArgument("-ngreennofwresync")) {
+		IOInterruptState fwIs = IOSimpleLockLockDisableInterrupt(gFwLock);
+		for (unsigned i = 0; i < 8; i++)
+			for (unsigned c = 0; c < 4; c++)
+				gFwRef[i][c] = 0;
+		IOSimpleLockUnlockEnableInterrupt(gFwLock, fwIs);
+		__atomic_add_fetch(&gFwWakeResyncCount, 1u, __ATOMIC_RELAXED);
+	}
+	return FunctionCast(xeAccelSystemDidWake, gOrgAccelSystemDidWake)(that);
 }
 
 static void xeRc6FwStart(void *accel) {
@@ -14317,11 +14907,456 @@ void Gen11::updateDBUF(void *that,uint param_1,uint param_2,bool param_3)
 	//setupPlanarSurfaceDBUF();
 };
 
-int Gen11::LightUpEDP(void *that,void *param_1, void *param_2,void *param_3)
-{
-	FunctionCast(LightUpEDP, callback->oLightUpEDP)(that,param_1,param_2,param_3);
-	return 0;
+namespace {
+struct TglIclComboBufTrans {
+	uint8_t dw2_swing_sel;
+	uint8_t dw7_n_scalar;
+	uint8_t dw4_cursor_coeff;
+	uint8_t dw4_post_cursor_2;
+	uint8_t dw4_post_cursor_1;
 };
+
+// Verbatim Linux v6.12 drivers/gpu/drm/i915/display/intel_ddi_buf_trans.c
+// _tgl_combo_phy_trans_dp_hbr (used for eDP/DP <= 2.7 Gbps with VBT Default 400 mV)
+static constexpr TglIclComboBufTrans kTglComboDpHbr[10] = {
+	{ 0xA, 0x32, 0x3F, 0x00, 0x00 }, // 0: vs=0, pe=0
+	{ 0xA, 0x4F, 0x37, 0x00, 0x08 }, // 1: vs=0, pe=1
+	{ 0xC, 0x71, 0x2F, 0x00, 0x10 }, // 2: vs=0, pe=2
+	{ 0x6, 0x7D, 0x2B, 0x00, 0x14 }, // 3: vs=0, pe=3
+	{ 0xA, 0x4C, 0x3F, 0x00, 0x00 }, // 4: vs=1, pe=0
+	{ 0xC, 0x73, 0x34, 0x00, 0x0B }, // 5: vs=1, pe=1
+	{ 0x6, 0x7F, 0x2F, 0x00, 0x10 }, // 6: vs=1, pe=2
+	{ 0xC, 0x6C, 0x3C, 0x00, 0x03 }, // 7: vs=2, pe=0
+	{ 0x6, 0x7F, 0x35, 0x00, 0x0A }, // 8: vs=2, pe=1
+	{ 0x6, 0x7F, 0x3F, 0x00, 0x00 }, // 9: vs=3, pe=0
+};
+
+// Verbatim Linux v6.12 _tgl_uy_combo_phy_trans_dp_hbr2 (TGL-U/Y > 2.7 Gbps)
+static constexpr TglIclComboBufTrans kTglUyComboDpHbr2[10] = {
+	{ 0xA, 0x35, 0x3F, 0x00, 0x00 }, // 0: vs=0, pe=0
+	{ 0xA, 0x4F, 0x36, 0x00, 0x09 }, // 1: vs=0, pe=1
+	{ 0xC, 0x60, 0x32, 0x00, 0x0D }, // 2: vs=0, pe=2
+	{ 0xC, 0x7F, 0x2D, 0x00, 0x12 }, // 3: vs=0, pe=3
+	{ 0xC, 0x47, 0x3F, 0x00, 0x00 }, // 4: vs=1, pe=0
+	{ 0xC, 0x6F, 0x36, 0x00, 0x09 }, // 5: vs=1, pe=1
+	{ 0x6, 0x7D, 0x32, 0x00, 0x0D }, // 6: vs=1, pe=2
+	{ 0x6, 0x60, 0x3C, 0x00, 0x03 }, // 7: vs=2, pe=0
+	{ 0x6, 0x7F, 0x34, 0x00, 0x0B }, // 8: vs=2, pe=1
+	{ 0x6, 0x7F, 0x3F, 0x00, 0x00 }, // 9: vs=3, pe=0
+};
+
+static constexpr uint8_t kTglDpLevelMap[16] = {
+	0, 4, 7, 9,
+	1, 5, 8, 9,
+	2, 6, 8, 9,
+	3, 6, 8, 9,
+};
+
+// Verbatim Linux v6.12 drivers/gpu/drm/i915/display/intel_combo_phy.c icl_procmon_values[]
+struct TglProcMonEntry {
+	uint32_t dw1;
+	uint32_t dw9;
+	uint32_t dw10;
+};
+
+static TglProcMonEntry tglSelectProcMon(uint32_t compDw3)
+{
+	// PROCESS_INFO_MASK = bits[28:26], VOLTAGE_INFO_MASK = bits[25:24] -> 0x1F000000
+	switch (compDw3 & 0x1F000000u) {
+	case 0x01000000u: // VOLTAGE_INFO_0_95V | PROCESS_INFO_DOT_0
+		return { 0x00000000u, 0x86E172C7u, 0x77CA5EABu };
+	case 0x05000000u: // VOLTAGE_INFO_0_95V | PROCESS_INFO_DOT_1
+		return { 0x00000000u, 0x93F87FE1u, 0x8AE871C5u };
+	case 0x02000000u: // VOLTAGE_INFO_1_05V | PROCESS_INFO_DOT_0
+		return { 0x00000000u, 0x98FA82DDu, 0x89E46DC1u };
+	case 0x06000000u: // VOLTAGE_INFO_1_05V | PROCESS_INFO_DOT_1
+		return { 0x00440000u, 0x9A00AB25u, 0x8AE38FF1u };
+	case 0x00000000u: // VOLTAGE_INFO_0_85V | PROCESS_INFO_DOT_0
+	default:          // Matches Linux v6.12 default fallthrough to PROCMON_0_85V_DOT_0
+		return { 0x00000000u, 0x62AB67BBu, 0x51914F96u };
+	}
+}
+} // namespace
+
+static bool tglIsComboPhyAEdpPort(void *port)
+{
+	if (!port) return false;
+	void *cinfo = getMember<void *>(port, 0x548);
+	return cinfo != nullptr &&
+	       getMember<uint32_t>(cinfo, 0x00) == 0u &&
+	       getMember<uint32_t>(cinfo, 0x08) == 0u &&
+	       getMember<uint32_t>(cinfo, 0x0c) == 0u;
+}
+
+static uint32_t tglGetPortLanes(void *port)
+{
+	uint32_t lanes = getMember<uint8_t>(port, 0x114)
+	               ? getMember<uint32_t>(port, 0x124)
+	               : static_cast<uint32_t>(getMember<uint8_t>(port, 0x11));
+	if (lanes != 1u && lanes != 2u && lanes != 4u)
+		lanes = 2u;
+	return lanes;
+}
+
+// R32-PCFIX63-EDPWAKE Component B: Verbatim Linux v6.12 icl_combo_phys_init(PHY_A) check & restore
+// for Tiger Lake (DISPLAY_VER >= 12) where Apple enableComboPhy omits ODCC, RUN_DCC_ONCE, IREFGEN.
+static void tglEnsureComboPhyAInit()
+{
+	if (!NGreen::callback || NGreen::callback->mmioLength() < 0x164300u)
+		return;
+	const uint32_t compDw0 = NGreen::callback->readReg32(0x162100u);
+	if (compDw0 == 0xFFFFFFFFu)
+		return;
+	const uint32_t compDw3 = NGreen::callback->readReg32(0x16210Cu);
+	const uint32_t compDw8 = NGreen::callback->readReg32(0x162120u);
+	const uint32_t txDw8   = NGreen::callback->readReg32(0x1628A0u);
+	const uint32_t pcsDw1  = NGreen::callback->readReg32(0x162804u);
+	const uint32_t compDw1 = NGreen::callback->readReg32(0x162104u);
+	const uint32_t compDw9 = NGreen::callback->readReg32(0x162124u);
+	const uint32_t compDw10 = NGreen::callback->readReg32(0x162128u);
+	const uint32_t clDw5   = NGreen::callback->readReg32(0x162014u);
+	const uint32_t phyMisc = NGreen::callback->readReg32(0x64C00u);
+
+	gTglEdpPhyCompDw0Pre = compDw0;
+	gTglEdpPhyCompDw3 = compDw3;
+	gTglEdpPhyCompDw8Pre = compDw8;
+	gTglEdpPhyTxDw8Pre = txDw8;
+
+	const TglProcMonEntry pm = tglSelectProcMon(compDw3);
+	const bool needInit =
+		((compDw0 & 0x80000000u) == 0u) ||
+		((compDw8 & 0x01000000u) == 0u) ||
+		((txDw8 & 0xE0000000u) != 0xA0000000u) ||
+		((pcsDw1 & 0x00300000u) != 0u) ||
+		((compDw1 & 0x00FF00FFu) != pm.dw1) ||
+		(compDw9 != pm.dw9) ||
+		(compDw10 != pm.dw10) ||
+		((clDw5 & 0x00000010u) == 0u) ||
+		((phyMisc & 0x00800000u) != 0u);
+
+	if (needInit) {
+		// 1. Clear ICL_PHY_MISC_DE_IO_COMP_PWR_DOWN (bit 23)
+		NGreen::callback->intel_de_rmw(0x64C00u, 0x00800000u, 0u);
+
+		// 2. DISPLAY_VER >= 12: ODCC_CLK_SEL (bit 31) | ODCC_CLK_DIV_SEL_DIV2 (0b01 << 29) -> 0xA0000000
+		uint32_t val = NGreen::callback->readReg32(0x1628A0u);
+		val &= ~0x60000000u;
+		val |= 0xA0000000u;
+		NGreen::callback->writeReg32(0x1626A0u, val);
+
+		// 3. DISPLAY_VER >= 12: DCC_MODE_SELECT = RUN_DCC_ONCE (bits[21:20] = 0)
+		val = NGreen::callback->readReg32(0x162804u);
+		val &= ~0x00300000u;
+		NGreen::callback->writeReg32(0x162604u, val);
+
+		// 4. icl_set_procmon_ref_values(PHY_A) before IREFGEN & COMP_INIT
+		NGreen::callback->intel_de_rmw(0x162104u, 0x00FF00FFu, pm.dw1);
+		NGreen::callback->writeReg32(0x162124u, pm.dw9);
+		NGreen::callback->writeReg32(0x162128u, pm.dw10);
+
+		// 5. Master PHY A: enable IREFGEN (bit 24)
+		NGreen::callback->intel_de_rmw(0x162120u, 0u, 0x01000000u);
+
+		// 6. Enable COMP_INIT (bit 31) and CL_POWER_DOWN_ENABLE (bit 4)
+		NGreen::callback->intel_de_rmw(0x162100u, 0u, 0x80000000u);
+		NGreen::callback->intel_de_rmw(0x162014u, 0u, 0x00000010u);
+		(void)NGreen::callback->readReg32(0x162100u);
+
+		__atomic_add_fetch(&gTglEdpPhyReinitCount, 1u, __ATOMIC_RELAXED);
+	}
+
+	gTglEdpPhyCompDw0Post = NGreen::callback->readReg32(0x162100u);
+	gTglEdpPhyCompDw8Post = NGreen::callback->readReg32(0x162120u);
+	gTglEdpPhyTxDw8Post   = NGreen::callback->readReg32(0x1628A0u);
+}
+
+// R32-PCFIX63-EDPWAKE Component D: Verbatim Linux v6.12 icl_combo_phy_set_signal_levels +
+// icl_ddi_combo_vswing_program + intel_combo_phy_power_up_lanes for Combo PHY A eDP.
+// Fixes PCFIX61's PORT_TX_DW5 bitmask bug (~0x661C0038u -> ~0x601C0038u, preserving bits 26:25)
+// and Apple's inverted 0x0003FFFF DW4 mask, wrong SCALING_MODE_SEL=6, missing RTERM/DW7.
+static void tglProgramComboPhyAVswing(void *port, uint32_t voltageSwing, uint32_t preEmphasis)
+{
+	if (!port || !NGreen::callback || NGreen::callback->mmioLength() < 0x162C00u)
+		return;
+	if (NGreen::callback->readReg32(0x162804u) == 0xFFFFFFFFu)
+		return;
+
+	const uint32_t lanes = tglGetPortLanes(port);
+	const uint32_t rateCode = getMember<uint32_t>(port, 0x128);
+	const TglIclComboBufTrans *table = (rateCode > 0x0au) ? kTglUyComboDpHbr2 : kTglComboDpHbr;
+	const uint32_t level = kTglDpLevelMap[((preEmphasis & 3u) << 2) | (voltageSwing & 3u)];
+	const TglIclComboBufTrans &e = table[level];
+
+	const uint32_t dw5Initial = NGreen::callback->readReg32(0x162894u);
+	if (__atomic_load_n(&gTglEdpTxDw5Pre, __ATOMIC_RELAXED) == 0u)
+		gTglEdpTxDw5Pre = dw5Initial;
+
+	// 1. PORT_PCS_DW1_GRP(PHY_A): enable COMMON_KEEPER_EN (bit 26) for eDP/DP
+	uint32_t pcs = NGreen::callback->readReg32(0x162804u);
+	pcs |= 0x04000000u;
+	NGreen::callback->writeReg32(0x162604u, pcs);
+
+	// 2. PORT_TX_DW4_LN0..3: program LOADGEN_SELECT (bit 31) per bit rate and lane count
+	for (uint32_t ln = 0; ln < 4u; ++ln) {
+		uint32_t loadgen = 0u;
+		if (rateCode <= 0x16u) {
+			if (lanes == 4u)
+				loadgen = (ln >= 1u) ? 0x80000000u : 0u;
+			else
+				loadgen = (ln == 1u || ln == 2u) ? 0x80000000u : 0u;
+		}
+		NGreen::callback->intel_de_rmw(0x162890u + (ln << 8), 0x80000000u, loadgen);
+	}
+
+	// 3. PORT_CL_DW5(PHY_A): SUS_CLOCK_CONFIG = 0b11
+	NGreen::callback->intel_de_rmw(0x162014u, 0u, 0x3u);
+
+	// 4. PORT_TX_DW5_GRP(PHY_A): clear TX_TRAINING_EN (bit 31) before updating TX coefficients
+	uint32_t dw5 = NGreen::callback->readReg32(0x162894u);
+	dw5 &= ~0x80000000u;
+	NGreen::callback->writeReg32(0x162694u, dw5);
+
+	// 5a. PORT_CL_DW10(PHY_A): clear HOBL EDP4K2K_MODE_OVRD_EN | EDP4K2K_MODE_OVRD_OPTIMIZED (bits[3:2])
+	NGreen::callback->intel_de_rmw(0x162028u, 0x0Cu, 0u);
+
+	// 5b. PORT_TX_DW5_GRP(PHY_A): verbatim Linux v6.12 clear mask:
+	//     TAP2_DISABLE (b30) | TAP3_DISABLE (b29) | SCALING_MODE_SEL_MASK (b20:18) | RTERM_SELECT_MASK (b5:3)
+	//     = 0x601C0038u (strictly preserves bits 26:25!).
+	//     Set SCALING_MODE_SEL(2) | RTERM_SELECT(6) | TAP3_DISABLE = 0x20080030u.
+	dw5 = NGreen::callback->readReg32(0x162894u);
+	dw5 &= ~0x601C0038u;
+	dw5 |= 0x20080030u;
+	NGreen::callback->writeReg32(0x162694u, dw5);
+
+	// 5c-5e. Program PORT_TX_DW2, PORT_TX_DW4 (preserving LOADGEN_SELECT!), PORT_TX_DW7 across all 4 lanes
+	const uint32_t dw2Val = (((static_cast<uint32_t>(e.dw2_swing_sel) >> 3) & 1u) << 15)
+	                      | ((static_cast<uint32_t>(e.dw2_swing_sel) & 7u) << 11)
+	                      | 0x98u;
+	const uint32_t dw4Val = ((static_cast<uint32_t>(e.dw4_post_cursor_1) & 0x3Fu) << 12)
+	                      | ((static_cast<uint32_t>(e.dw4_post_cursor_2) & 0x3Fu) << 6)
+	                      | (static_cast<uint32_t>(e.dw4_cursor_coeff) & 0x3Fu);
+	const uint32_t dw7Val = (static_cast<uint32_t>(e.dw7_n_scalar) & 0x7Fu) << 24;
+
+	for (uint32_t ln = 0; ln < 4u; ++ln) {
+		const uint32_t off = ln << 8;
+		NGreen::callback->intel_de_rmw(0x162888u + off, 0x0000B8FFu, dw2Val);
+		NGreen::callback->intel_de_rmw(0x162890u + off, 0x0003FFFFu, dw4Val);
+		NGreen::callback->intel_de_rmw(0x16289Cu + off, 0x7F000000u, dw7Val);
+	}
+
+	// 6. PORT_TX_DW5_GRP(PHY_A): set TX_TRAINING_EN (bit 31) to latch coefficients
+	dw5 = NGreen::callback->readReg32(0x162894u);
+	dw5 |= 0x80000000u;
+	NGreen::callback->writeReg32(0x162694u, dw5);
+
+	// 7. PORT_CL_DW10(PHY_A): power up active lanes, power down unused lanes (PWR_DOWN_LN_MASK = 0xF0)
+	const uint32_t pwrDown = (lanes == 4u) ? 0x00u : ((lanes == 2u) ? 0xC0u : 0xE0u);
+	NGreen::callback->intel_de_rmw(0x162028u, 0xF0u, pwrDown);
+
+	gTglEdpTxDw5Post = NGreen::callback->readReg32(0x162894u);
+	gTglEdpTxDw2Ln0  = NGreen::callback->readReg32(0x162888u);
+	gTglEdpTxDw4Ln0  = NGreen::callback->readReg32(0x162890u);
+	gTglEdpTxDw4Ln1  = NGreen::callback->readReg32(0x162990u);
+	gTglEdpTxDw7Ln0  = NGreen::callback->readReg32(0x16289Cu);
+	gTglEdpClDw10    = NGreen::callback->readReg32(0x162028u);
+
+	__atomic_add_fetch(&gTglEdpVswingCalls, 1u, __ATOMIC_RELAXED);
+	gTglEdpVswingLast = ((voltageSwing & 0xFFu) << 16) | ((preEmphasis & 0xFFu) << 8) | (level & 0xFFu);
+}
+
+int Gen11::LightUpEDP(void *that, void *param_1, void *param_2, void *param_3)
+{
+	void *prevCtrl = gTglEdpLightUpCtrl;
+	void *prevPath = gTglEdpLightUpPath;
+	gTglEdpLightUpCtrl = that;
+	gTglEdpLightUpPath = param_2;
+	__atomic_add_fetch(&gTglInLightUpEdp, 1u, __ATOMIC_SEQ_CST);
+	const int ret = FunctionCast(LightUpEDP, callback->oLightUpEDP)(that, param_1, param_2, param_3);
+	__atomic_sub_fetch(&gTglInLightUpEdp, 1u, __ATOMIC_SEQ_CST);
+	gTglEdpLightUpPath = prevPath;
+	gTglEdpLightUpCtrl = prevCtrl;
+
+	uint32_t trans = __atomic_load_n(&gTglEdpTranscoder, __ATOMIC_ACQUIRE) & 3u;
+	uint32_t postClk = 0, postDdi = 0, postConf = 0;
+	if (NGreen::callback && NGreen::callback->mmioLength() >= 0x164300u) {
+		postClk  = NGreen::callback->readReg32(0x46140u + trans * 4u);
+		postDdi  = NGreen::callback->readReg32(0x60400u + (trans << 12));
+		postConf = NGreen::callback->readReg32(0x70008u + (trans << 12));
+		gTglEdpLightUpPostTransClk  = postClk;
+		gTglEdpLightUpPostTransDdi  = postDdi;
+		gTglEdpLightUpPostTransConf = postConf;
+	}
+	__atomic_add_fetch(&gTglEdpLightUpCalls, 1u, __ATOMIC_RELAXED);
+	gTglEdpLightUpLastRet = static_cast<uint32_t>(ret);
+	IOLog("NGreen PCFIX63-LIGHTUP: ret=0x%x trans=%u clk=0x%08x ddi=0x%08x conf=0x%08x\n",
+	      static_cast<uint32_t>(ret), trans, postClk, postDdi, postConf);
+	if (param_1) {
+		xePublishSleepIrqProps(static_cast<IORegistryEntry *>(param_1));
+	}
+	return ret;
+}
+
+IOReturn Gen11::wrapLinkTraining(void *that, void *portConfig)
+{
+	if (!NGreen::callback || !NGreen::callback->isRealTGL || checkKernelArgument("-ngreennoedpfix") ||
+	    !tglIsComboPhyAEdpPort(that)) {
+		return FunctionCast(wrapLinkTraining, callback->oLinkTraining)(that, portConfig);
+	}
+
+	// Component E: Hold DC_off (disableHWDC6) + AUX_A power well continuously across linkTraining
+	// in exact AppleIntelPort::readAUX order (0x28ec1 -> 0x28ef0; LIFO exit 0x28ff3 -> 0x29009).
+	void *ctrl = nullptr;
+	bool heldDc6 = false;
+	bool heldAux = false;
+	if (!checkKernelArgument("-ngreennoauxhold")) {
+		if (callback->oGController)
+			ctrl = *reinterpret_cast<void *const *>(callback->oGController);
+		if (!ctrl) ctrl = gTglEdpLightUpCtrl;
+		if (!ctrl) ctrl = ccont2;
+		if (ctrl && callback->oDisableHWDC6 && callback->oEnableHWDC6) {
+			reinterpret_cast<void (*)(void *)>(callback->oDisableHWDC6)(ctrl);
+			heldDc6 = true;
+		}
+		if (callback->oPortEnablePowerWellAux && callback->oPortDisablePowerWellAux) {
+			reinterpret_cast<void (*)(void *)>(callback->oPortEnablePowerWellAux)(that);
+			heldAux = true;
+		}
+		if (heldDc6 || heldAux)
+			__atomic_add_fetch(&gTglEdpAuxHoldCount, 1u, __ATOMIC_RELAXED);
+	}
+
+	uint32_t dssm = 0;
+	uint32_t preDpll0 = 0;
+	uint32_t preDpll0En = 0;
+	uint32_t preDpclka = 0;
+	uint32_t prePpStat = 0;
+	uint32_t preAuxCtl = 0;
+	const bool canMmio = (NGreen::callback->mmioLength() >= 0x164300u);
+	if (canMmio) {
+		dssm = NGreen::callback->readReg32(0x51004u);
+		preDpll0 = NGreen::callback->readReg32(0x164284u);
+		preDpll0En = NGreen::callback->readReg32(0x46010u);
+		preDpclka = NGreen::callback->readReg32(0x164280u);
+		prePpStat = NGreen::callback->readReg32(0xC7200u);
+		preAuxCtl = NGreen::callback->readReg32(0x64010u);
+	}
+
+	// Component B: Verify/restore TGL Combo PHY A init (ODCC, RUN_DCC_ONCE, procmon, IREFGEN, COMP_INIT)
+	if (canMmio && !checkKernelArgument("-ngreennophyinit")) {
+		tglEnsureComboPhyAInit();
+	}
+
+	// Component C1: Pre-LinkTraining Transcoder A clock & function setup (BSpec 49190 / Linux v6.12
+	// tgl_ddi_pre_enable_dp steps 7.a & 7.b, strictly keeping bit 31 TRANS_DDI_FUNC_ENABLE = 0 during LT).
+	void *path = nullptr;
+	if (__atomic_load_n(&gTglInLightUpEdp, __ATOMIC_ACQUIRE) > 0u &&
+	    gTglEdpLightUpPath != nullptr &&
+	    getMember<void *>(gTglEdpLightUpPath, 0x3648) == that) {
+		path = gTglEdpLightUpPath;
+	} else if (callback->oGetFirstPathByPort) {
+		path = reinterpret_cast<void *(*)(void *)>(callback->oGetFirstPathByPort)(that);
+	}
+
+	uint32_t trans = 0;
+	if (path != nullptr) {
+		const uint32_t pt = getMember<uint32_t>(path, 0x3640);
+		if (pt <= 3u) trans = pt;
+	}
+	__atomic_store_n(&gTglEdpTranscoder, trans, __ATOMIC_RELEASE);
+
+	uint32_t clkVal = 0;
+	uint32_t preDdi = 0;
+	if (canMmio && !checkKernelArgument("-ngreennopretrans")) {
+		const uint32_t lanes = tglGetPortLanes(that);
+		clkVal = path ? getMember<uint32_t>(path, 0x128) : 0u;
+		if (clkVal == 0u)
+			clkVal = 0x10000000u; // TGL_TRANS_CLK_SEL_PORT(PORT_A)
+		const uint32_t ddiVal = path ? getMember<uint32_t>(path, 0x12c) : 0u;
+		preDdi = ddiVal & ~0x80000000u; // bit 31 MUST be 0 during link training!
+		if ((preDdi & 0x78000000u) == 0u)
+			preDdi = 0x0A000000u | ((lanes - 1u) << 1); // TGL PORT_A (1<<27) | DP_SST (2<<24) | 8bpc | width
+
+		NGreen::callback->writeReg32(0x46140u + trans * 4u, clkVal);
+		(void)NGreen::callback->readReg32(0x46140u + trans * 4u);
+		NGreen::callback->writeReg32(0x60404u + (trans << 12), 0u);
+		(void)NGreen::callback->readReg32(0x60404u + (trans << 12));
+		NGreen::callback->writeReg32(0x60400u + (trans << 12), preDdi);
+		(void)NGreen::callback->readReg32(0x60400u + (trans << 12));
+
+		gTglEdpPreTransClk = clkVal;
+		gTglEdpPreTransDdi = preDdi;
+	}
+
+	// Component C2: Arm Enhanced Framing bit 18 injection on TGL_DP_TP_CTL(trans) for this linkTraining call
+	const uint32_t prevEf = __atomic_exchange_n(
+		&gTglEdpEnhancedFraming, getMember<uint8_t>(that, 0x11a) ? 1u : 0u, __ATOMIC_SEQ_CST);
+	const IOReturn ret = FunctionCast(wrapLinkTraining, callback->oLinkTraining)(that, portConfig);
+	__atomic_store_n(&gTglEdpEnhancedFraming, prevEf, __ATOMIC_SEQ_CST);
+
+	uint32_t postDpll0 = 0;
+	uint32_t postDpll0En = 0;
+	uint32_t postDpclka = 0;
+	uint32_t postDdiBuf = 0;
+	uint32_t postDpTpCtl = 0;
+	uint32_t postAuxCtl = 0;
+	if (canMmio) {
+		postDpll0 = NGreen::callback->readReg32(0x164284u);
+		postDpll0En = NGreen::callback->readReg32(0x46010u);
+		postDpclka = NGreen::callback->readReg32(0x164280u);
+		postDdiBuf = NGreen::callback->readReg32(0x64000u);
+		postDpTpCtl = NGreen::callback->readReg32(0x60540u + (trans << 12));
+		postAuxCtl = NGreen::callback->readReg32(0x64010u);
+		gTglEdpDssm = dssm;
+		gTglEdpLtPreDpll0 = preDpll0;
+		gTglEdpLtPreDpll0En = preDpll0En;
+		gTglEdpLtPreDpclka = preDpclka;
+		gTglEdpLtPrePpStat = prePpStat;
+		gTglEdpLtPreAuxCtl = preAuxCtl;
+		gTglEdpLtPostDdiBuf = postDdiBuf;
+		gTglEdpLtPostDpTpCtl = postDpTpCtl;
+		gTglEdpLtPostAuxCtl = postAuxCtl;
+	}
+
+	// Component E LIFO release: AUX_A power well first, then re-enable HW DC6
+	if (heldAux) {
+		reinterpret_cast<void (*)(void *)>(callback->oPortDisablePowerWellAux)(that);
+	}
+	if (heldDc6) {
+		reinterpret_cast<void (*)(void *)>(callback->oEnableHWDC6)(ctrl);
+	}
+
+	__atomic_add_fetch(&gTglEdpLtCalls, 1u, __ATOMIC_RELAXED);
+	if (ret == kIOReturnSuccess)
+		__atomic_add_fetch(&gTglEdpLtOk, 1u, __ATOMIC_RELAXED);
+	else
+		__atomic_add_fetch(&gTglEdpLtFail, 1u, __ATOMIC_RELAXED);
+	gTglEdpLtLastRet = static_cast<uint32_t>(ret);
+	IOLog("NGreen PCFIX63-EDP: lt ret=0x%x trans=%u hold=%u/%u phyRe=%u clk=0x%08x ddi=0x%08x vs=%u ef=%u dpll0=0x%08x->0x%08x en=0x%08x ddibuf=0x%08x dptp=0x%08x aux=0x%08x->0x%08x dw5=0x%08x->0x%08x\n",
+	      static_cast<uint32_t>(ret), trans, heldDc6 ? 1u : 0u, heldAux ? 1u : 0u,
+	      __atomic_load_n(&gTglEdpPhyReinitCount, __ATOMIC_RELAXED),
+	      clkVal, preDdi,
+	      __atomic_load_n(&gTglEdpVswingCalls, __ATOMIC_RELAXED),
+	      __atomic_load_n(&gTglEdpDpTpEfFixed, __ATOMIC_RELAXED),
+	      preDpll0, postDpll0, postDpll0En, postDdiBuf, postDpTpCtl, preAuxCtl, postAuxCtl,
+	      __atomic_load_n(&gTglEdpTxDw5Pre, __ATOMIC_RELAXED),
+	      __atomic_load_n(&gTglEdpTxDw5Post, __ATOMIC_RELAXED));
+	return ret;
+}
+
+IOReturn Gen11::wrapSetVoltageSwingAndPreEmphasis(void *that, uint32_t voltageSwing, uint32_t preEmphasis, void *customDrive)
+{
+	if (NGreen::callback && NGreen::callback->isRealTGL &&
+	    !checkKernelArgument("-ngreennoedpfix") && !checkKernelArgument("-ngreennovswing") &&
+	    customDrive == nullptr && tglIsComboPhyAEdpPort(that)) {
+		if (getMember<uint32_t>(that, 0x550) == 2u) {
+			return kIOReturnSuccess;
+		}
+		tglProgramComboPhyAVswing(that, voltageSwing, preEmphasis);
+		return kIOReturnSuccess;
+	}
+	return FunctionCast(wrapSetVoltageSwingAndPreEmphasis, callback->oSetVoltageSwingAndPreEmphasis)(
+		that, voltageSwing, preEmphasis, customDrive);
+}
 
 uint8_t Gen11::disableVDDForAux(void *that)
 {

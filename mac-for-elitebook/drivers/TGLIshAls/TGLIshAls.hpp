@@ -130,7 +130,7 @@ private:
     IshAlsLightValue        *lightValue   {nullptr};
     VirtualSMCAPI::Plugin    vsmcPlugin {
         "TGLIshAls",
-        0x050,
+        0x052,
         VirtualSMCAPI::Version,
         {},
         {}
@@ -138,10 +138,13 @@ private:
 
     ish::IshTransport             transport {};
     ish::IshTransport::Stage      lastStage {ish::IshTransport::Stage::Idle};
+    ish::WakeAlsNotifyState       wakeAlsNotify {};
     bool                          lastPostedValid {false};
     uint64_t                      lastPostedMilliLux {0};
+    uint32_t                      wakeAlsRefreshCount {0};
     uint32_t                      lastClockSyncCount {0};
     uint32_t                      lastSysStateCount {0};
+    uint32_t                      lastSysStateInitCount {0};
     uint32_t                      lastDsmProxyCount {0};
     uint32_t                      lastFixedClients {0};
     uint32_t                      lastSampleCountPublished {0};
@@ -166,7 +169,7 @@ private:
     uint32_t mmioRead32(uint32_t offset) const;
     void     mmioWrite32(uint32_t offset, uint32_t val) const;
     void     quiesceHardwareDma();
-    void     restartTransport();
+    void     restartTransport(bool isWake = false);
     uint32_t drainRx(uint64_t nowNs);
     void     pumpTx();
     void     processPendingDsmWork();
@@ -189,7 +192,7 @@ private:
                                       IOService *provider, void *messageArgument, vm_size_t argSize);
     static IOReturn gatedStartTransport(OSObject *owner, void *, void *, void *, void *);
     static IOReturn gatedPublishAlsNub(OSObject *owner, void *, void *, void *, void *);
-    static IOReturn gatedDisplayState(OSObject *owner, void *arg0, void *arg1, void *, void *);
+    static IOReturn gatedDisplayState(OSObject *owner, void *arg0, void *arg1, void *arg2, void *);
     static IOReturn gatedPowerSleep(OSObject *owner, void *, void *, void *, void *);
     static IOReturn gatedPowerWake(OSObject *owner, void *, void *, void *, void *);
     static IOReturn gatedStop(OSObject *owner, void *, void *, void *, void *);

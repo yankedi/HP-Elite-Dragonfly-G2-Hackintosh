@@ -382,16 +382,20 @@ bool TGLIshAls::start(IOService *provider) {
         return false;
     }
 
+    setProperty("DriverVersion", "0.5.2");
     setProperty("IRQMode", irqModeMsi ? "MSI" : "INTx-AutoDisable");
     setProperty("IRQFallbackPolling", false);
     setProperty("SMCSubmitted", false);
     setProperty("ALSNubPublished", false);
     setProperty("WakeCount", 0ULL, 32);
+    setProperty("WakeALSRefreshCount", 0ULL, 32);
     setProperty("Suspended", false);
     setProperty("ClockSyncEnabled", !disableClock);
     setProperty("ClockSyncCount", 0ULL, 32);
     setProperty("SystemStateCount", 0ULL, 32);
+    setProperty("SystemStateInitQueryCount", 0ULL, 32);
     setProperty("SystemStateStatus", 0ULL, 32);
+    setProperty("ALSFeatCycleCount", 0ULL, 32);
     setProperty("DsmEnabled", !disableDsm);
     setProperty("DsmSupportedMask", static_cast<unsigned long long>(dsmMask), 32);
     setProperty("DsmProxyCount", 0ULL, 32);
@@ -710,8 +714,16 @@ IOReturn TGLIshAls::pmInterestHandler(void *target, void *, UInt32 messageType,
             if (!atomic_load_explicit(&self->suspended, memory_order_acquire)) {
                 self->gate->runAction(gatedDisplayState,
                                       reinterpret_cast<void *>(static_cast<uintptr_t>(cpuOn ? 1u : 0u)),
-                                      reinterpret_cast<void *>(static_cast<uintptr_t>(gfxOn ? 1u : 0u)));
+                                      reinterpret_cast<void *>(static_cast<uintptr_t>(gfxOn ? 1u : 0u)),
+                                      nullptr);
             }
+        }
+    } else if (messageType == kIOMessageSystemHasPoweredOn) {
+        if (!atomic_load_explicit(&self->suspended, memory_order_acquire)) {
+            self->gate->runAction(gatedDisplayState,
+                                  reinterpret_cast<void *>(static_cast<uintptr_t>(1u)),
+                                  reinterpret_cast<void *>(static_cast<uintptr_t>(1u)),
+                                  reinterpret_cast<void *>(static_cast<uintptr_t>(1u)));
         }
     }
     return kIOReturnSuccess;
@@ -762,11 +774,11 @@ IOReturn TGLIshAls::gatedStartTransport(OSObject *owner, void *, void *, void *,
     if (!self) {
         return kIOReturnBadArgument;
     }
-    self->restartTransport();
+    self->restartTransport(false);
     return kIOReturnSuccess;
 }
 
-IOReturn TGLIshAls::gatedDisplayState(OSObject *owner, void *arg0, void *arg1, void *, void *) {
+IOReturn TGLIshAls::gatedDisplayState(OSObject *owner, void *arg0, void *arg1, void *arg2, void *) {
     auto *self = OSDynamicCast(TGLIshAls, owner);
     if (!self || atomic_load_explicit(&self->stopping, memory_order_acquire) ||
         atomic_load_explicit(&self->suspended, memory_order_acquire) ||
@@ -775,8 +787,13 @@ IOReturn TGLIshAls::gatedDisplayState(OSObject *owner, void *arg0, void *arg1, v
     }
     const bool awake = (arg0 != nullptr);
     const bool displayOn = (arg1 != nullptr);
+    const bool forceSend = (arg2 != nullptr);
     const uint64_t nowNs = currentTimeNs();
-    if (self->transport.setHostPowerState(awake, displayOn, nowNs, currentUtcUs(), currentMonoUs())) {
+    if (forceSend) {
+        self->wakeAlsNotify.onSystemHasPoweredOn(nowNs);
+        self->scheduleNextTick();
+    }
+    if (self->transport.setHostPowerState(awake, displayOn, nowNs, currentUtcUs(), currentMonoUs(), forceSend)) {
         self->pumpTx();
         self->handleTransportUpdates(nowNs);
     }
@@ -792,10 +809,19 @@ IOReturn TGLIshAls::gatedPowerSleep(OSObject *owner, void *, void *, void *, voi
         const uint64_t nowNs = currentTimeNs();
         self->transport.setHostPowerState(false, false, nowNs, currentUtcUs(), currentMonoUs());
         self->pumpTx();
+        for (int step = 0; step < 5; ++step) {
+            self->pumpTx();
+            const uint32_t h2i = self->mmioRead32(ish::kRegHost2IshDrbl);
+            if (!self->transport.hasTxPending() && (h2i == 0xFFFFFFFFu || !ish::drblBusy(h2i))) {
+                break;
+            }
+            IOSleep(5);
+        }
     }
     atomic_store_explicit(&self->suspended, true, memory_order_release);
     atomic_store_explicit(&self->transportActive, false, memory_order_release);
     atomic_store_explicit(&self->smcLux, ish::kSmcLuxInvalid, memory_order_release);
+    self->wakeAlsNotify.onSleepOrReset();
 
     if (self->lastPostedValid && atomic_load_explicit(&self->smcSubmitted, memory_order_acquire)) {
         VirtualSMCAPI::postInterrupt(SmcEventALSChange);
@@ -815,6 +841,8 @@ IOReturn TGLIshAls::gatedPowerSleep(OSObject *owner, void *, void *, void *, voi
     self->setProperty("TransportState", "Suspended");
     self->setProperty("SystemStateStatus", static_cast<unsigned long long>(self->transport.sysStateStatus()), 32);
     self->setProperty("SystemStateCount", static_cast<unsigned long long>(self->transport.sysStateCount()), 32);
+    self->setProperty("SystemStateInitQueryCount", static_cast<unsigned long long>(self->transport.sysStateInitQueryCount()), 32);
+    self->setProperty("ALSFeatCycleCount", static_cast<unsigned long long>(self->transport.alsFeatCycleCount()), 32);
     self->setProperty("ALSDarkPermissive", false);
     return kIOReturnSuccess;
 }
@@ -832,7 +860,8 @@ IOReturn TGLIshAls::gatedPowerWake(OSObject *owner, void *, void *, void *, void
     }
     self->setProperty("Suspended", false);
     self->setProperty("WakeCount", static_cast<unsigned long long>(self->wakeCount), 32);
-    self->restartTransport();
+    self->restartTransport(true);
+    self->wakeAlsNotify.onPowerWake();
     return kIOReturnSuccess;
 }
 
@@ -854,7 +883,7 @@ IOReturn TGLIshAls::gatedStop(OSObject *owner, void *, void *, void *, void *) {
     return kIOReturnSuccess;
 }
 
-void TGLIshAls::restartTransport() {
+void TGLIshAls::restartTransport(bool isWake) {
     if (!mmioBase || atomic_load_explicit(&stopping, memory_order_acquire)) {
         return;
     }
@@ -881,13 +910,14 @@ void TGLIshAls::restartTransport() {
     mmioWrite32(ish::kRegIshRmp2, ish::kRmp2DmaEnabledBit);
 
     const uint64_t nowNs = currentTimeNs();
-    transport.setHostPowerState(true, true, nowNs, currentUtcUs(), currentMonoUs());
-    transport.startInit(nowNs);
+    transport.startInit(nowNs, isWake, true, true);
     lastStage = ish::IshTransport::Stage::Idle;
+    wakeAlsNotify.onSleepOrReset();
     lastPostedValid = false;
     lastPostedMilliLux = 0;
     lastClockSyncCount = 0;
     lastSysStateCount = 0;
+    lastSysStateInitCount = 0;
     lastDsmProxyCount = 0;
     lastFixedClients = 0;
     lastSampleCountPublished = 0;
@@ -976,6 +1006,7 @@ void TGLIshAls::pumpTx() {
 void TGLIshAls::enterFailed(const char *reason) {
     atomic_store_explicit(&transportActive, false, memory_order_release);
     atomic_store_explicit(&smcLux, ish::kSmcLuxInvalid, memory_order_release);
+    wakeAlsNotify.onSleepOrReset();
     if (lastPostedValid && atomic_load_explicit(&smcSubmitted, memory_order_acquire)) {
         VirtualSMCAPI::postInterrupt(SmcEventALSChange);
     }
@@ -1002,6 +1033,8 @@ void TGLIshAls::publishTelemetry(bool sampleChanged) {
     const uint32_t sCnt = transport.sampleCount();
     lastSampleCountPublished = sCnt;
 
+    setProperty("DriverVersion", "0.5.2");
+    setProperty("WakeALSRefreshCount", static_cast<unsigned long long>(wakeAlsRefreshCount), 32);
     setProperty("TransportState", transport.stageName());
     setProperty("SMCSubmitted", atomic_load_explicit(&smcSubmitted, memory_order_acquire));
     setProperty("ALSNubPublished", alsNub != nullptr);
@@ -1053,7 +1086,9 @@ void TGLIshAls::publishTelemetry(bool sampleChanged) {
     setProperty("ALSFeatVerifyStatus", static_cast<unsigned long long>(transport.featVerifyStatus()), 8);
     setProperty("ClockSyncCount", static_cast<unsigned long long>(transport.clockSyncCount()), 32);
     setProperty("SystemStateCount", static_cast<unsigned long long>(transport.sysStateCount()), 32);
+    setProperty("SystemStateInitQueryCount", static_cast<unsigned long long>(transport.sysStateInitQueryCount()), 32);
     setProperty("SystemStateStatus", static_cast<unsigned long long>(transport.sysStateStatus()), 32);
+    setProperty("ALSFeatCycleCount", static_cast<unsigned long long>(transport.alsFeatCycleCount()), 32);
     setProperty("DsmProxyCount", static_cast<unsigned long long>(transport.dsmProxyCount()), 32);
     setProperty("DsmEvalCount", static_cast<unsigned long long>(dsmEvalCount), 32);
     setProperty("FixedClientsSeen", static_cast<unsigned long long>(transport.fixedClientsSeen()), 32);
@@ -1152,14 +1187,36 @@ void TGLIshAls::handleTransportUpdates(uint64_t nowNs) {
         }
     }
 
+    const uint32_t curFixed = atomic_load_explicit(&smcLux, memory_order_acquire);
+    const bool curValid = (curFixed != ish::kSmcLuxInvalid);
+    if (wakeAlsNotify.shouldFireRefresh(nowNs, curValid)) {
+        lastPostedValid = true;
+        lastPostedMilliLux = transport.milliLux();
+        sampleChanged = true;
+        telemetryDirty = true;
+        if (atomic_load_explicit(&smcSubmitted, memory_order_acquire)) {
+            const bool posted = VirtualSMCAPI::postInterrupt(SmcEventALSChange);
+            atomic_store_explicit(&smcNotifyPosted, posted, memory_order_release);
+            if (posted) {
+                atomic_fetch_add_explicit(&smcNotifyCount, 1u, memory_order_acq_rel);
+                ++wakeAlsRefreshCount;
+                DBG("Wake ALS refresh interrupt posted (count=%u milliLux=%llu)",
+                    wakeAlsRefreshCount, static_cast<unsigned long long>(lastPostedMilliLux));
+            }
+        }
+    }
+
     const uint32_t cCount = transport.clockSyncCount();
     const uint32_t sCount = transport.sysStateCount();
+    const uint32_t sInitCount = transport.sysStateInitQueryCount();
     const uint32_t dCount = transport.dsmProxyCount();
     const uint32_t fSeen  = transport.fixedClientsSeen();
     if (cCount != lastClockSyncCount || sCount != lastSysStateCount ||
+        sInitCount != lastSysStateInitCount ||
         dCount != lastDsmProxyCount || fSeen != lastFixedClients) {
         lastClockSyncCount = cCount;
         lastSysStateCount = sCount;
+        lastSysStateInitCount = sInitCount;
         lastDsmProxyCount = dCount;
         lastFixedClients = fSeen;
         telemetryDirty = true;
@@ -1175,12 +1232,14 @@ void TGLIshAls::handleTransportUpdates(uint64_t nowNs) {
         if (st == ish::IshTransport::Stage::Streaming || st == ish::IshTransport::Stage::NoAlsSensor) {
             removeProperty("TransportError");
             if (st == ish::IshTransport::Stage::Streaming) {
-                LOG("streaming ALS (devId=%u, rptId=%u, expo=%d, verified=%d, intvl=%u, sens=%u, fgetSt=%u, fgetSz=%u, fgetTry=%u)",
+                LOG("streaming ALS (devId=%u, rptId=%u, expo=%d, verified=%d, intvl=%u, sens=%u, fgetSt=%u, fgetSz=%u, fgetTry=%u, wake=%u, sysInit=%u, sysSt=%u, cyc=%u)",
                     transport.alsDevId(), transport.alsDesc().inputReportId,
                     ish::decodeUnitExponent(transport.alsDesc().unitExpoRaw),
                     transport.alsControlsVerified() ? 1 : 0,
                     transport.alsIntervalMs(), transport.alsSensitivity(),
-                    transport.featGetStatus(), transport.featGetDeclaredSize(), transport.featGetAttempts());
+                    transport.featGetStatus(), transport.featGetDeclaredSize(), transport.featGetAttempts(),
+                    wakeCount, transport.sysStateInitQueryCount(), transport.sysStateCount(),
+                    transport.alsFeatCycleCount());
             } else {
                 LOG("HID discovery complete (%u devices), no ALS sensor present", transport.hidDevCount());
             }
@@ -1204,7 +1263,8 @@ void TGLIshAls::scheduleNextTick() {
         return;
     }
     const uint32_t ms = (st == ish::IshTransport::Stage::Streaming)
-        ? (irqFallbackPolling ? kFallbackPollTickMs : kStreamingTickMs)
+        ? ((irqFallbackPolling || transport.wakeZeroPrimeDeferred() || wakeAlsNotify.hasPending())
+               ? kFallbackPollTickMs : kStreamingTickMs)
         : kInitTickMs;
     timer->setTimeoutMS(ms);
 }

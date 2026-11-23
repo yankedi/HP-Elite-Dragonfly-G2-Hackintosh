@@ -437,6 +437,7 @@ public:
         HidDescHidWait,
         HidDescRptWait,
         AlsFeatGet,
+        AlsFeatCycleOff,
         AlsFeatSet,
         AlsFeatVerify,
         AlsPrimeInput,
@@ -457,6 +458,8 @@ public:
     static constexpr size_t   kMaxHidTxBytes          = sizeof(HostifMsgHdr) + kMaxFeatureReportBytes;
     static constexpr uint8_t  kMaxFeatGetAttempts     = 4u;
     static constexpr uint64_t kFeatRetryDelayNs       = 300ULL * kNsPerMs;
+    static constexpr uint64_t kWakeZeroPrimeGraceNs   = 500ULL * kNsPerMs;
+    static constexpr uint64_t kWakeZeroPrimeMaxNs     = 2000ULL * kNsPerMs;
 
     void reset(uint64_t nowNs) {
         stage_ = Stage::Idle;
@@ -475,6 +478,9 @@ public:
         sysStateSupported_ = kSysStateAllSupported;
         sysStateStatus_ = computeSysStateStatus();
         sysStateCount_ = 0;
+        sysStateInitQueryCount_ = 0;
+        alsFeatCycleCount_ = 0;
+        wakeRecovery_ = false;
         lastSysStateReq_ = 0;
         dsmProxyCount_ = 0;
         dsmDropped_ = 0;
@@ -505,7 +511,9 @@ public:
         dsmSupportedMask_ = enabled ? supportedMask : 0u;
     }
 
-    bool setHostPowerState(bool awake, bool displayOn, uint64_t nowNs, uint64_t utcUs = 0, uint64_t monoUs = 0) {
+    bool setHostPowerState(bool awake, bool displayOn, uint64_t nowNs,
+                           uint64_t utcUs = 0, uint64_t monoUs = 0,
+                           bool forceSend = false) {
         const bool wasSuspended = hostSuspended_;
         hostSuspended_ = !awake;
         displayOn_ = displayOn;
@@ -514,11 +522,11 @@ public:
         sysStateStatus_ = nextStatus;
 
         bool sent = false;
-        if (stage_ >= Stage::HbmEnumWait && (sysStateSubscribed_ || changed)) {
+        if (stage_ >= Stage::HbmEnumWait && (sysStateSubscribed_ || changed || forceSend)) {
             sendSysStateStatusMsg(0u);
             sent = true;
         }
-        if (wasSuspended && awake && clockSyncEnabled_ && stage_ >= Stage::HbmVersionWait) {
+        if ((wasSuspended || forceSend) && awake && clockSyncEnabled_ && stage_ >= Stage::HbmVersionWait) {
             sendClockSync(utcUs, monoUs, nowNs);
         }
         return sent;
@@ -535,8 +543,11 @@ public:
         return true;
     }
 
-    void startInit(uint64_t nowNs) {
+    void startInit(uint64_t nowNs, bool isWake = false, bool awake = true, bool displayOn = true) {
+        hostSuspended_ = !awake;
+        displayOn_ = displayOn;
         reset(nowNs);
+        wakeRecovery_ = isWake;
         stage_ = Stage::ResetWait;
         initStartNs_ = nowNs;
         stageStartNs_ = nowNs;
@@ -635,6 +646,8 @@ public:
                     enterStage(Stage::Streaming, nowNs);
                     lastSampleRxNs_ = nowNs;
                     lastHeartbeatTxNs_ = nowNs;
+                } else if (stage_ == Stage::AlsFeatCycleOff) {
+                    beginAlsFeatEnable(nowNs);
                 } else if (stage_ == Stage::AlsFeatGet ||
                            stage_ == Stage::AlsFeatSet ||
                            stage_ == Stage::AlsFeatVerify) {
@@ -677,13 +690,26 @@ public:
 
         if (stage_ == Stage::Streaming && alsDesc_.found) {
             flushPendingHidTx();
-            const uint64_t pollIntervalNs = alsControlsVerified_ ? kStreamingKeepaliveNs : kStreamingPollNs;
-            const bool noRecentSample = (nowNs >= lastSampleRxNs_) && ((nowNs - lastSampleRxNs_) >= pollIntervalNs);
-            const bool heartbeatDue = (nowNs >= lastHeartbeatTxNs_) && ((nowNs - lastHeartbeatTxNs_) >= pollIntervalNs);
-            if (noRecentSample && heartbeatDue && !host2IshBusy &&
-                !hidTxPending_ && hidTxCredits_ > 0u && tx_.freeSlots() >= 2u) {
-                lastHeartbeatTxNs_ = nowNs;
-                sendHostifSimple(kHostifGetInputReport, alsDevId_, &alsDesc_.inputReportId, 1u);
+            if (wakeZeroPrimeDeferred_) {
+                if (!wakeZeroPollSent_ && nowNs >= wakeZeroPrimeUntilNs_ &&
+                    !host2IshBusy && !hidTxPending_ && hidTxCredits_ > 0u && tx_.freeSlots() >= 2u) {
+                    wakeZeroPollSent_ = true;
+                    lastHeartbeatTxNs_ = nowNs;
+                    sendHostifSimple(kHostifGetInputReport, alsDevId_, &alsDesc_.inputReportId, 1u);
+                } else if (nowNs >= wakeZeroPrimeUntilNs_ + (kWakeZeroPrimeMaxNs - kWakeZeroPrimeGraceNs)) {
+                    wakeZeroPrimeDeferred_ = false;
+                    fixedLux_ = 0u;
+                    sampleUpdated_ = true;
+                }
+            } else {
+                const uint64_t pollIntervalNs = alsControlsVerified_ ? kStreamingKeepaliveNs : kStreamingPollNs;
+                const bool noRecentSample = (nowNs >= lastSampleRxNs_) && ((nowNs - lastSampleRxNs_) >= pollIntervalNs);
+                const bool heartbeatDue = (nowNs >= lastHeartbeatTxNs_) && ((nowNs - lastHeartbeatTxNs_) >= pollIntervalNs);
+                if (noRecentSample && heartbeatDue && !host2IshBusy &&
+                    !hidTxPending_ && hidTxCredits_ > 0u && tx_.freeSlots() >= 2u) {
+                    lastHeartbeatTxNs_ = nowNs;
+                    sendHostifSimple(kHostifGetInputReport, alsDevId_, &alsDesc_.inputReportId, 1u);
+                }
             }
         } else {
             flushPendingHidTx();
@@ -710,6 +736,7 @@ public:
             case Stage::HidDescHidWait: return "HidDescHidWait";
             case Stage::HidDescRptWait: return "HidDescRptWait";
             case Stage::AlsFeatGet:     return "AlsFeatGet";
+            case Stage::AlsFeatCycleOff: return "AlsFeatCycleOff";
             case Stage::AlsFeatSet:     return "AlsFeatSet";
             case Stage::AlsFeatVerify:  return "AlsFeatVerify";
             case Stage::AlsPrimeInput:  return "AlsPrimeInput";
@@ -735,9 +762,12 @@ public:
     uint64_t milliLux() const { return milliLux_; }
     uint32_t fixedLux() const { return fixedLux_; }
     uint32_t sysStateCount() const { return sysStateCount_; }
+    uint32_t sysStateInitQueryCount() const { return sysStateInitQueryCount_; }
     uint32_t sysStateStatus() const { return sysStateStatus_; }
     uint32_t sysStateSupported() const { return sysStateSupported_; }
     bool     sysStateSubscribed() const { return sysStateSubscribed_; }
+    uint32_t alsFeatCycleCount() const { return alsFeatCycleCount_; }
+    bool     wakeZeroPrimeDeferred() const { return wakeZeroPrimeDeferred_; }
     uint32_t clockSyncCount() const { return clockSyncCount_; }
     bool     clockSyncEnabled() const { return clockSyncEnabled_; }
     uint32_t dsmProxyCount() const { return dsmProxyCount_; }
@@ -831,10 +861,17 @@ private:
     uint32_t          clockSyncCount_ = 0;
     bool              hostSuspended_ = false;
     bool              displayOn_ = true;
+    bool              wakeRecovery_ = false;
+    bool              sysStateInitSent_ = false;
     bool              sysStateSubscribed_ = false;
     uint32_t          sysStateSupported_ = kSysStateAllSupported;
     uint32_t          sysStateStatus_ = 0;
     uint32_t          sysStateCount_ = 0;
+    uint32_t          sysStateInitQueryCount_ = 0;
+    uint32_t          alsFeatCycleCount_ = 0;
+    bool              wakeZeroPrimeDeferred_ = false;
+    uint64_t          wakeZeroPrimeUntilNs_ = 0;
+    bool              wakeZeroPollSent_ = false;
     uint32_t          lastSysStateReq_ = 0;
     bool              dsmEnabled_ = true;
     uint32_t          dsmSupportedMask_ = kDsmDefaultSupportedMask;
@@ -908,7 +945,11 @@ private:
         fixedLux_ = kSmcLuxInvalid;
         clockSyncSentAfterReset_ = false;
         dsmInitSent_ = false;
+        sysStateInitSent_ = false;
         sysStateSubscribed_ = false;
+        wakeZeroPrimeDeferred_ = false;
+        wakeZeroPrimeUntilNs_ = 0;
+        wakeZeroPollSent_ = false;
         origFeatLen_ = 0;
         reqFeatLen_ = 0;
         curFeatLen_ = 0;
@@ -974,6 +1015,16 @@ private:
         writeLe32(reinterpret_cast<uint8_t *>(&rsp.status), sysStateStatus_);
         if (enqueueIshtp(kSysStateFwAddr, hostAddr, reinterpret_cast<const uint8_t *>(&rsp), sizeof(rsp))) {
             ++sysStateCount_;
+        }
+    }
+
+    void sendSysStateInitQueryMsg() {
+        SysStateHeader req {};
+        writeLe32(reinterpret_cast<uint8_t *>(&req.cmd), kSysStateInitQueryCmd);
+        writeLe32(reinterpret_cast<uint8_t *>(&req.cmd_status), 0u);
+        if (enqueueIshtp(kSysStateFwAddr, 0u, reinterpret_cast<const uint8_t *>(&req), sizeof(req))) {
+            sysStateInitSent_ = true;
+            ++sysStateInitQueryCount_;
         }
     }
 
@@ -1051,6 +1102,7 @@ private:
             case Stage::HidDescHidWait:
             case Stage::HidDescRptWait:
             case Stage::AlsFeatGet:
+            case Stage::AlsFeatCycleOff:
             case Stage::AlsFeatSet:
             case Stage::AlsFeatVerify:
             case Stage::AlsPrimeInput:  return kHidStageTimeoutNs;
@@ -1070,6 +1122,7 @@ private:
             case Stage::HidDescHidWait: return "timeout in HidDescHidWait";
             case Stage::HidDescRptWait: return "timeout in HidDescRptWait";
             case Stage::AlsFeatGet:     return "timeout in AlsFeatGet";
+            case Stage::AlsFeatCycleOff: return "timeout in AlsFeatCycleOff";
             case Stage::AlsFeatSet:     return "timeout in AlsFeatSet";
             case Stage::AlsFeatVerify:  return "timeout in AlsFeatVerify";
             default:                    return "stage timeout";
@@ -1314,6 +1367,10 @@ private:
                 failWith("HBM enum returned zero clients");
                 return;
             }
+            if (!sysStateInitSent_) {
+                sendSysStateInitQueryMsg();
+                sendSysStateStatusMsg(0u);
+            }
             if (dsmEnabled_ && !dsmInitSent_) {
                 sendDsmInitMsg();
             }
@@ -1438,6 +1495,33 @@ private:
         }
     }
 
+    void beginAlsFeatEnable(uint64_t nowNs) {
+        if (origFeatLen_ == 0u) {
+            fallbackToPrimeInput("ALS feature buffer empty; polling input directly", nowNs);
+            return;
+        }
+        uint8_t featBuf[kMaxFeatureReportBytes] {};
+        const size_t copyLen = (origFeatLen_ <= sizeof(featBuf)) ? origFeatLen_ : sizeof(featBuf);
+        memcpy(featBuf, origFeatBuf_, copyLen);
+        bool rmwOk = applyAlsFeatureRmw(alsDesc_, featBuf, copyLen, &alsIntervalMs_, &alsSensitivity_);
+        if (rmwOk) {
+            featRetryPowerOnly_ = false;
+        } else {
+            memcpy(featBuf, origFeatBuf_, copyLen);
+            rmwOk = applyAlsFeaturePowerOnlyRmw(alsDesc_, featBuf, copyLen);
+            if (rmwOk) {
+                featRetryPowerOnly_ = true;
+            }
+        }
+        if (!rmwOk) {
+            fallbackToPrimeInput("ALS feature RMW failed; polling input directly", nowNs);
+            return;
+        }
+        saveFeatureBytes(reqFeatBuf_, reqFeatLen_, featBuf, copyLen);
+        sendHostifSimple(kHostifSetFeatureReport, alsDevId_, featBuf, copyLen, featSetZeroHdrSize_);
+        enterStage(Stage::AlsFeatSet, nowNs);
+    }
+
     void handleHidSdu(const uint8_t *sdu, size_t len, uint64_t nowNs) {
         // Walk concatenated HostIF messages inside a single assembled ISHTP SDU.
         size_t offset = 0;
@@ -1560,26 +1644,19 @@ private:
                 featRetryDueNs_ = 0ULL;
                 featSetZeroHdrSize_ = featUseZeroHdrSize_;
                 saveFeatureBytes(origFeatBuf_, origFeatLen_, payload, payloadLen);
-                uint8_t featBuf[kMaxFeatureReportBytes] {};
-                const size_t copyLen = (payloadLen <= sizeof(featBuf)) ? payloadLen : sizeof(featBuf);
-                memcpy(featBuf, payload, copyLen);
-                bool rmwOk = applyAlsFeatureRmw(alsDesc_, featBuf, copyLen, &alsIntervalMs_, &alsSensitivity_);
-                if (rmwOk) {
-                    featRetryPowerOnly_ = false;
-                } else {
-                    memcpy(featBuf, payload, copyLen);
-                    rmwOk = applyAlsFeaturePowerOnlyRmw(alsDesc_, featBuf, copyLen);
-                    if (rmwOk) {
-                        featRetryPowerOnly_ = true;
+                if (wakeRecovery_ &&
+                    verifyAlsFeatureControls(alsDesc_, origFeatBuf_, origFeatLen_, nullptr, nullptr, false)) {
+                    uint8_t offBuf[kMaxFeatureReportBytes] {};
+                    const size_t copyLen = (origFeatLen_ <= sizeof(offBuf)) ? origFeatLen_ : sizeof(offBuf);
+                    memcpy(offBuf, origFeatBuf_, copyLen);
+                    if (applyAlsFeatureOffRmw(alsDesc_, offBuf, copyLen)) {
+                        ++alsFeatCycleCount_;
+                        sendHostifSimple(kHostifSetFeatureReport, alsDevId_, offBuf, copyLen, featSetZeroHdrSize_);
+                        enterStage(Stage::AlsFeatCycleOff, nowNs);
+                        return;
                     }
                 }
-                if (!rmwOk) {
-                    fallbackToPrimeInput("ALS feature RMW failed; polling input directly", nowNs);
-                    return;
-                }
-                saveFeatureBytes(reqFeatBuf_, reqFeatLen_, featBuf, copyLen);
-                sendHostifSimple(kHostifSetFeatureReport, alsDevId_, featBuf, copyLen, featSetZeroHdrSize_);
-                enterStage(Stage::AlsFeatSet, nowNs);
+                beginAlsFeatEnable(nowNs);
                 return;
             }
             if (stage_ == Stage::AlsFeatVerify) {
@@ -1607,45 +1684,52 @@ private:
             }
         }
 
-        if (baseCmd == kHostifSetFeatureReport && isResp && hdr.device_id == alsDevId_ && stage_ == Stage::AlsFeatSet) {
-            featSetStatus_ = hdr.status;
-            featSetFlags_ = hdr.flags;
-            if (hdr.status != 0u) {
-                if (!featRetryPowerOnly_ && origFeatLen_ > 0u) {
-                    featRetryPowerOnly_ = true;
-                    uint8_t featBuf[kMaxFeatureReportBytes] {};
-                    const size_t copyLen = (origFeatLen_ <= sizeof(featBuf)) ? origFeatLen_ : sizeof(featBuf);
-                    memcpy(featBuf, origFeatBuf_, copyLen);
-                    if (applyAlsFeaturePowerOnlyRmw(alsDesc_, featBuf, copyLen)) {
-                        saveFeatureBytes(reqFeatBuf_, reqFeatLen_, featBuf, copyLen);
-                        sendHostifSimple(kHostifSetFeatureReport, alsDevId_, featBuf, copyLen, featSetZeroHdrSize_);
+        if (baseCmd == kHostifSetFeatureReport && isResp && hdr.device_id == alsDevId_) {
+            if (stage_ == Stage::AlsFeatCycleOff) {
+                beginAlsFeatEnable(nowNs);
+                return;
+            }
+            if (stage_ == Stage::AlsFeatSet) {
+                featSetStatus_ = hdr.status;
+                featSetFlags_ = hdr.flags;
+                if (hdr.status != 0u) {
+                    if (!featRetryPowerOnly_ && origFeatLen_ > 0u) {
+                        featRetryPowerOnly_ = true;
+                        uint8_t featBuf[kMaxFeatureReportBytes] {};
+                        const size_t copyLen = (origFeatLen_ <= sizeof(featBuf)) ? origFeatLen_ : sizeof(featBuf);
+                        memcpy(featBuf, origFeatBuf_, copyLen);
+                        if (applyAlsFeaturePowerOnlyRmw(alsDesc_, featBuf, copyLen)) {
+                            saveFeatureBytes(reqFeatBuf_, reqFeatLen_, featBuf, copyLen);
+                            sendHostifSimple(kHostifSetFeatureReport, alsDevId_, featBuf, copyLen, featSetZeroHdrSize_);
+                            enterStage(Stage::AlsFeatSet, nowNs);
+                            return;
+                        }
+                    }
+                    if (!featSetZeroHdrRetry_ && reqFeatLen_ > 0u) {
+                        featSetZeroHdrRetry_ = true;
+                        featSetZeroHdrSize_ = !featSetZeroHdrSize_;
+                        sendHostifSimple(kHostifSetFeatureReport, alsDevId_, reqFeatBuf_, reqFeatLen_, featSetZeroHdrSize_);
                         enterStage(Stage::AlsFeatSet, nowNs);
                         return;
                     }
+                    setFeatureError("SET_FEATURE_REPORT non-zero status; verifying readback");
                 }
-                if (!featSetZeroHdrRetry_ && reqFeatLen_ > 0u) {
-                    featSetZeroHdrRetry_ = true;
-                    featSetZeroHdrSize_ = !featSetZeroHdrSize_;
-                    sendHostifSimple(kHostifSetFeatureReport, alsDevId_, reqFeatBuf_, reqFeatLen_, featSetZeroHdrSize_);
-                    enterStage(Stage::AlsFeatSet, nowNs);
-                    return;
-                }
-                setFeatureError("SET_FEATURE_REPORT non-zero status; verifying readback");
+                sendHostifSimple(kHostifGetFeatureReport, alsDevId_, &alsDesc_.featureReportId, 1u, featUseZeroHdrSize_);
+                enterStage(Stage::AlsFeatVerify, nowNs);
+                return;
             }
-            sendHostifSimple(kHostifGetFeatureReport, alsDevId_, &alsDesc_.featureReportId, 1u, featUseZeroHdrSize_);
-            enterStage(Stage::AlsFeatVerify, nowNs);
-            return;
         }
 
         if (baseCmd == kHostifGetInputReport && isResp && hdr.device_id == alsDevId_) {
-            if (stage_ == Stage::AlsPrimeInput) {
+            const bool wasPrime = (stage_ == Stage::AlsPrimeInput);
+            if (wasPrime) {
                 enterStage(Stage::Streaming, nowNs);
                 lastSampleRxNs_ = nowNs;
                 lastHeartbeatTxNs_ = nowNs;
             }
             if (hdr.status == 0u && payloadLen > 0) {
                 ++getInputRespCount_;
-                processInputReportPayload(hdr.device_id, payload, payloadLen, nowNs);
+                processInputReportPayload(hdr.device_id, payload, payloadLen, nowNs, wasPrime);
             }
             return;
         }
@@ -1665,7 +1749,8 @@ private:
         }
     }
 
-    void processInputReportPayload(uint8_t devId, const uint8_t *payload, size_t len, uint64_t nowNs) {
+    void processInputReportPayload(uint8_t devId, const uint8_t *payload, size_t len, uint64_t nowNs,
+                                   bool fromPrime = false) {
         if (!alsDesc_.found || devId != alsDevId_) {
             return;
         }
@@ -1673,6 +1758,18 @@ private:
         uint64_t mLux = 0;
         uint32_t fLux = kSmcLuxInvalid;
         if (decodeAlsInputReport(alsDesc_, payload, len, raw, mLux, fLux)) {
+            if (fromPrime && wakeRecovery_ && sampleCount_ == 0u && raw == 0u) {
+                rawIllum_ = 0;
+                milliLux_ = 0;
+                lastSampleRxNs_ = nowNs;
+                ++sampleCount_;
+                wakeZeroPrimeDeferred_ = true;
+                wakeZeroPrimeUntilNs_ = nowNs + kWakeZeroPrimeGraceNs;
+                wakeZeroPollSent_ = false;
+                return;
+            }
+            wakeZeroPrimeDeferred_ = false;
+            wakeZeroPollSent_ = false;
             rawIllum_ = raw;
             milliLux_ = mLux;
             fixedLux_ = fLux;

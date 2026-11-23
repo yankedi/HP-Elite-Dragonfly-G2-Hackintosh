@@ -62,6 +62,22 @@
 				<key>Path</key>
 				<string>SSDT-EC0-ITLB.aml</string>
 			</dict>
+			<dict>
+				<key>Comment</key>
+				<string>HP 8716 BAT0._BST full-charge clamp (&gt;=97% on AC, not charging/discharging) for S0ixStandby</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Path</key>
+				<string>SSDT-BATFULL.aml</string>
+			</dict>
+			<dict>
+				<key>Comment</key>
+				<string>Darwin-only LID _PRW(0x6E, 0x03) for native lid-open wake from Deep Idle (Phase 64)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>Path</key>
+				<string>SSDT-LIDWAKE.aml</string>
+			</dict>
 		</array>
 		<key>Delete</key>
 		<array>
@@ -311,6 +327,45 @@
 				<key>Replace</key>
 				<data>
 				WFQwNAk=
+				</data>
+				<key>ReplaceMask</key>
+				<data>
+				</data>
+				<key>Skip</key>
+				<integer>0</integer>
+				<key>TableLength</key>
+				<integer>0</integer>
+				<key>TableSignature</key>
+				<data>
+				RFNEVA==
+				</data>
+			</dict>
+			<dict>
+				<key>Base</key>
+				<string></string>
+				<key>BaseSkip</key>
+				<integer>0</integer>
+				<key>Comment</key>
+				<string>Rename BAT0._BST to XBST in DSDT for SSDT-BATFULL</string>
+				<key>Count</key>
+				<integer>1</integer>
+				<key>Enabled</key>
+				<true/>
+				<key>Find</key>
+				<data>
+				FAxfQlNUAKRCVFNUAA==
+				</data>
+				<key>Limit</key>
+				<integer>0</integer>
+				<key>Mask</key>
+				<data>
+				</data>
+				<key>OemTableId</key>
+				<data>
+				</data>
+				<key>Replace</key>
+				<data>
+				FAxYQlNUAKRCVFNUAA==
 				</data>
 				<key>ReplaceMask</key>
 				<data>
@@ -997,7 +1052,7 @@
 			<key>InstanceIdentifier</key>
 			<string></string>
 			<key>LauncherOption</key>
-			<string>Disabled</string>
+			<string>Full</string>
 			<key>LauncherPath</key>
 			<string>Default</string>
 			<key>PickerAttributes</key>
@@ -1015,7 +1070,7 @@
 			<key>TakeoffDelay</key>
 			<integer>0</integer>
 			<key>Timeout</key>
-			<integer>1</integer>
+			<integer>3</integer>
 		</dict>
 		<key>Debug</key>
 		<dict>
@@ -1041,7 +1096,7 @@
 		<key>Security</key>
 		<dict>
 			<key>AllowSetDefault</key>
-			<true/>
+			<false/>
 			<key>ApECID</key>
 			<integer>0</integer>
 			<key>AuthRestart</key>
@@ -1086,7 +1141,7 @@
 			<key>7C436110-AB2A-4BBB-A880-FE41995C9F82</key>
 			<dict>
 				<key>boot-args</key>
-				<string>keepsyms=1 debug=0x100000 slide=0 -ngreentglwithgfx ngreenSched=3 ngreen-dmc=tgl -ngreenfixbootmode amfi=0x7 -allow3d -disablegfxfirmware ngreen-eu=80 ngreen-l3=6 -tgldmic -s0ixd3 -s0ixnogpureset -s0ixcnvwd3</string>
+				<string>keepsyms=1 debug=0x100000 slide=0 -ngreentglwithgfx ngreenSched=3 ngreen-dmc=tgl -ngreenfixbootmode amfi=0x7 -allow3d -disablegfxfirmware ngreen-eu=80 ngreen-l3=6 -tgldmic -ngreenfbdpms -s0ixd3 -s0ixwifipm -s0ixacnortc</string>
 				<key>csr-active-config</key>
 				<data>
 				BwIAAA==
@@ -1096,6 +1151,25 @@
 				ZW4tVVM6MA==
 				</data>
 			</dict>
+			<key>4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102</key>
+			<dict>
+				<key>OCBtOrder</key>
+				<data>
+				gAA=
+				</data>
+				<key>OCBt0080</key>
+				<data>
+				AQAAABQBVABhAGgAbwBlAAAAAgEMANBBAwoAAAAAAQEG
+				AAAdAQEGAAAAAxcQAAEAAAAAoHUBMe1RRAQBKgAFAAAA
+				AOh7HQAAAACIKiIeAAAAAAz/dwS665BCpO9B2mPYZ70C
+				AgQDJAD3/HS+fAvzSZFHAfQELmhCGAh4KWmi5kehXsB+
+				zrLA8QQEmgBcADAARAA0AEQAMgBGADAAOQAtAEYAOQBG
+				ADcALQA0ADgAOAA0AC0AQQA1AEEANgAtAEYAOQA1AEMA
+				MAAwADUARAAwADYANQBCAFwAUwB5AHMAdABlAG0AXABM
+				AGkAYgByAGEAcgB5AFwAQwBvAHIAZQBTAGUAcgB2AGkA
+				YwBlAHMAXABiAG8AbwB0AC4AZQBmAGkAAAB//wQA
+				</data>
+			</dict>
 		</dict>
 		<key>Delete</key>
 		<dict>
@@ -1103,6 +1177,12 @@
 			<array>
 				<string>boot-args</string>
 				<string>csr-active-config</string>
+			</array>
+			<key>4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102</key>
+			<array>
+				<string>OCBtOrder</string>
+				<string>OCBt0000</string>
+				<string>OCBt0080</string>
 			</array>
 		</dict>
 		<key>LegacyOverwrite</key>

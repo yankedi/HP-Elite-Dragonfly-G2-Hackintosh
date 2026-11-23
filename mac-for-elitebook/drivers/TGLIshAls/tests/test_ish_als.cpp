@@ -389,7 +389,7 @@ static void testFullStateMachineMultiSensorAndReports() {
     tx = drainTx(tr);
     CHECK(tx.size() == 1u && tx[0].data[4] == ish::kHbmHostEnumReq);
 
-    // 4) HBM_HOST_ENUM_RES with bits 2 (non-HID), 7 (HID), 13 (System State) + Client 14 DSM Init
+    // 4) HBM_HOST_ENUM_RES with bits 2 (non-HID), 7 (HID), 13 (System State) + Client 13 Init/Status + Client 14 DSM Init
     ish::HbmEnumRes enumRes {};
     enumRes.cmd = ish::kHbmHostEnumRes;
     enumRes.valid_bits[2 >> 3]  |= static_cast<uint8_t>(1u << (2u & 7u));
@@ -397,18 +397,35 @@ static void testFullStateMachineMultiSensorAndReports() {
     enumRes.valid_bits[13 >> 3] |= static_cast<uint8_t>(1u << (13u & 7u));
     injectIshtpMessage(tr, 0u, 0u, reinterpret_cast<const uint8_t *>(&enumRes), sizeof(enumRes), t);
     CHECK(tr.stage() == ish::IshTransport::Stage::HbmPropsLoop);
+    CHECK(tr.sysStateInitQueryCount() == 1u);
+    CHECK(tr.sysStateCount() == 1u);
     tx = drainTx(tr);
-    CHECK(tx.size() == 2u);
+    CHECK(tx.size() == 4u);
     CHECK(tx[0].data[4] == ish::kHbmHostClientPropsReq && tx[0].data[5] == 2u);
     {
+        uint8_t sfw = 0, shost = 0;
+        uint16_t slen = 0;
+        bool scomp = false;
+        ish::parseIshtpHdrWord(ish::readLe32(tx[1].data), sfw, shost, slen, scomp);
+        CHECK(sfw == ish::kSysStateFwAddr && shost == 0u && slen == 8u && scomp);
+        CHECK(ish::readLe32(tx[1].data + 4) == ish::kSysStateInitQueryCmd);
+        CHECK(ish::readLe32(tx[1].data + 8) == 0u);
+
+        ish::parseIshtpHdrWord(ish::readLe32(tx[2].data), sfw, shost, slen, scomp);
+        CHECK(sfw == ish::kSysStateFwAddr && shost == 0u && slen == 16u && scomp);
+        CHECK(ish::readLe32(tx[2].data + 4) == ish::kSysStateStatusCmd);
+        CHECK(ish::readLe32(tx[2].data + 8) == 0u);
+        CHECK(ish::readLe32(tx[2].data + 12) == ish::kSysStateAllSupported);
+        CHECK(ish::readLe32(tx[2].data + 16) == 0u);
+
         uint8_t dfw = 0, dhost = 0;
         uint16_t dlen = 0;
         bool dcomp = false;
-        ish::parseIshtpHdrWord(ish::readLe32(tx[1].data), dfw, dhost, dlen, dcomp);
+        ish::parseIshtpHdrWord(ish::readLe32(tx[3].data), dfw, dhost, dlen, dcomp);
         CHECK(dfw == ish::kDsmProxyFwAddr && dhost == 0u && dlen == 12u && dcomp);
-        CHECK(ish::readLe32(tx[1].data + 4) == ish::kDsmCmdInit);
-        CHECK(ish::readLe32(tx[1].data + 8) == 0u);
-        CHECK(ish::readLe32(tx[1].data + 12) == ish::kDsmDefaultSupportedMask);
+        CHECK(ish::readLe32(tx[3].data + 4) == ish::kDsmCmdInit);
+        CHECK(ish::readLe32(tx[3].data + 8) == 0u);
+        CHECK(ish::readLe32(tx[3].data + 12) == ish::kDsmDefaultSupportedMask);
     }
 
     // Client 2 is not HID
@@ -530,7 +547,7 @@ static void testFullStateMachineMultiSensorAndReports() {
         ish::writeLe32(reinterpret_cast<uint8_t *>(&sub.cmd), ish::kSysStateSubscribeCmd);
         ish::writeLe32(reinterpret_cast<uint8_t *>(&sub.states), ish::kSysStateAllSupported);
         injectIshtpMessage(tr, ish::kSysStateFwAddr, 0u, reinterpret_cast<const uint8_t *>(&sub), sizeof(sub), t);
-        CHECK(tr.sysStateCount() == 1u);
+        CHECK(tr.sysStateCount() == 2u);
         CHECK(tr.sysStateSubscribed());
         CHECK((tr.fixedClientsSeen() & (1u << ish::kSysStateFwAddr)) != 0u);
         tx = drainTx(tr);
@@ -1028,7 +1045,7 @@ static void testFixedClient13SystemStateTransitions() {
     CHECK(tr.sysStateSubscribed());
     CHECK(tr.sysStateSupported() == ish::kSysStateAllSupported);
     CHECK(tr.sysStateStatus() == 0u);
-    CHECK(tr.sysStateCount() == 1u);
+    CHECK(tr.sysStateCount() == 2u);
     auto tx = drainTx(tr);
     CHECK(tx.size() == 1u);
     CHECK(ish::readLe32(tx[0].data + 4) == ish::kSysStateStatusCmd);
@@ -1038,7 +1055,7 @@ static void testFixedClient13SystemStateTransitions() {
     // 2) Display OFF while awake -> CONNECTED_STANDBY_STATE_BIT (0x01)
     CHECK(tr.setHostPowerState(true, false, t));
     CHECK(tr.sysStateStatus() == ish::kSysStateConnectedStandbyBit);
-    CHECK(tr.sysStateCount() == 2u);
+    CHECK(tr.sysStateCount() == 3u);
     tx = drainTx(tr);
     CHECK(tx.size() == 1u);
     CHECK(ish::readLe32(tx[0].data + 4) == ish::kSysStateStatusCmd);
@@ -1101,7 +1118,12 @@ static void testFixedClient14DsmProxy() {
         enumRes.valid_bits[7 >> 3] |= static_cast<uint8_t>(1u << (7u & 7u));
         injectIshtpMessage(trNoDsm, 0u, 0u, reinterpret_cast<const uint8_t *>(&enumRes), sizeof(enumRes), t);
         auto tx = drainTx(trNoDsm);
-        CHECK(tx.size() == 1u && tx[0].data[4] == ish::kHbmHostClientPropsReq);
+        CHECK(tx.size() == 3u && tx[0].data[4] == ish::kHbmHostClientPropsReq);
+        for (const auto &f : tx) {
+            if (f.proto == ish::kProtoIshtp) {
+                CHECK((f.data[0] & 0xFFu) != ish::kDsmProxyFwAddr);
+            }
+        }
     }
 
     // 3) Valid Client 14 sub_cmd=4 (Func 2, 1B) and sub_cmd=2 (Func 3, 9B) + malformed guards + queue cap
@@ -1553,9 +1575,10 @@ static std::vector<uint8_t> buildHp317AlsDescriptor() {
     return d;
 }
 
-static void bringTo317FeatureGet(ish::IshTransport &tr, const std::vector<uint8_t> &alsDesc, uint64_t &t) {
+static void bringTo317FeatureGet(ish::IshTransport &tr, const std::vector<uint8_t> &alsDesc, uint64_t &t,
+                                  bool isWake = false) {
     t = 1000000ULL;
-    tr.startInit(t);
+    tr.startInit(t, isWake, true, true);
     drainTx(tr);
 
     t += 5ULL * ish::IshTransport::kNsPerMs;
@@ -1881,6 +1904,318 @@ static void testPhase52PimrFlowAndKeepalive() {
     CHECK(rstTx.size() == 1u && rstTx[0].proto == ish::kProtoMng && rstTx[0].mngCmd == ish::kMngResetNotifyAck);
 }
 
+static void testPhase62WakeSysStateAndAlsCycleRecovery() {
+    auto desc317 = buildHp317AlsDescriptor();
+    {
+        ish::AlsDescriptorInfo info {};
+        CHECK(ish::parseAlsReportDescriptor(desc317.data(), desc317.size(), info));
+        CHECK(info.powerState.hasOffVal && info.powerState.offVal == 1u && info.powerState.targetVal == 2u);
+        CHECK(info.reportState.hasOffVal && info.reportState.offVal == 1u && info.reportState.targetVal == 2u);
+
+        uint8_t offBuf[317] {};
+        offBuf[0] = 6u;
+        offBuf[1] = 2u;
+        offBuf[2] = 2u;
+        CHECK(ish::applyAlsFeatureOffRmw(info, offBuf, sizeof(offBuf)));
+        CHECK(offBuf[1] == 1u && offBuf[2] == 1u);
+    }
+
+    // 1) Sleep -> Wake startInit(t, true, true, true):
+    //    HbmEnumRes proactively emits Client 13 cmd=5 (8B) + cmd=2 status=0 (16B) + Client 14 DsmInit (12B),
+    //    even if FW does NOT re-send kSysStateSubscribeCmd across S0ix.
+    {
+        ish::IshTransport tr;
+        uint64_t t = 1000000ULL;
+        const uint64_t utc0 = 1732000000000000ULL;
+        const uint64_t mono0 = 10000ULL;
+        bringTransportToStreaming(tr, t, utc0, mono0);
+        CHECK(tr.setHostPowerState(false, false, t, utc0, mono0));
+        CHECK(tr.sysStateStatus() == (ish::kSysStateConnectedStandbyBit | ish::kSysStateSuspendBit));
+        drainTx(tr);
+
+        t += 60ULL * 1000ULL * ish::IshTransport::kNsPerMs;
+        tr.startInit(t, true, true, true);
+        CHECK(tr.sysStateStatus() == 0u);
+        CHECK(!tr.sysStateSubscribed());
+        CHECK(tr.sysStateInitQueryCount() == 0u);
+        drainTx(tr); // MNG_RESET_NOTIFY
+
+        const uint8_t ackPayload[4] = { 1u, 0u, 0u, 0u };
+        tr.onRxFrame(ish::makeDrbl(ish::kProtoMng, ish::kMngResetNotifyAck, 4u), ackPayload, 4u, t);
+        t += 10ULL * ish::IshTransport::kNsPerMs;
+        tr.onTick(t, ish::kFwstsReadyMask, false, utc0 + 60000000ULL, mono0 + 60000000ULL);
+        drainTx(tr); // HBM_START + MNG_SYNC_FW_CLOCK
+
+        const uint8_t startRes[4] = { ish::kHbmHostStartRes, 1u, 0u, 1u };
+        injectIshtpMessage(tr, 0u, 0u, startRes, sizeof(startRes), t);
+        drainTx(tr);
+
+        ish::HbmEnumRes enumRes {};
+        enumRes.cmd = ish::kHbmHostEnumRes;
+        enumRes.valid_bits[3 >> 3] |= static_cast<uint8_t>(1u << (3u & 7u));
+        injectIshtpMessage(tr, 0u, 0u, reinterpret_cast<const uint8_t *>(&enumRes), sizeof(enumRes), t);
+        CHECK(tr.sysStateInitQueryCount() == 1u);
+        CHECK(tr.sysStateCount() == 1u);
+        CHECK(tr.sysStateStatus() == 0u);
+        auto tx = drainTx(tr);
+        CHECK(tx.size() == 4u);
+        CHECK(ish::readLe32(tx[1].data + 4) == ish::kSysStateInitQueryCmd);
+        CHECK(ish::readLe32(tx[2].data + 4) == ish::kSysStateStatusCmd);
+        CHECK(ish::readLe32(tx[2].data + 16) == 0u);
+        CHECK(ish::readLe32(tx[3].data + 4) == ish::kDsmCmdInit);
+
+        // forceSend (models kIOMessageSystemHasPoweredOn) sends SysStateStatus(0) + ClockSync even if unchanged
+        CHECK(tr.setHostPowerState(true, true, t + 1000ULL, utc0 + 61000000ULL, mono0 + 61000000ULL, true));
+        CHECK(tr.sysStateCount() == 2u);
+        CHECK(tr.clockSyncCount() == 2u);
+        tx = drainTx(tr);
+        CHECK(tx.size() == 2u);
+        CHECK(tx[0].proto == ish::kProtoIshtp && ish::readLe32(tx[0].data + 4) == ish::kSysStateStatusCmd);
+        CHECK(tx[1].proto == ish::kProtoMng && tx[1].mngCmd == ish::kMngSyncFwClock);
+    }
+
+    // 2) Post-wake AlsFeatGet returning already-active <06 02 02 01 02 ...> enters AlsFeatCycleOff -> AlsFeatSet -> AlsFeatVerify
+    //    AND wake AlsPrimeInput returning transient 0 defers until async non-zero publish (lit room).
+    {
+        ish::IshTransport tr;
+        uint64_t t = 0;
+        bringTo317FeatureGet(tr, desc317, t, true);
+
+        std::vector<uint8_t> wakeActiveFeat(317u, 0u);
+        wakeActiveFeat[0] = 6u;
+        wakeActiveFeat[1] = 2u; // Already D0
+        wakeActiveFeat[2] = 2u; // Already AllEvents
+        ish::writeLe32(&wakeActiveFeat[3], 100u);
+        ish::writeLe16(&wakeActiveFeat[7], 1u);
+        wakeActiveFeat[20] = 0x5Au;
+
+        auto fgRsp = makeHostifMsg(ish::kHostifGetFeatureReport | ish::kHostifIsResponse, 0u, 0u,
+                                   wakeActiveFeat.data(), wakeActiveFeat.size());
+        injectFwFlowControl(tr, 3u, 1u, t);
+        injectIshtpMessage(tr, 3u, 1u, fgRsp.data(), fgRsp.size(), t);
+        CHECK(tr.stage() == ish::IshTransport::Stage::AlsFeatCycleOff);
+        CHECK(tr.alsFeatCycleCount() == 1u);
+        auto tx = drainTx(tr);
+        auto offSdu = reassembleHidFrames(tx, 1u);
+        CHECK(offSdu.size() == 323u);
+        CHECK(offSdu[0] == ish::kHostifSetFeatureReport);
+        CHECK(offSdu[6] == 6u && offSdu[7] == 1u && offSdu[8] == 1u); // Off cycle!
+        CHECK(offSdu[26] == 0x5Au);
+
+        // Even non-zero status on AlsFeatCycleOff transitions cleanly to AlsFeatSet (AllEvents/D0)!
+        auto offErr = makeHostifMsg(ish::kHostifSetFeatureReport | ish::kHostifIsResponse, 0u, 1u, nullptr, 0u);
+        injectFwFlowControl(tr, 3u, 1u, t);
+        injectIshtpMessage(tr, 3u, 1u, offErr.data(), offErr.size(), t);
+        CHECK(tr.stage() == ish::IshTransport::Stage::AlsFeatSet);
+        tx = drainTx(tr);
+        auto onSdu = reassembleHidFrames(tx, 1u);
+        CHECK(onSdu.size() == 323u);
+        CHECK(onSdu[6] == 6u && onSdu[7] == 2u && onSdu[8] == 2u); // Back to D0 + AllEvents!
+
+        auto onOk = makeHostifMsg(ish::kHostifSetFeatureReport | ish::kHostifIsResponse, 0u, 0u, nullptr, 0u);
+        injectFwFlowControl(tr, 3u, 1u, t);
+        injectIshtpMessage(tr, 3u, 1u, onOk.data(), onOk.size(), t);
+        CHECK(tr.stage() == ish::IshTransport::Stage::AlsFeatVerify);
+        drainTx(tr);
+
+        auto fvRsp = makeHostifMsg(ish::kHostifGetFeatureReport | ish::kHostifIsResponse, 0u, 0u,
+                                   wakeActiveFeat.data(), wakeActiveFeat.size());
+        injectFwFlowControl(tr, 3u, 1u, t);
+        injectIshtpMessage(tr, 3u, 1u, fvRsp.data(), fvRsp.size(), t);
+        CHECK(tr.alsControlsVerified());
+        CHECK(tr.stage() == ish::IshTransport::Stage::AlsPrimeInput);
+        drainTx(tr);
+
+        // Transient raw=0 on wake AlsPrimeInput is deferred (fixedLux stays Invalid, consumeSampleUpdated == false)
+        std::vector<uint8_t> inRpt(31u, 0u);
+        inRpt[0] = 6u;
+        auto giZero = makeHostifMsg(ish::kHostifGetInputReport | ish::kHostifIsResponse, 0u, 0u, inRpt.data(), inRpt.size());
+        injectIshtpMessage(tr, 3u, 1u, giZero.data(), giZero.size(), t);
+        CHECK(tr.stage() == ish::IshTransport::Stage::Streaming);
+        CHECK(tr.wakeZeroPrimeDeferred());
+        CHECK(!tr.consumeSampleUpdated());
+        CHECK(tr.fixedLux() == ish::kSmcLuxInvalid);
+
+        // Asynchronous real non-zero publish clears deferral immediately!
+        ish::writeLe32(&inRpt[27], 2484290u);
+        auto pubLit = makeHostifMsg(ish::kHostifPublishInputReport, 0u, 0u, inRpt.data(), inRpt.size());
+        injectIshtpMessage(tr, 3u, 1u, pubLit.data(), pubLit.size(), t + 100ULL * ish::IshTransport::kNsPerMs);
+        CHECK(!tr.wakeZeroPrimeDeferred());
+        CHECK(tr.consumeSampleUpdated());
+        CHECK(tr.milliLux() == 2484290ULL);
+        CHECK(!tr.isAlsDarkPermissive());
+        drainTx(tr);
+    }
+
+    // 3) Genuine dark room on wake: AlsFeatCycleOff timeout falls through to AlsFeatSet;
+    //    deferred wake 0 re-polls after 500ms and publishes 0 mLux cleanly when confirm GET_INPUT_REPORT returns 0.
+    {
+        ish::IshTransport tr;
+        uint64_t t = 0;
+        bringTo317FeatureGet(tr, desc317, t, true);
+
+        std::vector<uint8_t> wakeActiveFeat(317u, 0u);
+        wakeActiveFeat[0] = 6u;
+        wakeActiveFeat[1] = 2u;
+        wakeActiveFeat[2] = 2u;
+        ish::writeLe32(&wakeActiveFeat[3], 100u);
+        ish::writeLe16(&wakeActiveFeat[7], 1u);
+
+        auto fgRsp = makeHostifMsg(ish::kHostifGetFeatureReport | ish::kHostifIsResponse, 0u, 0u,
+                                   wakeActiveFeat.data(), wakeActiveFeat.size());
+        injectFwFlowControl(tr, 3u, 1u, t);
+        injectIshtpMessage(tr, 3u, 1u, fgRsp.data(), fgRsp.size(), t);
+        CHECK(tr.stage() == ish::IshTransport::Stage::AlsFeatCycleOff);
+        drainTx(tr);
+
+        // Timeout in AlsFeatCycleOff -> falls through to AlsFeatSet instead of failing
+        t += ish::IshTransport::kHidStageTimeoutNs + 1ULL;
+        injectFwFlowControl(tr, 3u, 1u, t);
+        tr.onTick(t, ish::kFwstsReadyMask, false, 1732000000000000ULL, 10000ULL);
+        CHECK(tr.stage() == ish::IshTransport::Stage::AlsFeatSet);
+        drainTx(tr);
+
+        auto onOk = makeHostifMsg(ish::kHostifSetFeatureReport | ish::kHostifIsResponse, 0u, 0u, nullptr, 0u);
+        injectFwFlowControl(tr, 3u, 1u, t);
+        injectIshtpMessage(tr, 3u, 1u, onOk.data(), onOk.size(), t);
+        drainTx(tr);
+
+        auto fvRsp = makeHostifMsg(ish::kHostifGetFeatureReport | ish::kHostifIsResponse, 0u, 0u,
+                                   wakeActiveFeat.data(), wakeActiveFeat.size());
+        injectFwFlowControl(tr, 3u, 1u, t);
+        injectIshtpMessage(tr, 3u, 1u, fvRsp.data(), fvRsp.size(), t);
+        CHECK(tr.stage() == ish::IshTransport::Stage::AlsPrimeInput);
+        drainTx(tr);
+
+        std::vector<uint8_t> inRpt(31u, 0u);
+        inRpt[0] = 6u;
+        auto giZero = makeHostifMsg(ish::kHostifGetInputReport | ish::kHostifIsResponse, 0u, 0u, inRpt.data(), inRpt.size());
+        injectIshtpMessage(tr, 3u, 1u, giZero.data(), giZero.size(), t);
+        CHECK(tr.wakeZeroPrimeDeferred());
+        CHECK(!tr.consumeSampleUpdated());
+        drainTx(tr);
+
+        // After 500ms grace with TX credit -> emits 1 confirm GET_INPUT_REPORT
+        injectFwFlowControl(tr, 3u, 1u, t);
+        t += ish::IshTransport::kWakeZeroPrimeGraceNs;
+        tr.onTick(t, ish::kFwstsReadyMask, false, 1732000000500000ULL, 510000ULL);
+        auto tx = drainTx(tr);
+        CHECK(tx.size() == 1u && tx[0].data[4] == ish::kHostifGetInputReport);
+
+        // Confirm response also returns 0 -> publishes real dark-room 0 lux!
+        injectIshtpMessage(tr, 3u, 1u, giZero.data(), giZero.size(), t);
+        CHECK(!tr.wakeZeroPrimeDeferred());
+        CHECK(tr.consumeSampleUpdated());
+        CHECK(tr.fixedLux() == 0u);
+        CHECK(tr.milliLux() == 0ULL);
+        CHECK(tr.isAlsDarkPermissive());
+    }
+
+    // 4) Cold boot (isWake == false) never invokes AlsFeatCycleOff even if origFeat had 0x02/0x02
+    {
+        ish::IshTransport tr;
+        uint64_t t = 0;
+        bringTo317FeatureGet(tr, desc317, t, false);
+        std::vector<uint8_t> coldFeat(317u, 0u);
+        coldFeat[0] = 6u;
+        coldFeat[1] = 2u;
+        coldFeat[2] = 2u;
+        auto fgRsp = makeHostifMsg(ish::kHostifGetFeatureReport | ish::kHostifIsResponse, 0u, 0u,
+                                   coldFeat.data(), coldFeat.size());
+        injectFwFlowControl(tr, 3u, 1u, t);
+        injectIshtpMessage(tr, 3u, 1u, fgRsp.data(), fgRsp.size(), t);
+        CHECK(tr.stage() == ish::IshTransport::Stage::AlsFeatSet);
+        CHECK(tr.alsFeatCycleCount() == 0u);
+    }
+}
+
+static void testPhase64WakeAlsRenotifyStateMachine() {
+    const uint64_t ms = ish::IshTransport::kNsPerMs;
+
+    // 1) Cold boot: onSystemHasPoweredOn without onPowerWake does nothing
+    {
+        ish::WakeAlsNotifyState st;
+        st.onSystemHasPoweredOn(1000ULL * ms);
+        CHECK(!st.hasPending());
+        CHECK(!st.shouldFireRefresh(1500ULL * ms, true));
+        CHECK(!st.shouldFireRefresh(2500ULL * ms, true));
+    }
+
+    // 2) Normal wake with early constant-lux sample before kIOMessageSystemHasPoweredOn:
+    //    fires at +500ms and +1500ms after SystemHasPoweredOn, then disarms permanently.
+    {
+        ish::WakeAlsNotifyState st;
+        st.onPowerWake();
+        CHECK(!st.hasPending());
+        CHECK(!st.shouldFireRefresh(10000ULL * ms, true));
+
+        const uint64_t tPowerOn = 10000ULL * ms;
+        st.onSystemHasPoweredOn(tPowerOn);
+        CHECK(st.hasPending());
+        CHECK(!st.shouldFireRefresh(tPowerOn + 499ULL * ms, true));
+        CHECK(st.hasPending());
+
+        // First refresh fires at >= +500ms
+        CHECK(st.shouldFireRefresh(tPowerOn + 500ULL * ms, true));
+        CHECK(st.hasPending());
+        // Does not fire again at +600ms or +1499ms
+        CHECK(!st.shouldFireRefresh(tPowerOn + 600ULL * ms, true));
+        CHECK(!st.shouldFireRefresh(tPowerOn + 1499ULL * ms, true));
+
+        // Second refresh fires at >= +1500ms
+        CHECK(st.shouldFireRefresh(tPowerOn + 1500ULL * ms, true));
+        CHECK(!st.hasPending());
+
+        // Never fires a 3rd time
+        CHECK(!st.shouldFireRefresh(tPowerOn + 3000ULL * ms, true));
+        CHECK(!st.shouldFireRefresh(tPowerOn + 5000ULL * ms, true));
+    }
+
+    // 3) Invalid sample waits without consuming bits until sample becomes valid (still within 10s window)
+    {
+        ish::WakeAlsNotifyState st;
+        st.onPowerWake();
+        const uint64_t tPowerOn = 20000ULL * ms;
+        st.onSystemHasPoweredOn(tPowerOn);
+        CHECK(!st.shouldFireRefresh(tPowerOn + 700ULL * ms, false));
+        CHECK(st.hasPending());
+        // Once valid at +800ms, bit 0 fires first, then at +1500ms bit 1 fires
+        CHECK(st.shouldFireRefresh(tPowerOn + 800ULL * ms, true));
+        CHECK(st.hasPending());
+        CHECK(!st.shouldFireRefresh(tPowerOn + 1200ULL * ms, false));
+        CHECK(st.shouldFireRefresh(tPowerOn + 1600ULL * ms, true));
+        CHECK(!st.hasPending());
+    }
+
+    // 4) Hard 10s window expiry and clock-backward safety
+    {
+        ish::WakeAlsNotifyState st;
+        st.onPowerWake();
+        const uint64_t tPowerOn = 30000ULL * ms;
+        st.onSystemHasPoweredOn(tPowerOn);
+        CHECK(st.hasPending());
+        CHECK(!st.shouldFireRefresh(tPowerOn + ish::kWakeAlsMaxPendingWindowNs + 1ULL, true));
+        CHECK(!st.hasPending());
+
+        st.onPowerWake();
+        st.onSystemHasPoweredOn(tPowerOn);
+        CHECK(st.hasPending());
+        CHECK(!st.shouldFireRefresh(tPowerOn - 1ULL, true));
+        CHECK(!st.hasPending());
+    }
+
+    // 5) Sleep/reset clears pending state completely
+    {
+        ish::WakeAlsNotifyState st;
+        st.onPowerWake();
+        st.onSystemHasPoweredOn(40000ULL * ms);
+        CHECK(st.hasPending());
+        st.onSleepOrReset();
+        CHECK(!st.hasPending());
+        CHECK(!st.shouldFireRefresh(42000ULL * ms, true));
+    }
+}
+
 int main() {
     testProtocolConstantsAndTxSlicer();
     testHidParserAndLuxMath();
@@ -1893,6 +2228,8 @@ int main() {
     testFeatureFallbacksAndHdrSize();
     testPhase51Hp317FeatureAndRecovery();
     testPhase52PimrFlowAndKeepalive();
+    testPhase62WakeSysStateAndAlsCycleRecovery();
+    testPhase64WakeAlsRenotifyStateMachine();
     if (gTestsFailed != 0) {
         std::fprintf(stderr, "FAILED %d / %d checks\n", gTestsFailed, gTestsRun);
         return 1;

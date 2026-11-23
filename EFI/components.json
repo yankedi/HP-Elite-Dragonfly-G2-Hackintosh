@@ -59,8 +59,8 @@
         "com.apple.kpi.mach",
         "com.apple.kpi.unsupported"
       ],
-      "executable_sha256": "f219458de1ce2c22838df434279aac838a6e790fc6fe47b0ce8171f3797faa52",
-      "variant": "R32-PCFIX53-AUDIO (native 10-bit eDP + HDMI 2.0b 600 MHz SCDC + iDisp HDMI audio/MCCS volume + ext-display 3D stability + ALC285 9D70 coexistence)"
+      "executable_sha256": "d98f8ba850b683405945c4ed6de08ad29789f0d4eef03e2a5c9ded441d19bd8f",
+      "variant": "R32-PCFIX63-EDPWAKE (native 10-bit eDP + eDP S0ix/DC9 wake link training + -ngreenfbdpms + TGL 38.4 MHz DPLL0 0x00E001A5 / DPLL1-4 halving + Option A2 PG fuse retry + HDMI 2.0b 600 MHz SCDC + iDisp HDMI audio + ALC285 9D70 coexistence)"
     },
     {
       "path": "VirtualSMC.kext",
@@ -115,7 +115,7 @@
     {
       "path": "TGLIshAls.kext",
       "bundle_id": "com.labrouss.TGLIshAls",
-      "version": "0.5.0",
+      "version": "0.5.2",
       "dependencies": [
         "as.vit9696.VirtualSMC",
         "com.apple.iokit.IOACPIFamily",
@@ -126,8 +126,8 @@
         "com.apple.kpi.mach",
         "com.apple.kpi.unsupported"
       ],
-      "executable_sha256": "c568478f14ed5416857c312c3f8425a4998781e001e5fd012387dafe542606a0",
-      "variant": "HP Elite Dragonfly G2 TGL-LP ISH (8086:a0fc) clean-room BSD-3-Clause ambient light sensor driver (INTx-AutoDisable)"
+      "executable_sha256": "2abab22a785b540f9149ed4153eb0724183125135a820eb46e9d53c3ea719962",
+      "variant": "HP Elite Dragonfly G2 TGL-LP ISH (8086:a0fc) clean-room BSD-3-Clause ambient light sensor driver (INTx-AutoDisable + post-wake 0 lux & lockscreen refresh fixes)"
     },
     {
       "path": "VoodooPS2Controller.kext",
@@ -338,7 +338,7 @@
     {
       "path": "S0ixStandby.kext",
       "bundle_id": "com.labrouss.S0ixStandby",
-      "version": "0.4.4",
+      "version": "0.5.4",
       "dependencies": [
         "com.apple.iokit.IOACPIFamily",
         "com.apple.iokit.IOPCIFamily",
@@ -348,8 +348,8 @@
         "com.apple.kpi.mach",
         "com.apple.kpi.unsupported"
       ],
-      "executable_sha256": "bffd2681628aca10f8039ac7ca312d6103f487e1457b99b63d29cd99ff5f9d3c",
-      "variant": "HP EliteBook 840 G8 TGL in-repo source build"
+      "executable_sha256": "87639dfceddb8560941081ddc488bbf3085b95050493326b752aa7f479b8a7b2",
+      "variant": "Option A2 native DC9 S0ix standby driver (clean upstream commit c52f172b934c0f906fccb74ad2bce0a974ca5bb1)"
     }
   ],
   "software_control": "Remove NootedGreen and enable unchanged official WhateverGreen1.7.1; see exact config examples.",
@@ -358,8 +358,10 @@
     "ACPI/SSDT-EC-USBX-HP.aml": "296212e084666dfc9ed0ab69fbbecaaa3525da71f528526c2d22d0d81d7f6781",
     "ACPI/SSDT-RHUB-HP.aml": "4cf78eacb8f2529a3a93a3bb9406ad4cc5446fe19828c49241130ab0503daec9",
     "ACPI/SSDT-PNLF-HP-GA419.aml": "72ec07163115d8c327f1c7f143b0375b7b0262adc9422c2628ab2177cc71414e",
-    "ACPI/SSDT-DEEPIDLE.aml": "280e3a4ad5541bb482c357b785d10d74e95b0128dc309bc10f2617bc585effe1",
-    "ACPI/SSDT-EC0-ITLB.aml": "8a931eb6565d57e58cb4a798028486e443e72ff0756edb7afff9a8ffa15ee998"
+    "ACPI/SSDT-DEEPIDLE.aml": "f2e9c052125c6fdaf81692668760bfc2d64b4ce02ad1546d7fa03cbc969377a3",
+    "ACPI/SSDT-EC0-ITLB.aml": "8a931eb6565d57e58cb4a798028486e443e72ff0756edb7afff9a8ffa15ee998",
+    "ACPI/SSDT-BATFULL.aml": "0021c3ce61081691f02cdabd20bdd97a0fcc58a9c72d4d32b1af1e24ab66a534",
+    "ACPI/SSDT-LIDWAKE.aml": "261fc431c830b58c0181fddb052eb677edeeed6edb150e7eb97024bef5f1a11f"
   },
   "tested_drivers_sha256": {
     "Drivers/OpenRuntime.efi": "c67be56660047237360df5eb7f080a2b13129d68e829bee9ad0230e45d516be8",
@@ -369,7 +371,7 @@
   "binary_distribution": "Hashes only. Obtain required binaries from their respective upstreams or build from the recorded source.",
   "upstream_sources": {
     "Lilu": "https://github.com/acidanthera/Lilu",
-    "NootedGreen": "Patched NootedGreen source in graphics/ (R32-PCFIX53-AUDIO on commit 6f03560 / repair32 baseline)",
+    "NootedGreen": "Patched NootedGreen source in graphics/ (R32-PCFIX63-EDPWAKE on commit 6f03560 / repair32 baseline)",
     "VirtualSMC_SMCBatteryManager": "https://github.com/acidanthera/VirtualSMC",
     "WhateverGreen": "https://github.com/acidanthera/WhateverGreen",
     "VoodooPS2": "https://github.com/acidanthera/VoodooPS2",
@@ -383,7 +385,7 @@
     "AppleALC": "https://github.com/acidanthera/AppleALC (v1.9.8)",
     "SimpleHDA": "https://github.com/laobamac/SimpleHDA (v1.0.1, Conexant/ALC285 codec controller)",
     "TGLDmic": "Built from local source in mac-for-elitebook/drivers/TGLDmic/ (v0.5.1)",
-    "TGLIshAls": "Clean-room BSD-3-Clause source in mac-for-elitebook/drivers/TGLIshAls/ (v0.5.0)",
-    "S0ixStandby": "Built from local source in mac-for-elitebook/drivers/S0ixStandby/ (v0.4.4)"
+    "TGLIshAls": "Clean-room BSD-3-Clause source in mac-for-elitebook/drivers/TGLIshAls/ (v0.5.2)",
+    "S0ixStandby": "Upstream S0ixStandby v0.5.4 (commit c52f172b934c0f906fccb74ad2bce0a974ca5bb1)"
   }
 }

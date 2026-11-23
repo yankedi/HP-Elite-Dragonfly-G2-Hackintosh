@@ -4,9 +4,9 @@
   "scope": "Sanitized configuration examples; not a newly boot-tested binary EFI.",
   "configurations": [
     {
-      "source_config_sha256": "138ad0570ab37ada77acc8df40007b71a4541740eb05b9423893fe73747d2a44",
+      "source_config_sha256": "c9a47dd046b315629249870f8d0851c1ca8b9ea028b684ba9a7ef2ce8b430fa3",
       "public_config": "config-accelerated.example.plist",
-      "public_config_sha256": "d0654712735a9d406ffec2c1e7015ee4cd65da1fa21b4b41198b1f3fdb00e131",
+      "public_config_sha256": "ac13c136cc2699a9627873c1d5e5f61ed047b8594e2d0740720dce0e3a8fc5b6",
       "identity_fields_cleared": [
         "SystemSerialNumber",
         "MLB",

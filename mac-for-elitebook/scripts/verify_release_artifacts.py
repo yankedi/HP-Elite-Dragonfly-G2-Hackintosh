@@ -63,13 +63,13 @@ LIVE_NIXOS_KEY_OC_FILES = (
 
 TRACKED_ACPI_DSL_SPECS = (
     {
-        "name": "SSDT-DEEPIDLE.aml",
-        "prefix": "SSDT-DEEPIDLE",
-        "dsl_rel": "acpi/SSDT-DEEPIDLE.dsl",
-        "expected_dsl_sha256": "1f569b6bbb0d4305a27fcadeedf69a463c18f47b581d5140fb8acb2ecccfb1b9",
-        "expected_dsl_size": 2793,
-        "expected_aml_sha256": "280e3a4ad5541bb482c357b785d10d74e95b0128dc309bc10f2617bc585effe1",
-        "expected_aml_size": 371,
+        "name": "SSDT-DEEPIDLE-optionA.aml",
+        "prefix": "SSDT-DEEPIDLE-optionA",
+        "dsl_rel": "acpi/SSDT-DEEPIDLE-optionA.dsl",
+        "expected_dsl_sha256": "2094f71c6e8aa89f920c7f07805514172ad4082c67349f83f63e38b5bbe8ceaa",
+        "expected_dsl_size": 2010,
+        "expected_aml_sha256": "f2e9c052125c6fdaf81692668760bfc2d64b4ce02ad1546d7fa03cbc969377a3",
+        "expected_aml_size": 264,
     },
     {
         "name": "SSDT-EC0-ITLB.aml",
@@ -115,6 +115,33 @@ TRACKED_ACPI_DSL_SPECS = (
         "expected_dsl_size": 593,
         "expected_aml_sha256": "72ec07163115d8c327f1c7f143b0375b7b0262adc9422c2628ab2177cc71414e",
         "expected_aml_size": 142,
+    },
+    {
+        "name": "SSDT-BATFULL.aml",
+        "prefix": "SSDT-BATFULL",
+        "dsl_rel": "acpi/SSDT-BATFULL.dsl",
+        "expected_dsl_sha256": "654036f70b0d4421e9f9353a60d026d4c0efbcd09bcdcd61d2b17f38567ac1ee",
+        "expected_dsl_size": 3654,
+        "expected_aml_sha256": "0021c3ce61081691f02cdabd20bdd97a0fcc58a9c72d4d32b1af1e24ab66a534",
+        "expected_aml_size": 341,
+    },
+    {
+        "name": "SSDT-LIDWAKE.aml",
+        "prefix": "SSDT-LIDWAKE",
+        "dsl_rel": "acpi/SSDT-LIDWAKE.dsl",
+        "expected_dsl_sha256": "7b99c908ffa71f52020e945c4aff2e5a17e4a49198186c05d21f9206680dc82c",
+        "expected_dsl_size": 815,
+        "expected_aml_sha256": "261fc431c830b58c0181fddb052eb677edeeed6edb150e7eb97024bef5f1a11f",
+        "expected_aml_size": 93,
+    },
+    {
+        "name": "SSDT-DEEPIDLE.aml",
+        "prefix": "SSDT-DEEPIDLE",
+        "dsl_rel": "acpi/SSDT-DEEPIDLE.dsl",
+        "expected_dsl_sha256": "1f569b6bbb0d4305a27fcadeedf69a463c18f47b581d5140fb8acb2ecccfb1b9",
+        "expected_dsl_size": 2793,
+        "expected_aml_sha256": "280e3a4ad5541bb482c357b785d10d74e95b0128dc309bc10f2617bc585effe1",
+        "expected_aml_size": 371,
     },
 )
 
@@ -403,7 +430,7 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
                     errors.append(f"[verified_zero_hang_trials[{idx}]] Invalid trial object in {INSTALL_PREP_REL}")
                     continue
                 tname = str(entry.get("trial", f"idx_{idx}"))
-                if tname == "R32-PCFIX53-AUDIO" or (tname in ("R32-PCFIX52-EXTDISPLAY-3D-STABILITY", "R32-PCFIX51-HDMI-AUDIO", "R32-PCFIX50-HDMI", "R32-PCFIX49-HDMI", "R32-PCFIX48-HDMI", "R32-PCFIX47-HDMI", "R32-PCFIX46-HDMI", "R32-PCFIX44-HDMI", "R32-PCFIX41", "R32-PCFIX40", "R32-PCFIX39", "R32-PCFIX38", "R32-PCFIX37") and not active_ng_trial):
+                if tname == "R32-PCFIX63-EDPWAKE" or (tname in ("R32-PCFIX53-AUDIO", "R32-PCFIX52-EXTDISPLAY-3D-STABILITY", "R32-PCFIX51-HDMI-AUDIO", "R32-PCFIX50-HDMI", "R32-PCFIX49-HDMI", "R32-PCFIX48-HDMI", "R32-PCFIX47-HDMI", "R32-PCFIX46-HDMI", "R32-PCFIX44-HDMI", "R32-PCFIX41", "R32-PCFIX40", "R32-PCFIX39", "R32-PCFIX38", "R32-PCFIX37") and not active_ng_trial):
                     active_ng_trial = entry
                 patch_ref = entry.get("patch")
                 expected_psha = entry.get("patch_sha256")
@@ -480,6 +507,8 @@ def verify_section1_manifests(root: Path, errors: list[str]) -> dict:
             pub_parity_pairs = [
                 ("ssdt_deepidle_aml_sha256", [inv_efi.get("ssdt_deepidle_aml_sha256"), TRACKED_ACPI_DSL_SPECS[0]["expected_aml_sha256"]]),
                 ("ssdt_ec0_itlb_aml_sha256", [inv_efi.get("ssdt_ec0_itlb_aml_sha256"), TRACKED_ACPI_DSL_SPECS[1]["expected_aml_sha256"]]),
+                ("ssdt_batfull_aml_sha256", [inv_efi.get("ssdt_batfull_aml_sha256"), TRACKED_ACPI_DSL_SPECS[6]["expected_aml_sha256"]]),
+                ("ssdt_lidwake_aml_sha256", [inv_efi.get("ssdt_lidwake_aml_sha256"), TRACKED_ACPI_DSL_SPECS[7]["expected_aml_sha256"]]),
                 ("nootedgreen_patch_sha256", [repo_meta.get("nootedgreen_patch_sha256"), active_ng_trial.get("patch_sha256")]),
                 ("nootedgreen_binary_sha256", [inv_efi.get("nootedgreen_binary_sha256"), active_ng_trial.get("ng_sha256")]),
                 ("nootedgreen_uuid", [inv_efi.get("nootedgreen_uuid"), active_ng_trial.get("ng_uuid")]),
@@ -2813,7 +2842,7 @@ def _resolve_iasl_env(root: Path, errors: list[str]) -> tuple[dict[str, str], st
 
 
 def verify_section6_public_acpi_rebuilds(root: Path, errors: list[str]) -> dict:
-    """6. Public-Mode Clean-Room Compilation of All 6 Tracked ACPI SSDT Sources (iasl -ve)."""
+    """6. Public-Mode Clean-Room Compilation of Tracked ACPI SSDT Sources (iasl -ve)."""
     root = root.resolve()
     resolved = _resolve_iasl_env(root, errors)
     expected_count = len(TRACKED_ACPI_DSL_SPECS)

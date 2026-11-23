@@ -49,6 +49,12 @@ The staged progression is:
     iDisp HDMI digital audio (`8086:2812`) + fixed-point Q16 MCCS speaker volume/mute scaling via `AppleHDAEngineOutputDP` / `clipOutputSamples` (`nootedgreen-pcfix51-hdmi-audio-20261115.patch`),
     external HDMI extended-display `Signature: 803` 3D hang fix (`hpFfdopReplace` bit-0 object-level preemption clear + real-TGL `0x2050`/`0x20ec`/`0x2580`/`0x20e0`/`0x7304`/`0xe4f4`/`0xe48c`/`0xe18c` & `V504` reset-list workarounds in `nootedgreen-pcfix52-extdisplay-3d-stability-20261115.patch`),
     and removal of the 10 `0x9d70->0xa0c8` controller ID rewrites so `AppleHDA8086_9D70Controller@1F,3` restores `OutputLowPower=Yes` & `49152`-frame audio buffers alongside iDisp HDMI audio (`nootedgreen-pcfix53-audio-20261118.patch`).
+13. `nootedgreen-pcfix63-edpwake-20261123.patch` — cumulative snapshot through
+    `R32-PCFIX63-EDPWAKE` (`kern_gen11.cpp` + `kern_gen11.hpp`), adding `-ngreenfbdpms`
+    framebuffer DPMS/DC9 quiesce synchronization and Option A2 power-gate fuse
+    retry handling (`PCFIX57`–`PCFIX60`), exact Tiger Lake `38.4 MHz` `DPLL0`
+    `0x00E001A5` (`0.00 ppm`) + `DPLL1/4` `38.4 MHz` halving & `gFwRef`
+    (`PCFIX62`), and post-S0ix/DC9 eDP wake link-training recovery (`PCFIX63`).
 
 `NootedGreen-upstream-to-GA416.diff` is the cumulative source comparison from
 NootedGreen upstream commit `95f81898be65cb9f7b3d370ca78054be4cc8a62d` to the

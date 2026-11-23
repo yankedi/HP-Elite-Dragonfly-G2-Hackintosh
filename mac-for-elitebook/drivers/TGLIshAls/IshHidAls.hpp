@@ -36,8 +36,10 @@ inline bool isAlsDarkPermissive(bool sampleValid, uint64_t milliLux,
 }
 
 // HID Sensor Enum Selector Usages
+static constexpr uint32_t kUsageSelReportNoEvents      = 0x200840u;
 static constexpr uint32_t kUsageSelReportAllEvents     = 0x200841u;
 static constexpr uint32_t kUsageSelPowerD0Full         = 0x200851u;
+static constexpr uint32_t kUsageSelPowerD4Off          = 0x200855u;
 
 // Sensor Units
 static constexpr uint32_t kUnitSensorDefault           = 0x00u;
@@ -69,6 +71,8 @@ struct HidBitField {
     int32_t  logicalMin  = 0;
     int32_t  logicalMax  = 0;
     uint32_t targetVal   = 0;
+    uint32_t offVal      = 0;
+    bool     hasOffVal   = false;
     uint32_t unit        = 0;
     uint8_t  unitExpoRaw = 0;
 };
@@ -220,6 +224,64 @@ inline bool shouldPostAlsChange(bool wasValid, uint64_t lastPostedMilliLux, bool
     const uint64_t threshold = (fivePct > 500ULL) ? fivePct : 500ULL;
     return diff >= threshold;
 }
+
+static constexpr uint64_t kWakeAlsRenotifyDelay0Ns    = 500ULL * 1000000ULL;
+static constexpr uint64_t kWakeAlsRenotifyDelay1Ns    = 1500ULL * 1000000ULL;
+static constexpr uint64_t kWakeAlsMaxPendingWindowNs  = 10000ULL * 1000000ULL;
+
+struct WakeAlsNotifyState {
+    bool     awaitingPowerOn {false};
+    uint8_t  pendingMask     {0};
+    uint64_t powerOnNs       {0};
+
+    void onPowerWake() {
+        awaitingPowerOn = true;
+        pendingMask = 0u;
+        powerOnNs = 0ULL;
+    }
+
+    void onSystemHasPoweredOn(uint64_t nowNs) {
+        if (!awaitingPowerOn) {
+            return;
+        }
+        awaitingPowerOn = false;
+        powerOnNs = nowNs;
+        pendingMask = 0x3u;
+    }
+
+    void onSleepOrReset() {
+        awaitingPowerOn = false;
+        pendingMask = 0u;
+        powerOnNs = 0ULL;
+    }
+
+    bool hasPending() const {
+        return pendingMask != 0u;
+    }
+
+    bool shouldFireRefresh(uint64_t nowNs, bool sampleValid) {
+        if (pendingMask == 0u) {
+            return false;
+        }
+        if (nowNs < powerOnNs || (nowNs - powerOnNs) > kWakeAlsMaxPendingWindowNs) {
+            pendingMask = 0u;
+            return false;
+        }
+        if (!sampleValid) {
+            return false;
+        }
+        const uint64_t elapsed = nowNs - powerOnNs;
+        if ((pendingMask & 0x1u) != 0u && elapsed >= kWakeAlsRenotifyDelay0Ns) {
+            pendingMask = static_cast<uint8_t>(pendingMask & ~0x1u);
+            return true;
+        }
+        if ((pendingMask & 0x2u) != 0u && elapsed >= kWakeAlsRenotifyDelay1Ns) {
+            pendingMask = static_cast<uint8_t>(pendingMask & ~0x2u);
+            return true;
+        }
+        return false;
+    }
+};
 
 inline void formatAlv0(uint8_t out[10], uint32_t fixedLux, uint8_t forceBits) {
     if (fixedLux == kSmcLuxInvalid) {
@@ -532,7 +594,8 @@ inline bool parseAlsReportDescriptor(const uint8_t *desc, size_t len, AlsDescrip
                     } else if (kind == kHidReportFeature) {
                         const uint32_t parentColUsage = (collectionDepth > 0) ? collectionUsages[collectionDepth - 1] : 0u;
 
-                        auto recordFeatureSelector = [&](HidBitField &dst, uint32_t fieldBitOffset, uint32_t selectorTarget) {
+                        auto recordFeatureSelector = [&](HidBitField &dst, uint32_t fieldBitOffset,
+                                                       uint32_t selectorTarget, uint32_t selectorOffTarget) {
                             uint32_t selIdx = 0;
                             uint32_t computedVal = 0;
                             if (local.findSelectorOffset(selectorTarget, selIdx)) {
@@ -543,6 +606,17 @@ inline bool parseAlsReportDescriptor(const uint8_t *desc, size_t len, AlsDescrip
                                     ? (global.logicalMin + 1)
                                     : global.logicalMin;
                                 computedVal = static_cast<uint32_t>(fallback);
+                            }
+                            uint32_t offIdx = 0;
+                            if (local.findSelectorOffset(selectorOffTarget, offIdx)) {
+                                dst.offVal = static_cast<uint32_t>(global.logicalMin + static_cast<int32_t>(offIdx));
+                                dst.hasOffVal = (dst.offVal != computedVal);
+                            } else if (static_cast<uint32_t>(global.logicalMin) != computedVal) {
+                                dst.offVal = static_cast<uint32_t>(global.logicalMin);
+                                dst.hasOffVal = true;
+                            } else {
+                                dst.offVal = 0u;
+                                dst.hasOffVal = false;
                             }
                             dst.present = true;
                             dst.reportId = reportId;
@@ -599,9 +673,9 @@ inline bool parseAlsReportDescriptor(const uint8_t *desc, size_t len, AlsDescrip
 
                         bool colSensPct = false;
                         if (parentColUsage == kUsageSensorPropPowerState && !candidate.powerState.present) {
-                            recordFeatureSelector(candidate.powerState, startBit, kUsageSelPowerD0Full);
+                            recordFeatureSelector(candidate.powerState, startBit, kUsageSelPowerD0Full, kUsageSelPowerD4Off);
                         } else if (parentColUsage == kUsageSensorPropReportState && !candidate.reportState.present) {
-                            recordFeatureSelector(candidate.reportState, startBit, kUsageSelReportAllEvents);
+                            recordFeatureSelector(candidate.reportState, startBit, kUsageSelReportAllEvents, kUsageSelReportNoEvents);
                         } else if (parentColUsage == kUsageSensorPropReportIntvl && !candidate.reportInterval.present) {
                             recordFeatureProp(candidate.reportInterval, startBit, kDefaultAlsIntervalMs);
                         } else if (isSensitivityUsage(parentColUsage, colSensPct) && !candidate.sensitivity.present) {
@@ -613,9 +687,9 @@ inline bool parseAlsReportDescriptor(const uint8_t *desc, size_t len, AlsDescrip
                                 const uint32_t u = local.resolveFieldUsage(idx);
                                 bool fieldSensPct = false;
                                 if (u == kUsageSensorPropPowerState && !candidate.powerState.present) {
-                                    recordFeatureSelector(candidate.powerState, startBit + idx * global.reportSize, kUsageSelPowerD0Full);
+                                    recordFeatureSelector(candidate.powerState, startBit + idx * global.reportSize, kUsageSelPowerD0Full, kUsageSelPowerD4Off);
                                 } else if (u == kUsageSensorPropReportState && !candidate.reportState.present) {
-                                    recordFeatureSelector(candidate.reportState, startBit + idx * global.reportSize, kUsageSelReportAllEvents);
+                                    recordFeatureSelector(candidate.reportState, startBit + idx * global.reportSize, kUsageSelReportAllEvents, kUsageSelReportNoEvents);
                                 } else if (u == kUsageSensorPropReportIntvl && !candidate.reportInterval.present) {
                                     recordFeatureProp(candidate.reportInterval, startBit + idx * global.reportSize, kDefaultAlsIntervalMs);
                                 } else if (isSensitivityUsage(u, fieldSensPct) && !candidate.sensitivity.present) {
@@ -765,6 +839,34 @@ inline bool applyAlsFeaturePowerOnlyRmw(const AlsDescriptorInfo &desc, uint8_t *
         modified = true;
     }
     return modified || desc.found;
+}
+
+inline bool applyAlsFeatureOffRmw(const AlsDescriptorInfo &desc, uint8_t *featureBuf, size_t featureLen) {
+    if (!desc.found || featureBuf == nullptr) {
+        return false;
+    }
+    if (desc.featureReportId > 0 && (featureLen == 0 || featureBuf[0] != desc.featureReportId)) {
+        return false;
+    }
+    if (desc.featureByteLen > 0 && featureLen < desc.featureByteLen) {
+        return false;
+    }
+    bool modified = false;
+    if (desc.powerState.present && desc.powerState.hasOffVal &&
+        desc.powerState.reportId == desc.featureReportId) {
+        if (!writeBits(featureBuf, featureLen, desc.powerState.bitOffset, desc.powerState.bitWidth, desc.powerState.offVal)) {
+            return false;
+        }
+        modified = true;
+    }
+    if (desc.reportState.present && desc.reportState.hasOffVal &&
+        desc.reportState.reportId == desc.featureReportId) {
+        if (!writeBits(featureBuf, featureLen, desc.reportState.bitOffset, desc.reportState.bitWidth, desc.reportState.offVal)) {
+            return false;
+        }
+        modified = true;
+    }
+    return modified;
 }
 
 inline bool verifyAlsFeatureControls(const AlsDescriptorInfo &desc, const uint8_t *featureBuf, size_t featureLen,

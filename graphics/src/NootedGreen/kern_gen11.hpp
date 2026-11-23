@@ -1521,13 +1521,13 @@ private:
 	mach_vm_address_t ohwRegsNeedUpdate {};
 
 	// Force eDP lane count to match the HW-trained count from DDI_BUF_CTL_A.
-	static void computeLaneCount(AppleIntel::AppleIntelBaseController *that, const IODetailedTimingInformationV2 *timing, unsigned int linkRate, unsigned int bpp, unsigned int *laneCount);
+	static bool computeLaneCount(AppleIntel::AppleIntelBaseController *that, const IODetailedTimingInformationV2 *timing, unsigned int linkRate, unsigned int bpp, unsigned int *laneCount);
 	mach_vm_address_t ocomputeLaneCount {};
 
 	// setupOptimalLaneCount caps computeLaneCount's result to DPCD MAX_LANE_COUNT.
 	// On RPL the panel reports MAX_LANE_COUNT=2 but UEFI trained 4 lanes, so we
 	// override the cached optimal to match DDI_BUF_CTL_A instead.
-	static void setupOptimalLaneCount(AppleIntel::AppleIntelBaseController *that, const IODetailedTimingInformationV2 *timing, unsigned int bpp);
+	static IOReturn setupOptimalLaneCount(AppleIntel::AppleIntelBaseController *that, const IODetailedTimingInformationV2 *timing, unsigned int bpp);
 	mach_vm_address_t osetupOptimalLaneCount {};
 
 	// V96: Force display online — WEG's force-online (FOD) hooks getDisplayStatus which
@@ -1759,6 +1759,10 @@ private:
 	
 	static unsigned long raReadRegister32b(void *that,void *param_1,unsigned long param_2);
 	mach_vm_address_t oraReadRegister32b {};
+
+	// R32-PCFIX60-PGFUSE: bounded retry wrapper for TGL FUSE_STATUS (0x42000) PG1..PG4 distribution bits
+	static uint32_t wrapTglReadRegister32(void *that, unsigned long reg);
+	mach_vm_address_t oTglReadRegister32 {};
 	
 	static uint64_t raReadRegister64(void *that,unsigned long param_1);
 	mach_vm_address_t oraReadRegister64 {};
@@ -1798,6 +1802,18 @@ private:
 	
 	static int LightUpEDP(void *that,void *param_1, void *param_2,void *param_3);  // eDP panel power-on
 	mach_vm_address_t oLightUpEDP {};
+
+	// R32-PCFIX63-EDPWAKE: TGL Combo PHY A eDP wake link-training, vswing, PHY init & AUX/DC6 hold
+	static IOReturn wrapLinkTraining(void *that, void *portConfig);
+	mach_vm_address_t oLinkTraining {};
+	static IOReturn wrapSetVoltageSwingAndPreEmphasis(void *that, uint32_t voltageSwing, uint32_t preEmphasis, void *customDrive);
+	mach_vm_address_t oSetVoltageSwingAndPreEmphasis {};
+	mach_vm_address_t oGetFirstPathByPort {};
+	mach_vm_address_t oGController {};
+	mach_vm_address_t oDisableHWDC6 {};
+	mach_vm_address_t oEnableHWDC6 {};
+	mach_vm_address_t oPortEnablePowerWellAux {};
+	mach_vm_address_t oPortDisablePowerWellAux {};
 	
 	// Saved vtable/class pointers for display subsystem objects
 	mach_vm_address_t PowerWell {};       // AppleIntelPowerWell class
@@ -1812,6 +1828,13 @@ private:
 	static IOReturn wrapSetFramebufferPowerState(void *that, unsigned int state);
 	mach_vm_address_t oSetFramebufferPowerState {};
 	mach_vm_address_t oIGAccelResourcefree {};
+	// R32-PCFIX59-SLEEPIRQ: guard display IRQ / watermark dump against 0xFFFFFFFF MMIO on wake
+	static bool wrapProcessInterrupt(void *that);
+	mach_vm_address_t oProcessInterrupt {};
+	static void wrapInvokeDEErrorIntrHandler(void *that, uint32_t errMask);
+	mach_vm_address_t oInvokeDEErrorIntrHandler {};
+	static void wrapShowWatermarksRelatedRegisters(void *that);
+	mach_vm_address_t oShowWatermarksRelatedRegisters {};
 	static void wrapSetGTFrequencyMMIO(void *that, uint32_t val);
 	static void wrapWaitForGpuIdle(void *that);
 	mach_vm_address_t oSetGTFrequencyMMIO {};

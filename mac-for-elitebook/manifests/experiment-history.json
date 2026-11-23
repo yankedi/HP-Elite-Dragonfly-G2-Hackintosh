@@ -189,6 +189,45 @@
         "../scripts/verify_release_artifacts.py"
       ],
       "limitation": "LKSB/LKSS VirtualSMC keys are passive Apple SMC stubs; F9 keyboard backlight intensity modulation itself remains handled cleanly by HP EC firmware once ISH ambient-light updates run."
+    },
+    {
+      "date": "2026-11-20",
+      "topic": "Phase 54 single-container APFS pure OpenCore boot & Phases 56–60 Option A2 DC9 S0ix, PG fuse retry, and TGL 38.4 MHz DPLL0/1/4",
+      "summary": "Reclaimed internal NVMe NixOS/unused partitions into a unified 258.8 GB (258,844,463,104 B) APFS container on disk0s5/disk1, keeping pure OpenCore 1.0.8 boot on disk0s1 (shared with Windows). Removed a leftover com.hp.keepawake.plist and switched to Option A2 native SLPB S0ix (SSDT-DEEPIDLE-optionA.dsl compiled as SSDT-DEEPIDLE.aml, 264 B, SHA-256 f2e9c052125c6fdaf81692668760bfc2d64b4ce02ad1546d7fa03cbc969377a3; SSDT-BATFULL.dsl -> 341 B, SHA-256 0021c3ce61081691f02cdabd20bdd97a0fcc58a9c72d4d32b1af1e24ab66a534; clean upstream S0ixStandby v0.5.4 70,488 B SHA-256 87639dfceddb8560941081ddc488bbf3085b95050493326b752aa7f479b8a7b2 UUID 4C4C445A-5555-3144-A102-D8BCCE367CBF; boot-args -ngreenfbdpms -s0ixd3 -s0ixwifipm -s0ixacnortc). Resolved AppleIntelPowerWell PG1..4 fuse distribution panics via retry handling (PCFIX57..60) and fixed Tiger Lake 38.4 MHz DPLL0 0x00E001A5 (0.00 ppm) + DPLL1/4 halving & gFwRef (PCFIX62).",
+      "public_docs": [
+        "../README.md",
+        "../docs/continuation.md",
+        "../acpi/SSDT-DEEPIDLE-optionA.dsl",
+        "../acpi/SSDT-BATFULL.dsl",
+        "../scripts/verify_release_artifacts.py"
+      ],
+      "limitation": "Post-S0ix eDP wake link training still required PCFIX63; Option A2 originally lacked LID0 _PRW until Phase 64."
+    },
+    {
+      "date": "2026-11-23",
+      "topic": "Phases 61–64 R32-PCFIX63-EDPWAKE eDP wake LT recovery, TGLIshAls v0.5.2 post-wake lux & lockscreen refresh, and SSDT-LIDWAKE direct lid-open wake",
+      "summary": "Promoted NootedGreen R32-PCFIX63-EDPWAKE (664,976 B, SHA-256 d98f8ba850b683405945c4ed6de08ad29789f0d4eef03e2a5c9ded441d19bd8f, UUID 4C4C4457-5555-3144-A18D-BB213B83AE91; patch 2bc93ca8ac2f45b74c1c674c07ecafe65e10f0dad7f7e7a4fef8f53aeededd0a) and verified AB88D9F3 Wake #1 (1,289 s battery S0ix, 94%->94%, PC10=99%, DC9, Dark Wake Count=0, 2/2 eDP LT PASS). Resolved post-wake 0 lux in TGLIshAls v0.5.1 (FEA0865C, 1,255 lux), diagnosed S0ixStandby v0.5.5 GPE0_EN overwrite in Phase 63, rolled back cleanly to S0ixStandby v0.5.4 + SSDT-LIDWAKE.dsl (93 B AML SHA-256 261fc431c830b58c0181fddb052eb677edeeed6edb150e7eb97024bef5f1a11f exposing LID0 _PRW {0x6E, 0x03}), and upgraded TGLIshAls to v0.5.2 (93,872 B, SHA-256 2abab22a785b540f9149ed4153eb0724183125135a820eb46e9d53c3ea719962, UUID 4C4C44A3-5555-3144-A142-E354B0542369) with +500/+1500 ms post-wake ALS re-notify. Verified on 011B5D39 Wake #1 (483 s battery sleep, 100%->100%, PC10=99%, CC7=99%, DC9, 0.766 s direct LID wake, Dark Wake Count=0, 1/1 eDP LT PASS, 1/1 PG fuse retry resolved, 0 panics across 1,159,416 unified log lines, brightness 0.0625 -> 0.2652) alongside OpenCore 1.0.8 config.plist (63,618 B, SHA-256 c9a47dd046b315629249870f8d0851c1ca8b9ea028b684ba9a7ef2ce8b430fa3).",
+      "public_docs": [
+        "../README.md",
+        "../docs/continuation.md",
+        "../acpi/SSDT-LIDWAKE.dsl",
+        "../drivers/TGLIshAls/README.md",
+        "../patches/nootedgreen-r32-pcfix63-edpwake-20261123.patch",
+        "../scripts/verify_release_artifacts.py"
+      ],
+      "limitation": "Short ~6.5 s lid-close events within AppleKeyStore <5m graceperiod subsequently exposed legacy hp-wake-helper PCFIX36 blanking bklt=0 lockup, addressed in Phase 65."
+    },
+    {
+      "date": "2026-11-23",
+      "topic": "Phase 65 hp-wake-helper v20261123-no-blank short-lid bklt=0 fix",
+      "summary": "Diagnosed 011B5D39 short-lid blackscreen (19:42:05 -> 19:42:11, ~6.5 s lid close with 2/2 eDP LT OK and 56.5 lux ALS active, while bklt=0 persisted) to legacy PCFIX36 hp-wake-blank=1 blanking, an early-boot IODisplayWrangler lookup race, and <5m AppleKeyStore graceperiod preventing loginwindow from brightening bklt=0. Deployed hp-wake-helper v20261123-no-blank (source tools/hp-wake-helper/hp-wake-helper.m 23,921 B SHA-256 8053cd08112c69a3df69231666b4279a0a83a6add5254db2969b8988a1ba5e9e; Mach-O 42,176 B SHA-256 d00addb6098fe521ae81e17c01f04856d2eeb4a67e453e83714049ffd09113e9) live without rebooting (restoring bklt 0->16744->13266/15497); user confirmed the short-lid retest succeeded while post-retest live log capture was deferred when the target went offline / hotspot disconnected.",
+      "public_docs": [
+        "../README.md",
+        "../docs/continuation.md",
+        "../tools/hp-wake-helper/README.md",
+        "../tools/hp-wake-helper/hp-wake-helper.m"
+      ],
+      "limitation": "Post-retest live log pull was deferred due to target offline / hotspot disconnect; user observation reported short-lid retest succeeded, and post-retest runtime logs are not claimed captured."
     }
   ],
   "privacy_note": "Personal paths, network endpoints, serial/SMBIOS identities, credentials, private keys, and raw logs are intentionally not included. A missing private artifact is not a verified result."

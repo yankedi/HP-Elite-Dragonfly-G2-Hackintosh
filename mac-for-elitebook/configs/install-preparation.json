@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "record_type": "sanitized_public_current_status",
-  "as_of": "2026-11-19",
+  "as_of": "2026-11-23",
   "target": {
     "model": "HP Elite Dragonfly G2",
     "board_id": "8716",
@@ -11,7 +11,7 @@
     "macos": "26.6.2",
     "build": "25G83",
     "bootloader": "OpenCore 1.0.8",
-    "installation_status": "installed on internal Micron 2210 NVMe SSD and finalized for daily use; booting via primary ESP (disk0s1 / /dev/nvme0n1p1, 314.6 MB EFI shared with Windows & NixOS systemd-boot; disk0s6 1.0 GB is secondary unmounted EFI) with R35-PCFIX58-ISH-ALS-V050 (TGLIshAls v0.5.0 clean-room ISH ALS & F9 keyboard backlight restoration, INTx-AutoDisable 10.85-11.85 IRQ/s), R32-PCFIX53-AUDIO (HDMI digital audio + MCCS volume + ext-display 3D stability + ALC285 9D70 coexistence), TGLDmic v0.5.1 (persistent DMA buffers), and amfi=0x7 + csr-active-config <07020000> mic TCC compatibility"
+    "installation_status": "installed on internal Micron 2210 NVMe SSD (Phase 54 reclaimed internal NixOS partitions into unified 258.8 GB APFS container on disk0s5/disk1); pure OpenCore 1.0.8 boot via primary ESP disk0s1 (shared with Windows) with Option A2 native DC9 S0ix (SSDT-DEEPIDLE-optionA.dsl compiled as SSDT-DEEPIDLE.aml, SSDT-BATFULL.dsl, SSDT-LIDWAKE.dsl, S0ixStandby v0.5.4), NootedGreen R32-PCFIX63-EDPWAKE, TGLIshAls v0.5.2, TGLDmic v0.5.1, hp-wake-helper v20261123-no-blank (short-lid retest succeeded per user report; post-retest live log pull deferred due to target offline/hotspot disconnect), and amfi=0x7 + csr-active-config <07020000>"
   },
   "nix_flake_tooling": {
     "flake_files": [
@@ -21,9 +21,9 @@
     "verify_command": "nix develop -c make check"
   },
   "public_tracked_files": {
-    "nootedgreen_patch": "patches/nootedgreen-r32-pcfix53-audio-20261118.patch",
-    "nootedgreen_patch_sha256": "4e8d971ee496a2e9cf2b4fa510ae4926662cfc445f10e22362588761279688a8",
-    "nootedgreen_patch_size_bytes": 292675,
+    "nootedgreen_patch": "patches/nootedgreen-r32-pcfix63-edpwake-20261123.patch",
+    "nootedgreen_patch_sha256": "2bc93ca8ac2f45b74c1c674c07ecafe65e10f0dad7f7e7a4fef8f53aeededd0a",
+    "nootedgreen_patch_size_bytes": 360847,
     "readme_md_sha256": "c47546938153ea896c735f9d8aef1dcc39b4db007da48fb46f4ba4525a417429",
     "readme_md_size_bytes": 78265,
     "clean_install_guide_md_sha256": "c38135ad5f80b36fbc8354d1d237fd961a0ff3f4d8b6f948ac4689a45a90d46e",
@@ -34,41 +34,51 @@
     "makefile_sha256": "8c9cb233f61f5b7265dd83a7dee74ab88c24d9ba395ac85d0c8da22a5d443157",
     "makefile_size_bytes": 2019,
     "verify_release_artifacts_py": "scripts/verify_release_artifacts.py",
-    "verify_release_artifacts_py_sha256": "516b5b3f9fa9b8dd37a9b95ad27e527680150b420b73b7b86f597a48da0cb639",
-    "verify_release_artifacts_py_size_bytes": 154723
+    "verify_release_artifacts_py_sha256": "3a06154f01fe76ba3b29ac2ad0efc7255b692891094075b9756cfd7b79e22eda",
+    "verify_release_artifacts_py_size_bytes": 156221
   },
   "project_completion_policy": {
-    "updated": "2026-11-19",
-    "scope": "Complete daily-driver macOS 26.6.2 (25G83) adaptation on HP Elite Dragonfly G2: Iris Xe 80 EU Metal compute endurance (R32-PCFIX27, 705,024 encoders, 0 hangs; Phase 8 cumulative enc#2,341,120), built-in Tiger Lake ComboPHY DDI-B HDMI 2.0b 600 MHz SCDC + DPLL relocation output at 2560x1440@60/120/144Hz (R32-PCFIX42..PCFIX50-HDMI, opt-out -ngreennohdmi), iDisp HDMI digital audio + Q16 MCCS volume/mute + external display Signature:803 3D fix + ALC285 9D70 coexistence (R32-PCFIX51..53-AUDIO), Camellia NULL-pointer guard + 512 MiB orphan pool reuse + quiet hotpath + ~18.5s fastboot (R32-PCFIX39..PCFIX41), eDP PWM backlight + native DisplayALSManager auto-brightness & EC F9 keyboard backlight restoration via clean-room TGLIshAls v0.5.0 (R35-PCFIX58-ISH-ALS-V050), velocity-adaptive dimming & zero-TCC native screenshot (R32-PCFIX31 + libhp_cb_shim.dylib + event-driven hp-bridge v3 via SkyLight AppleSymbolicHotKeys 30/31), 420v NV12 video blit alignment (R32-PCFIX35 + xe-h264sw-fixd), Deep Idle S0ix sleep/wake, ICCMAX/PL4 fix (SSDT-EC0-ITLB PT04->XT04 + EC12>=0x41 + S0ixStandby v0.4.4 EC0.PWUP/AC._PSR), 48s Maintenance DarkWake Bluetooth fix (pmset + mDNSResponder NoMulticastAdvertisements), Realtek ALC285 speakers/headphone/mic (SimpleHDA 1.0.1 + AppleALC 1.9.8 + hp-alc285-ampinit.sh), Tiger Lake quad-DMIC (TGLDmic v0.5.1 + TGLDmic.driver + amfi=0x7/csr-active-config <07020000> mic TCC fix), SYNA30B6 trackpad + WACF4233/PenBridge, RidgeKey 1.0.0 fingerprint unlock, AirportItlwm 2.4.0 + pre-login Tailscale (~20s) + Clash Verge coexistence, bluetoothd APFS decmpfs mlock + idle HCI heal, and persistent logging (hp-syslogger v1.3 + newsyslog).",
-    "final_gpu_baseline": "R32-PCFIX53-AUDIO",
+    "updated": "2026-11-23",
+    "scope": "Complete daily-driver macOS 26.6.2 (25G83) adaptation on HP Elite Dragonfly G2: Iris Xe 80 EU Metal compute endurance (R32-PCFIX27, 705,024 encoders, 0 hangs; Phase 8 cumulative enc#2,341,120), built-in Tiger Lake ComboPHY DDI-B HDMI 2.0b 600 MHz SCDC + DPLL relocation output at 2560x1440@60/120/144Hz (R32-PCFIX42..PCFIX50-HDMI, opt-out -ngreennohdmi), iDisp HDMI digital audio + Q16 MCCS volume/mute + external display Signature:803 3D fix + ALC285 9D70 coexistence (R32-PCFIX51..53-AUDIO), Option A2 native DC9 S0ix sleep/wake + PG fuse retry + TGL 38.4 MHz DPLL0 0x00E001A5 & DPLL1/4 halving + post-S0ix eDP wake link training (R32-PCFIX57..63-EDPWAKE + -ngreenfbdpms + SSDT-DEEPIDLE-optionA.dsl + SSDT-BATFULL.dsl + SSDT-LIDWAKE.dsl + S0ixStandby v0.5.4), Camellia NULL-pointer guard + 512 MiB orphan pool reuse + quiet hotpath + ~18.5s fastboot (R32-PCFIX39..PCFIX41), eDP PWM backlight + native DisplayALSManager auto-brightness, wake lux recovery & lockscreen refresh + EC F9 keyboard backlight via clean-room TGLIshAls v0.5.2, short-lid bklt=0 fix (hp-wake-helper v20261123-no-blank), velocity-adaptive dimming & zero-TCC native screenshot (R32-PCFIX31 + libhp_cb_shim.dylib + event-driven hp-bridge v3 via SkyLight AppleSymbolicHotKeys 30/31), 420v NV12 video blit alignment (R32-PCFIX35 + xe-h264sw-fixd), ICCMAX/PL4 fix (SSDT-EC0-ITLB PT04->XT04 + EC12>=0x41), 48s Maintenance DarkWake Bluetooth fix (pmset + mDNSResponder NoMulticastAdvertisements), Realtek ALC285 speakers/headphone/mic (SimpleHDA 1.0.1 + AppleALC 1.9.8 + hp-alc285-ampinit.sh), Tiger Lake quad-DMIC (TGLDmic v0.5.1 + TGLDmic.driver + amfi=0x7/csr-active-config <07020000> mic TCC fix), SYNA30B6 trackpad + WACF4233/PenBridge, RidgeKey 1.0.0 fingerprint unlock, AirportItlwm 2.4.0 + pre-login Tailscale (~20s) + Clash Verge coexistence, bluetoothd APFS decmpfs mlock + idle HCI heal, and persistent logging (hp-syslogger v1.3 + newsyslog).",
+    "final_gpu_baseline": "R32-PCFIX63-EDPWAKE",
     "internal_nvme_efi_deployment": {
-      "config_plist_sha256": "138ad0570ab37ada77acc8df40007b71a4541740eb05b9423893fe73747d2a44",
-      "config_plist_size_bytes": 61560,
-      "nootedgreen_binary_sha256": "f219458de1ce2c22838df434279aac838a6e790fc6fe47b0ce8171f3797faa52",
-      "nootedgreen_binary_size_bytes": 632176,
-      "nootedgreen_uuid": "4C4C44D1-5555-3144-A1C9-4A09DBB0276E",
-      "s0ix_standby_version": "v0.4.4",
-      "s0ix_standby_binary_sha256": "bffd2681628aca10f8039ac7ca312d6103f487e1457b99b63d29cd99ff5f9d3c",
-      "s0ix_standby_binary_size_bytes": 74840,
-      "s0ix_standby_uuid": "4C4C44D1-5555-3144-A159-4D08A3482CB2",
-      "ssdt_deepidle_aml_sha256": "280e3a4ad5541bb482c357b785d10d74e95b0128dc309bc10f2617bc585effe1",
-      "ssdt_deepidle_aml_size_bytes": 371,
+      "config_plist_sha256": "c9a47dd046b315629249870f8d0851c1ca8b9ea028b684ba9a7ef2ce8b430fa3",
+      "config_plist_size_bytes": 63618,
+      "nootedgreen_binary_sha256": "d98f8ba850b683405945c4ed6de08ad29789f0d4eef03e2a5c9ded441d19bd8f",
+      "nootedgreen_binary_size_bytes": 664976,
+      "nootedgreen_uuid": "4C4C4457-5555-3144-A18D-BB213B83AE91",
+      "s0ix_standby_version": "v0.5.4",
+      "s0ix_standby_binary_sha256": "87639dfceddb8560941081ddc488bbf3085b95050493326b752aa7f479b8a7b2",
+      "s0ix_standby_binary_size_bytes": 70488,
+      "s0ix_standby_uuid": "4C4C445A-5555-3144-A102-D8BCCE367CBF",
+      "ssdt_deepidle_aml_sha256": "f2e9c052125c6fdaf81692668760bfc2d64b4ce02ad1546d7fa03cbc969377a3",
+      "ssdt_deepidle_aml_size_bytes": 264,
       "ssdt_ec0_itlb_aml_sha256": "8a931eb6565d57e58cb4a798028486e443e72ff0756edb7afff9a8ffa15ee998",
       "ssdt_ec0_itlb_aml_size_bytes": 1854,
+      "ssdt_batfull_aml_sha256": "0021c3ce61081691f02cdabd20bdd97a0fcc58a9c72d4d32b1af1e24ab66a534",
+      "ssdt_batfull_aml_size_bytes": 341,
+      "ssdt_lidwake_aml_sha256": "261fc431c830b58c0181fddb052eb677edeeed6edb150e7eb97024bef5f1a11f",
+      "ssdt_lidwake_aml_size_bytes": 93,
       "tgl_dmic_version": "v0.5.1",
       "tgl_dmic_binary_sha256": "5f7c1d945c8c16d819da816225b2aa63392abaae3f103cc61f405c77afa58d79",
       "tgl_dmic_binary_size_bytes": 1187584,
       "tgl_dmic_uuid": "4C4C449F-5555-3144-A1C5-AD8B59EE8D82",
-      "tgl_ish_als_version": "v0.5.0",
-      "tgl_ish_als_binary_sha256": "c568478f14ed5416857c312c3f8425a4998781e001e5fd012387dafe542606a0",
-      "tgl_ish_als_binary_size_bytes": 89520,
-      "tgl_ish_als_uuid": "4C4C449A-5555-3144-A1C5-58FEB808F9FD",
+      "tgl_ish_als_version": "v0.5.2",
+      "tgl_ish_als_binary_sha256": "2abab22a785b540f9149ed4153eb0724183125135a820eb46e9d53c3ea719962",
+      "tgl_ish_als_binary_size_bytes": 93872,
+      "tgl_ish_als_uuid": "4C4C44A3-5555-3144-A142-E354B0542369",
+      "hp_wake_helper_version": "v20261123-no-blank",
+      "hp_wake_helper_source": "tools/hp-wake-helper/hp-wake-helper.m",
+      "hp_wake_helper_source_sha256": "8053cd08112c69a3df69231666b4279a0a83a6add5254db2969b8988a1ba5e9e",
+      "hp_wake_helper_source_size_bytes": 23921,
+      "hp_wake_helper_binary_sha256": "d00addb6098fe521ae81e17c01f04856d2eeb4a67e453e83714049ffd09113e9",
+      "hp_wake_helper_binary_size_bytes": 42176,
       "postinstall_bundle_file_count": 436,
       "postinstall_bundle_tar_gz_sha256": "065028783005f135d5968d2d8f33517696631d5834b1fc8a15c3137ab8a1673b",
       "postinstall_bundle_tar_gz_size_bytes": 126893844,
       "recovery_img_sha256": "7ca6ea48a1092e372969d7f5227ba768fb1e63a88428a1da7d6a0a8ec245dd5a4",
       "recovery_img_size_bytes": 1343225856,
-      "esp_partition": "disk0s1 (/dev/nvme0n1p1, 314.6 MB primary EFI shared with Windows & NixOS systemd-boot; disk0s6 1.0 GB is secondary spare EFI)",
+      "esp_partition": "disk0s1 (/dev/nvme0n1p1, 314.6 MB primary EFI shared with Windows; NixOS internal partitions reclaimed into unified 258.8 GB APFS container in Phase 54)",
       "hp_bridge_binary_sha256": "b79773763955e2ca64e78b93b978f37ffd6b18374dae0442a45f979dccfd9cff",
       "hp_bridge_binary_size_bytes": 79888,
       "penbridge_app_binary_sha256": "caff70ce5d4da40647d2f7d0fd80c026fec0bac1fc8a9e1589a979fce0413d0f",
@@ -86,7 +96,7 @@
     "boot_args_debug": "debug=0x100000"
   },
   "graphics_and_metal_compute": {
-    "status": "R32_PCFIX27_TO_PCFIX53_AUDIO_BUILT_IN_600MHZ_SCDC_144HZ_HDMI_AUDIO_3D_STABILITY_AND_ISH_ALS",
+    "status": "R32_PCFIX27_TO_PCFIX63_EDPWAKE_OPTIONA2_DC9_38400KHZ_DPLL_AND_ISH_ALS_V052",
     "single_run_encoders_completed": 25088,
     "stage1_three_runs_encoders_completed": 75264,
     "stage2_concurrent_stress_encoders_completed": 547328,
@@ -286,18 +296,27 @@
         "ng_sha256": "f219458de1ce2c22838df434279aac838a6e790fc6fe47b0ce8171f3797faa52",
         "ng_uuid": "4C4C44D1-5555-3144-A1C9-4A09DBB0276E",
         "result": "Live-verified (632,176 B): removed the 10 0x9d70->0xa0c8 controller ID rewrites so built-in AppleHDA8086_9D70Controller@1F,3 (ALC285 speakers/headset) retains OutputLowPower=Yes and 49152-frame audio buffers alongside iDisp HDMI digital audio"
+      },
+      {
+        "trial": "R32-PCFIX63-EDPWAKE",
+        "patch": "../patches/nootedgreen-r32-pcfix63-edpwake-20261123.patch",
+        "patch_sha256": "2bc93ca8ac2f45b74c1c674c07ecafe65e10f0dad7f7e7a4fef8f53aeededd0a",
+        "source_sha256": "cdfe40c2d960938034a5d6824beffaa40ab094e9db6585bf66ccbaaa635e4ef9",
+        "ng_sha256": "d98f8ba850b683405945c4ed6de08ad29789f0d4eef03e2a5c9ded441d19bd8f",
+        "ng_uuid": "4C4C4457-5555-3144-A18D-BB213B83AE91",
+        "result": "Live-verified on AB88D9F3 (1,289 s battery S0ix, PC10=99%, DC9, Dark Wake Count=0, 94%->94%, 2/2 eDP LT PASS) and 011B5D39 (483 s battery S0ix, 100%->100%, 0.766 s LID wake, 1/1 eDP LT PASS, 1/1 PG fuse retry resolved, 0 panics across 1,159,416 unified log lines): cumulative Option A2 -ngreenfbdpms, PG fuse retries, TGL 38.4 MHz DPLL0 0x00E001A5 + DPLL1/4 halving & gFwRef, and post-S0ix eDP wake link training"
       }
     ]
   },
   "user_reported_working": [
-    "Iris Xe 80 EU Metal compute & 10-bit Deep Color RGB eDP display (1920x1080@60Hz) + built-in DDI-B HDMI 2.0b 600 MHz SCDC dual extended output (2560x1440@60/120/144Hz) + iDisp HDMI digital audio with native MCCS volume & Signature: 803 ext-display 3D stability (R32-PCFIX50..53-AUDIO; 100% 3-stage endurance passed across 705,024 encoders; ~18.5s OpenCore-to-desktop cold boot; steady battery draw 7.23 W avg / 5.03-5.63 W light browsing)",
+    "Iris Xe 80 EU Metal compute & 10-bit Deep Color RGB eDP display (1920x1080@60Hz) + built-in DDI-B HDMI 2.0b 600 MHz SCDC dual extended output (2560x1440@60/120/144Hz) + iDisp HDMI digital audio with native MCCS volume & Signature: 803 ext-display 3D stability (R32-PCFIX50..63-EDPWAKE; 100% 3-stage endurance passed across 705,024 encoders; ~18.5s OpenCore-to-desktop cold boot; steady battery draw 7.23 W avg / 5.03-5.63 W light browsing)",
     "420v NV12 hardware video rendering (R32-PCFIX35 HP-BLITALIGN + xe-h264sw-fixd, zero green/corrupted frames, test_420v_blitalign PASS)",
-    "Ambient light sensor & EC F9 keyboard backlight (TGLIshAls v0.5.0 clean-room BSD-3-Clause Intel TGL-LP ISH 8086:a0fc driver + Capella CM32183H 317B handshake -> AppleLMUController -> DisplayALSManager dynamic display auto-brightness, INTx-AutoDisable 10.85-11.85 IRQ/s, physically confirmed)",
-    "eDP PWM backlight Control Center slider, velocity-adaptive Fn+F3/F4 dimming (1-2% fine / up to 15% fast / 0.8% night floor) & 64-step native OSD (R32-PCFIX31 + libhp_cb_shim.dylib + event-driven hp-bridge v3, -99.81% corebrightnessd log volume)",
+    "Ambient light sensor & EC F9 keyboard backlight (TGLIshAls v0.5.2 clean-room BSD-3-Clause Intel TGL-LP ISH 8086:a0fc driver + Capella CM32183H 317B handshake + wake Client 13/AlsFeatCycleOff lux recovery & +500/+1500 ms lockscreen brightness refresh, INTx-AutoDisable)",
+    "eDP PWM backlight Control Center slider, short-lid bklt=0 fix (hp-wake-helper v20261123-no-blank; short-lid retest passed per user report, post-retest live log pull deferred), velocity-adaptive Fn+F3/F4 dimming & 64-step native OSD (R32-PCFIX31 + libhp_cb_shim.dylib + event-driven hp-bridge v3)",
     "Zero-TCC native crosshair/window screenshot on prt scr (F19) & Ctrl+prt scr via SkyLight AppleSymbolicHotKeys 30/31 dispatched by SystemUIServer (hp-bridge v3)",
     "Built-in Realtek ALC285 Bang & Olufsen quad-speakers, 3.5 mm headphone jack auto-switching, headset mic & iDisp HDMI digital audio (SimpleHDA 1.0.1 + AppleALC 1.9.8 layout-id 71 + R32-PCFIX53-AUDIO + hp-alc285-ampinit.sh)",
     "Built-in Tiger Lake Intel cAVS 2.5 DSP quad-DMIC 48 kHz 4-ch PCM microphone + third-party app mic TCC prompt support (TGLDmic.kext v0.5.1 + TGLDmic.driver + amfi=0x7 / csr-active-config <07020000>)",
-    "Modern Standby S0ix Deep Idle sleep/wake, ICCMAX/PL4 clamp resolution (SSDT-EC0-ITLB PT04->XT04 + EC12>=0x41 + S0ixStandby v0.4.4 EC0.PWUP/AC._PSR on wake), and 48s Maintenance DarkWake elimination",
+    "Option A2 Modern Standby S0ix DC9 deep sleep/wake (PC10=99%, CC7=99%, 0% battery drop in 483s/1,289s trials, Dark Wake Count=0, 0.766s direct LID wake via SSDT-LIDWAKE.dsl + S0ixStandby v0.5.4 + SSDT-DEEPIDLE-optionA.dsl + SSDT-BATFULL.dsl + R32-PCFIX63-EDPWAKE), ICCMAX/PL4 clamp resolution (SSDT-EC0-ITLB PT04->XT04 + EC12>=0x41), and 48s Maintenance DarkWake elimination",
     "Full top-row Fn hotkeys Fn+F1..Fn+F11 & 24 JIS mappings (VoodooPS2Controller 2.3.7 + hp-bridge v3)",
     "Built-in Synaptics 06cb:00f0 USB fingerprint sensor authentication for sudo, admin prompts & Lock Screen unlock (RidgeKey 1.0.0)",
     "Wi-Fi 6 (Intel AX201 via AirportItlwm 2.4.0 native en0 IO80211) + pre-login Tailscale (~20s at loginwindow, Split MagicDNS) + Clash Verge (find-process-mode: off) coexistence",
@@ -309,9 +328,10 @@
     "PCH USB 3.1 / Type-A & Thunderbolt 4 / USB4 (XHCI@D, TDM0@D,2 in D3hot)"
   ],
   "unresolved": [
+    "Post-retest live log pull for Phase 65 hp-wake-helper v20261123-no-blank short-lid verification was deferred because the target went offline / hotspot disconnected (short-lid retest succeeded per user report)",
     "AWDL-dependent wireless Continuity features (AirDrop / iPhone Mirroring) hit non-Apple hardware boundaries under AirportItlwm IO80211, Intel AX201 BT (no Apple LE RPA offload), and missing Apple T2/SEP",
     "LKSB/LKSS VirtualSMC keys in TGLIshAls remain passive Apple SMC stubs while HP EC firmware natively modulates F9 keyboard backlight once ISH ambient-light updates run",
-    "Windows NTFS staging archive and external Ventoy USB retain prior PCFIX50 unless explicitly refreshed after R32-PCFIX51..53-AUDIO / TGLIshAls v0.5.0"
+    "Windows NTFS staging archive and external Ventoy USB retain prior snapshots unless explicitly refreshed after Option A2 / R32-PCFIX63-EDPWAKE / TGLIshAls v0.5.2"
   ],
   "evidence_policy": {
     "private_raw_evidence_included": false,
